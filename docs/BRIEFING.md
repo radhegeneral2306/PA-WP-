@@ -1,6 +1,6 @@
 # PA-WP: Project Briefing
 
-*Last updated: 26 Oct 2026 (Batch 0 complete)*
+*Last updated: 26 Oct 2026 (Batch 1 built, testing)*
 
 ---
 
@@ -62,11 +62,22 @@ Ek **WhatsApp task management bot**, Radhe ke staff ke liye.
 
 ---
 
+## 3b. Batch 1 (26 Oct 2026)
+
+- 5 agents ne parallel kaam kiya (dates, Firebase store, templates, create/manage flows, task view/actions), contract: `docs/BATCH1-CONTRACT.md`
+- Live: role-based menu, naya task (Aaj/Kal/Date likho + optional time, default 10 AM), mere tasks / staff ke tasks (paging), Done / Update / Date badlo (remark zaroori, staff ke liye 25-day limit), staff add/remove/list
+- Sirf registered users ko reply; `TEST_NUMBERS` set hai toh sirf unhi ko message jaata hai
+- 10 test users (3 real + 7 dummy) Firebase mein
+- Templates ke drafts: `docs/TEMPLATES.md` · Test checklist: `docs/TESTING-batch1.md`
+- 257 automatic tests
+
 ## 4. Abhi ke pending chhote kaam
+
+- [ ] Batch 1 templates Interakt mein submit karna: `task_assigned_v1`, `task_done_v1`, `welcome_user_v1` (baaki Batch 2 wale bhi abhi submit kar sakte hain)
+- [ ] `docs/TESTING-batch1.md` ki checklist chalana
 
 - [ ] `INTERAKT_WEBHOOK_KEY` Cloudflare mein daalna (Interakt ka webhook Secret key). Optional hai, par live jaane se pehle zaroori
 - [ ] Hardware ka number (8359966**4**66) confirm karna. Business number (8359966**0**66) se bahut milta-julta hai
-- [ ] Batch 1 ke sawaalon ke jawab (date daalne ka tareeka, menu, templates)
 
 ---
 
@@ -75,7 +86,7 @@ Ek **WhatsApp task management bot**, Radhe ke staff ke liye.
 | Batch | Kya banega | Difficulty | Parallel agents? |
 |---|---|---|---|
 | **0** | Interakt test (list/button + reply format) | Easy-Medium | ✅ **Done, test pass** |
-| **1** | Foundation: database design, staff/admin list, "Hi" menu, task banao/dekho/Done, assign + done notification, staff manage | Medium-Hard | Nahi (1 agent) |
+| **1** | Foundation: database design, staff/admin list, "Hi" menu, task banao/dekho/Done, assign + done notification, staff manage | Medium-Hard | ✅ **Built (5 agents), live testing** |
 | **2** | Reminders (one-time, 90-min, monthly), remark, 25-day Approve/Reject | Hard | Haan, 2 agents |
 | **3** | WhatsApp Forms (static) | Medium | Haan |
 | **4** | Voice notes (Groq Whisper + Gemini) | Medium-Hard | Haan |
