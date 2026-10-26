@@ -16,6 +16,11 @@ keep_vars = true
 #   FIREBASE_CLIENT_EMAIL  service account client_email
 #   FIREBASE_PRIVATE_KEY   service account private_key (the -----BEGIN PRIVATE KEY----- block)
 #   SHEET_FORWARD_URL      optional; every webhook body is also POSTed here (old Google Sheet logger)
+#   DAILY_SUMMARY          optional; "off" disables the 10 AM pending-task summary
+
+# Reminders every 5 minutes; daily summary at 04:30 UTC = 10:00 AM IST (DAILY_CRON in src/index.ts).
+[triggers]
+crons = ["*/5 * * * *", "30 4 * * *"]
 
 # Keeps console logs viewable in the dashboard (Worker -> Observability / Logs).
 [observability]

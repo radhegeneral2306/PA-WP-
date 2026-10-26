@@ -11,6 +11,11 @@ import { text } from "./bot/ui";
 import type { Outgoing } from "./bot/outgoing";
 import { deliverAll } from "./interakt/deliver";
 import { handleUsersEndpoint } from "./admin";
+import { runReminders } from "./scheduler/reminders";
+import { runDailySummary } from "./scheduler/daily";
+
+/** Must match the second cron in wrangler.toml (10:00 AM IST). */
+export const DAILY_CRON = "30 4 * * *";
 
 export default {
   async fetch(request: Request, rawEnv: Env, ctx: ExecutionContext): Promise<Response> {
@@ -53,7 +58,28 @@ export default {
     ctx.waitUntil(processWebhook(env, body, rawBody));
     return new Response("ok");
   },
+
+  async scheduled(controller: ScheduledController, rawEnv: Env, ctx: ExecutionContext): Promise<void> {
+    ctx.waitUntil(runCron(cleanEnv(rawEnv), controller.cron, new Date(controller.scheduledTime)));
+  },
 };
+
+/** Every 5 minutes: due reminders. Daily at 10 AM IST: pending-task summary (DAILY_SUMMARY=off disables). */
+export async function runCron(env: Env, cron: string, now: Date, deps: Deps = {}): Promise<void> {
+  const store = deps.store ?? storeFor(env);
+  try {
+    let outs: Outgoing[];
+    if (cron === DAILY_CRON) {
+      outs = env.DAILY_SUMMARY === "off" ? [] : await runDailySummary(store, now);
+    } else {
+      outs = await runReminders(store, now);
+    }
+    if (outs.length) console.log(`Cron ${cron}: sending ${outs.length} message(s)`);
+    await deliverAll(env.INTERAKT_API_KEY, onlyAllowed(outs, testNumbers(env)));
+  } catch (err) {
+    console.error(`Cron ${cron} failed`, err);
+  }
+}
 
 export interface Deps {
   store?: Store;

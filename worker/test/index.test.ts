@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import worker, { processWebhook } from "../src/index";
+import worker, { DAILY_CRON, processWebhook, runCron } from "../src/index";
 import type { Env } from "../src/env";
 import { textWebhook } from "./fixtures";
 import { interaktSignature } from "../src/interakt/signature";
@@ -201,5 +201,32 @@ describe("users endpoint", () => {
     });
     const res = await handleUsersEndpoint(new Request("https://x/"), store, new Date());
     expect(((await res.json()) as unknown[]).length).toBe(1);
+  });
+});
+
+describe("cron", () => {
+  const staff = { phone: "919999999999", name: "Hardware", role: "staff" as const, branch: "DURG" as const, active: true, createdAt: "2026-10-01T00:00:00.000Z" };
+  const due = {
+    title: "Payment lena", assigneePhone: staff.phone, assigneeName: staff.name, branch: "DURG" as const,
+    createdByPhone: "919000000001", createdByName: "Bhaskar", dueAt: "2026-10-26T09:00:00.000Z", dueHasTime: true,
+    status: "pending" as const, repeat: "none" as const, nextReminderAt: "2026-10-26T09:00:00.000Z", remarks: [],
+    createdAt: "2026-10-01T00:00:00.000Z", updatedAt: "2026-10-01T00:00:00.000Z", doneAt: null,
+  };
+
+  it("sends due reminders as templates on the 5-minute cron", async () => {
+    const store = new MemoryStore({ users: [staff] });
+    const t = await store.createTask(due);
+    await runCron(env, "*/5 * * * *", new Date("2026-10-26T09:30:00Z"), { store });
+    expect(interaktCalls().map((c) => [c.body.type, c.body.template?.name])).toEqual([["Template", "task_reminder_v1"]]);
+    expect((await store.getTask(t.id))?.nextReminderAt).toBeNull();
+  });
+
+  it("sends the daily summary unless switched off", async () => {
+    const store = new MemoryStore({ users: [staff] });
+    await store.createTask(due);
+    await runCron({ ...env, DAILY_SUMMARY: "off" }, DAILY_CRON, new Date("2026-10-26T04:30:00Z"), { store });
+    expect(interaktCalls()).toHaveLength(0);
+    await runCron(env, DAILY_CRON, new Date("2026-10-26T04:30:00Z"), { store });
+    expect(interaktCalls().map((c) => c.body.template?.name)).toEqual(["daily_summary_v1"]);
   });
 });

@@ -8,6 +8,8 @@ export interface Env {
   FIREBASE_CLIENT_EMAIL: string;
   FIREBASE_PRIVATE_KEY: string;
   SHEET_FORWARD_URL?: string;
+  /** "off" disables the 10 AM daily summary. */
+  DAILY_SUMMARY?: string;
 }
 
 /** Pasted dashboard values often carry a stray space or newline; strip them once. */
