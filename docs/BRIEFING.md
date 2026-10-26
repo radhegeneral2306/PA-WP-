@@ -1,6 +1,6 @@
 # PA-WP: Project Briefing
 
-*Last updated: 26 Oct 2026*
+*Last updated: 26 Oct 2026 (Batch 0 complete)*
 
 ---
 
@@ -54,21 +54,19 @@ Ek **WhatsApp task management bot**, Radhe ke staff ke liye.
    - Sirf test numbers ko reply jaata hai, customers ko nahi
    - "Hi" bhejne pe test branch list + Approve/Reject buttons aate hain
    - Purani Google Sheet mein logging chalu rakh sakte hain (optional)
-   - 29 automatic tests pass
+   - Har step ka log + `/webhook/<secret>/status` page (settings, test numbers, Firebase check)
+   - 31 automatic tests pass
 5. Setup guide likhi gayi: `docs/SETUP-batch0.md`
+6. **Batch 0 live test PASS ✅ (26 Oct 2026):** Firebase, Cloudflare, Interakt webhook set hue. "Hi" pe list + buttons aaye, aur dono ke click ka reply sahi aaya.
+   - Setup mein atke: `WEBHOOK_SECRET` mein galat value thi (404 aa raha tha). Ab code dashboard values ke extra space khud hata deta hai, aur `keep_vars` se deploy pe variables delete nahi hote.
 
 ---
 
-## 4. Abhi kya chal raha hai ⏳ (Bhaskar ka kaam)
+## 4. Abhi ke pending chhote kaam
 
-Batch 0 ka **setup aur real test** baaki hai:
-
-- [ ] Firebase project banao + service account key download karo
-- [ ] Cloudflare account banao, repo import karo, deploy karo (`pa-wp-bot ok` dikhna chahiye)
-- [ ] Cloudflare mein saare secrets daalo
-- [ ] Interakt mein webhook URL (asli Cloudflare URL) + Secret key set karo
-- [ ] Test number se "Hi" bhejo, list aur buttons aaye aur click pe sahi reply aaye
-- [ ] Hardware ka number (8359966**4**66) confirm karo. Business number (8359966**0**66) se bahut milta-julta hai
+- [ ] `INTERAKT_WEBHOOK_KEY` Cloudflare mein daalna (Interakt ka webhook Secret key). Optional hai, par live jaane se pehle zaroori
+- [ ] Hardware ka number (8359966**4**66) confirm karna. Business number (8359966**0**66) se bahut milta-julta hai
+- [ ] Batch 1 ke sawaalon ke jawab (date daalne ka tareeka, menu, templates)
 
 ---
 
@@ -76,7 +74,7 @@ Batch 0 ka **setup aur real test** baaki hai:
 
 | Batch | Kya banega | Difficulty | Parallel agents? |
 |---|---|---|---|
-| **0** | Interakt test (list/button + reply format) | Easy-Medium | Nahi · **code ready, test baaki** |
+| **0** | Interakt test (list/button + reply format) | Easy-Medium | ✅ **Done, test pass** |
 | **1** | Foundation: database design, staff/admin list, "Hi" menu, task banao/dekho/Done, assign + done notification, staff manage | Medium-Hard | Nahi (1 agent) |
 | **2** | Reminders (one-time, 90-min, monthly), remark, 25-day Approve/Reject | Hard | Haan, 2 agents |
 | **3** | WhatsApp Forms (static) | Medium | Haan |
