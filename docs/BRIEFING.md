@@ -1,6 +1,6 @@
 # PA-WP: Project Briefing
 
-*Last updated: 26 Oct 2026 (Batch 1 built, testing)*
+*Last updated: 26 Oct 2026 (Batch 2 built)*
 
 ---
 
@@ -71,9 +71,22 @@ Ek **WhatsApp task management bot**, Radhe ke staff ke liye.
 - Templates ke drafts: `docs/TEMPLATES.md` · Test checklist: `docs/TESTING-batch1.md`
 - 257 automatic tests
 
+## 3c. Batch 2 (26 Oct 2026)
+
+- 3 agents: E1 scheduler, E2 reminder type + staff edit, E3 task actions + approvals
+- Cloudflare cron: har 5 min due reminders (`task_reminder_v1`, last remark ke saath); roz 10 AM IST daily summary (`DAILY_SUMMARY=off` se band)
+- Reminder types: Ek baar / Har 90 min (10 AM–8 PM, remark dene pe agli subah tak ruk jaata hai) / Har mahine (Done pe agle mahine ka task, 31 → mahine ki last date)
+- Staff 25 din se aage date maange → admin ko approval request → Approvals menu se Approve/Reject → staff ko result
+- Staff update / date badle → creator ko `task_updated_v1`
+- Staff edit (naam / branch / role)
+- 333 automatic tests
+
 ## 4. Abhi ke pending chhote kaam
 
-- [ ] Batch 1 templates Interakt mein submit karna: `task_assigned_v1`, `task_done_v1`, `welcome_user_v1` (baaki Batch 2 wale bhi abhi submit kar sakte hain)
+- [ ] Cloudflare se `TEST_NUMBERS` hatana (warna naye add kiye staff ko message nahi jayega)
+- [ ] Batch 2 ka real WhatsApp pe test
+
+- [x] Saare 8 templates Interakt mein approve ho gaye
 - [ ] `docs/TESTING-batch1.md` ki checklist chalana
 
 - [ ] `INTERAKT_WEBHOOK_KEY` Cloudflare mein daalna (Interakt ka webhook Secret key). Optional hai, par live jaane se pehle zaroori
@@ -87,7 +100,7 @@ Ek **WhatsApp task management bot**, Radhe ke staff ke liye.
 |---|---|---|---|
 | **0** | Interakt test (list/button + reply format) | Easy-Medium | ✅ **Done, test pass** |
 | **1** | Foundation: database design, staff/admin list, "Hi" menu, task banao/dekho/Done, assign + done notification, staff manage | Medium-Hard | ✅ **Built (5 agents), live testing** |
-| **2** | Reminders (one-time, 90-min, monthly), remark, 25-day Approve/Reject | Hard | Haan, 2 agents |
+| **2** | Reminders (one-time, 90-min, monthly), remark, 25-day Approve/Reject | Hard | ✅ **Built (3 agents)** |
 | **3** | WhatsApp Forms (static) | Medium | Haan |
 | **4** | Voice notes (Groq Whisper + Gemini) | Medium-Hard | Haan |
 | **5** | Dashboard PWA | Medium | Haan |

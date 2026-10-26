@@ -6,10 +6,17 @@ import { ADMIN, NOW, STAFF_DURG, USERS, makeCtx, say, tap } from "./helpers/bot"
 const rowIds = (out: any) => out.rows.map((r: { id: string }) => r.id);
 
 describe("router", () => {
-  it("shows the admin menu with all four entries", async () => {
+  it("shows the admin menu with all five entries", async () => {
     const [menu] = await handleMessage(makeCtx(ADMIN), say("Hi"));
     expect(menu.kind).toBe("list");
-    expect(rowIds(menu)).toEqual(["MENU:my_tasks", "MENU:staff_tasks", "MENU:create_task", "MENU:manage_staff"]);
+    expect(rowIds(menu)).toEqual(["MENU:my_tasks", "MENU:staff_tasks", "MENU:create_task", "MENU:approvals", "MENU:manage_staff"]);
+  });
+
+  it("opens approvals from the template quick reply, for admins only", async () => {
+    const [out] = await handleMessage(makeCtx(ADMIN), say("Approvals dekhein"));
+    expect(JSON.stringify(out)).toContain("approval pending nahi");
+    const [denied] = await handleMessage(makeCtx(STAFF_DURG), say("Approvals dekhein"));
+    expect(JSON.stringify(denied)).toContain("available nahi");
   });
 
   it("shows staff only their two entries", async () => {

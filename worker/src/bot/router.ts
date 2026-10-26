@@ -8,6 +8,7 @@ import { list, text } from "./ui";
 import { createTaskFlow } from "./flows/createTask";
 import { manageStaffFlow } from "./flows/manageStaff";
 import { tasksFlow } from "./flows/tasks";
+import { approvalsFlow } from "./flows/approvals";
 
 interface MenuEntry {
   key: string;
@@ -22,10 +23,11 @@ export const MENU: MenuEntry[] = [
   { key: "my_tasks", title: "📋 Mere tasks", description: "Apne pending tasks dekho", roles: ["admin", "staff"], flow: tasksFlow, arg: "mine" },
   { key: "staff_tasks", title: "👥 Staff ke tasks", description: "Branch aur staff chun ke tasks dekho", roles: ["admin"], flow: tasksFlow, arg: "staff" },
   { key: "create_task", title: "➕ Naya task", description: "Task banao aur assign karo", roles: ["admin", "staff"], flow: createTaskFlow },
-  { key: "manage_staff", title: "⚙️ Staff manage", description: "Staff add / remove / list", roles: ["admin"], flow: manageStaffFlow },
+  { key: "approvals", title: "⏳ Approvals", description: "Staff ki date badalne ki requests", roles: ["admin"], flow: approvalsFlow },
+  { key: "manage_staff", title: "⚙️ Staff manage", description: "Staff add / edit / remove / list", roles: ["admin"], flow: manageStaffFlow },
 ];
 
-const FLOWS: Flow[] = [tasksFlow, createTaskFlow, manageStaffFlow];
+const FLOWS: Flow[] = [tasksFlow, createTaskFlow, manageStaffFlow, approvalsFlow];
 
 const GREETINGS = new Set(["hi", "hii", "hiii", "hello", "helo", "hey", "menu", "namaste", "start"]);
 const CANCEL_WORDS = new Set(["cancel", "band", "band karo", "ruko", "stop", "exit"]);
@@ -57,6 +59,7 @@ export async function handleMessage(ctx: BotContext, input: Inbound): Promise<Ou
     return [text(user.phone, "Theek hai, cancel kar diya. Menu ke liye *Hi* bhejiye.")];
   }
   if (quick === "mere tasks") return startEntry(ctx, "my_tasks");
+  if (quick === "approvals dekhein") return startEntry(ctx, "approvals");
   if (replyId.startsWith("MENU:")) return startEntry(ctx, replyId.slice("MENU:".length));
 
   const session = await store.getSession(user.phone);

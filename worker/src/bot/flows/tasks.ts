@@ -1,7 +1,7 @@
 // "Mere tasks" / "Staff ke tasks": browse pending tasks, open one, and act on
 // it (Done / Update remark / Date badlo).
 
-import type { BranchId, Remark, Task, User } from "../../domain/types";
+import type { BranchId, DateRequest, Remark, Task, TaskRepeat, User } from "../../domain/types";
 import { BRANCHES, branchName } from "../../domain/types";
 import {
   addDays,
@@ -15,14 +15,18 @@ import {
   type ISTDay,
   type ParsedDue,
 } from "../../domain/dates";
+import { afterResponse, nextMonthlyTask } from "../../domain/schedule";
 import { endFlow, isReply, replyValue, setStep, type BotContext, type Flow, type Inbound } from "../flow";
 import type { Outgoing } from "../outgoing";
-import { branchList, buttons, dueDateButtons, taskList, text, timeButtons, userList } from "../ui";
+import { branchList, buttons, clip, dueDateButtons, taskList, text, timeButtons, userList } from "../ui";
 
 const ID = "tasks";
 const ADMINS = "ADMINS";
 const MAX_STAFF_DAYS = 25;
 const REMARK_MAX = 500;
+const UPDATE_CLIP = 200;
+
+const REPEAT_LABEL: Record<TaskRepeat, string> = { none: "Ek baar", every90: "Har 90 min", monthly: "Har mahine" };
 
 type Data = Record<string, string>;
 type View = "mine" | "user" | "group";
@@ -38,6 +42,7 @@ const MSG = {
   askTime: "Time bhi dena hai? Likhiye jaise *4pm*. Nahi toh Skip dabaiye (10 AM).",
   askCustomDue: "Date likhiye, jaise *28/10* ya *28/10 4pm*",
   askDateRemark: "Date kyun badal rahe hain? Remark likhiye (jaise customer ne kya bola):",
+  askApprovalRemark: `⚠️ ${MAX_STAFF_DAYS} din se aage ki date ke liye admin approval chahiye. Remark likhiye, request admin ko jayegi.`,
   useList: "👆 Upar wali list se chuniye.",
   useButtons: "👆 Upar wale buttons se chuniye.",
 };
@@ -246,8 +251,10 @@ function detailBody(t: Task, now: Date): string {
     `Kisko: ${t.assigneeName}`,
     `Diya: ${t.createdByName}`,
     `Due: ${formatDue(t.dueAt, t.dueHasTime, now)}${overdue}`,
-    `Status: ${t.status === "done" ? "Done ✅" : "Pending"}`,
+    `Reminder: ${REPEAT_LABEL[t.repeat] ?? REPEAT_LABEL.none}`,
   ];
+  if (t.dateRequest) lines.push(`⏳ Date request: ${formatDue(t.dateRequest.dueAt, t.dateRequest.hasTime, now)} (approval pending)`);
+  lines.push(`Status: ${t.status === "done" ? "Done ✅" : "Pending"}`);
   const last = t.remarks[t.remarks.length - 1];
   if (last) lines.push(`Last remark: ${last.text} (${formatDateTime(last.at, now)})`);
   return lines.join("\n");
@@ -309,11 +316,32 @@ async function markDone(ctx: BotContext, data: Data): Promise<Outgoing[]> {
   if (t.status === "done") return finish(ctx, `*${t.title}* pehle hi done ho chuka hai ✅`);
 
   const at = ctx.now.toISOString();
-  await ctx.store.updateTask(t.id, { status: "done", doneAt: at, updatedAt: at, nextReminderAt: null });
+  await ctx.store.updateTask(t.id, { status: "done", doneAt: at, updatedAt: at, nextReminderAt: null, dateRequest: null });
   await endFlow(ctx);
-  const out = [say(ctx, `✅ *${t.title}* done mark ho gaya. Shabash! 👏`)];
+  let body = `✅ *${t.title}* done mark ho gaya. Shabash! 👏`;
+  if (t.repeat === "monthly") {
+    const next = await ctx.store.createTask(nextMonthlyTask(t, ctx.now));
+    body += `\n🔁 Agla task: *${formatDue(next.dueAt, next.dueHasTime, ctx.now)}*`;
+  }
+  const out = [say(ctx, body)];
   if (t.createdByPhone !== ctx.user.phone) out.push(doneNotice(ctx, t));
   return out;
+}
+
+/** task_updated_v1 to the creator, unless the creator made the change. */
+function updateNotice(ctx: BotContext, t: Task, update: string): Outgoing[] {
+  if (t.createdByPhone === ctx.user.phone) return [];
+  const actor = ctx.user.name;
+  const body = clip(update, UPDATE_CLIP);
+  return [
+    {
+      to: t.createdByPhone,
+      kind: "template",
+      template: "task_updated_v1",
+      bodyValues: [t.createdByName, actor, t.title, body],
+      fallbackText: `Namaste ${t.createdByName} ji,\n${actor} ne ek task par update diya hai.\n\nTask: ${t.title}\nUpdate: ${body}`,
+    },
+  ];
 }
 
 function doneNotice(ctx: BotContext, t: Task): Outgoing {
@@ -347,8 +375,12 @@ async function onRemark(ctx: BotContext, data: Data, input: Inbound): Promise<Ou
   if (typeof remark !== "string") return remark;
   const t = await loadOwned(ctx, data.taskId);
   if (Array.isArray(t)) return t;
-  await ctx.store.updateTask(t.id, { remarks: [...t.remarks, remarkOf(ctx, remark)], updatedAt: ctx.now.toISOString() });
-  return finish(ctx, "📝 Remark save ho gaya.");
+  await ctx.store.updateTask(t.id, {
+    remarks: [...t.remarks, remarkOf(ctx, remark)],
+    nextReminderAt: afterResponse(t, ctx.now),
+    updatedAt: ctx.now.toISOString(),
+  });
+  return [...(await finish(ctx, "📝 Remark save ho gaya.")), ...updateNotice(ctx, t, remark)];
 }
 
 // ---------- date change ----------
@@ -392,17 +424,14 @@ async function applyNewDue(ctx: BotContext, data: Data, due: ParsedDue): Promise
     await setStep(ctx, ID, "ask_due", data);
     return [say(ctx, "⏰ Ye time nikal chuka hai. Aage ki date/time chuniye."), dueDateButtons(ctx.user.phone, ID, MSG.askDue)];
   }
-  if (ctx.user.role === "staff" && isBeyondDays(due.dueAt, ctx.now, MAX_STAFF_DAYS)) {
-    const old = formatDue(t.dueAt, t.dueHasTime, ctx.now);
-    return finish(
-      ctx,
-      `⚠️ ${MAX_STAFF_DAYS} din se zyada aage ki date allowed nahi hai. Iske liye admin ki approval chahiye (ye feature jaldi aa raha hai). Abhi purani date (*${old}*) hi rahegi.`,
-    );
-  }
   const rest = { ...data };
   delete rest.day;
   await setStep(ctx, ID, "ask_date_remark", { ...rest, newDue: due.dueAt.toISOString(), newHasTime: String(due.hasTime) });
-  return [say(ctx, MSG.askDateRemark)];
+  return [say(ctx, needsApproval(ctx, due.dueAt) ? MSG.askApprovalRemark : MSG.askDateRemark)];
+}
+
+function needsApproval(ctx: BotContext, dueAt: Date | string): boolean {
+  return ctx.user.role === "staff" && isBeyondDays(dueAt, ctx.now, MAX_STAFF_DAYS);
 }
 
 async function onDateRemark(ctx: BotContext, data: Data, input: Inbound): Promise<Outgoing[]> {
@@ -413,14 +442,55 @@ async function onDateRemark(ctx: BotContext, data: Data, input: Inbound): Promis
   if (Array.isArray(t)) return t;
 
   const hasTime = data.newHasTime === "true";
+  if (needsApproval(ctx, data.newDue)) return requestApproval(ctx, t, { dueAt: data.newDue, hasTime, remark });
   const oldText = formatDue(t.dueAt, t.dueHasTime, ctx.now);
   const newText = formatDue(data.newDue, hasTime, ctx.now);
+  const update = `Date badli: ${oldText} → ${newText}. ${remark}`;
   await ctx.store.updateTask(t.id, {
     dueAt: data.newDue,
     dueHasTime: hasTime,
     nextReminderAt: data.newDue,
-    remarks: [...t.remarks, remarkOf(ctx, `Date badli: ${oldText} → ${newText}. ${remark}`)],
+    remarks: [...t.remarks, remarkOf(ctx, update)],
+    ...(ctx.user.role === "admin" ? { dateRequest: null } : {}),
     updatedAt: ctx.now.toISOString(),
   });
-  return finish(ctx, `📅 Date badal di: *${newText}*`);
+  return [...(await finish(ctx, `📅 Date badal di: *${newText}*`)), ...updateNotice(ctx, t, update)];
+}
+
+// ---------- approval request (staff, beyond 25 days) ----------
+
+async function requestApproval(
+  ctx: BotContext,
+  t: Task,
+  req: Pick<DateRequest, "dueAt" | "hasTime" | "remark">,
+): Promise<Outgoing[]> {
+  const request: DateRequest = { ...req, byPhone: ctx.user.phone, byName: ctx.user.name, requestedAt: ctx.now.toISOString() };
+  await ctx.store.updateTask(t.id, { dateRequest: request, updatedAt: ctx.now.toISOString() });
+  const old = formatDue(t.dueAt, t.dueHasTime, ctx.now);
+  const replaced = t.dateRequest ? "\n(Pehle wali pending request hata ke ye nayi request bhej di.)" : "";
+  const reply = `📨 Request admin ko bhej di. Approve hone tak purani date (*${old}*) rahegi.${replaced}`;
+  const approvers = await approversFor(ctx, t);
+  return [...(await finish(ctx, reply)), ...approvers.map((a) => approvalNotice(ctx, t, request, a))];
+}
+
+/** The creator if they are an active admin, else every active admin; never the requester. */
+async function approversFor(ctx: BotContext, t: Task): Promise<User[]> {
+  const creator = await ctx.store.getUser(t.createdByPhone);
+  const pool = creator?.active && creator.role === "admin" ? [creator] : await ctx.store.listUsers({ role: "admin" });
+  return pool.filter((u) => u.phone !== ctx.user.phone);
+}
+
+function approvalNotice(ctx: BotContext, t: Task, req: DateRequest, admin: User): Outgoing {
+  const current = formatDue(t.dueAt, t.dueHasTime, ctx.now);
+  const wanted = formatDue(req.dueAt, req.hasTime, ctx.now);
+  return {
+    to: admin.phone,
+    kind: "template",
+    template: "date_approval_request_v1",
+    bodyValues: [admin.name, req.byName, t.title, current, wanted],
+    fallbackText:
+      `Namaste ${admin.name} ji,\n${req.byName} ek task ki due date ${MAX_STAFF_DAYS} din se zyada aage karna chahte hain.\n\n` +
+      `Task: ${t.title}\nAbhi ki date: ${current}\nMaangi gayi date: ${wanted}\nRemark: ${req.remark}\n\n` +
+      `Approve/Reject ke liye *Hi* bhejiye → Approvals.`,
+  };
 }

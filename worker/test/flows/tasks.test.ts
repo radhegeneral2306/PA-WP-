@@ -4,7 +4,7 @@ import { tasksFlow } from "../../src/bot/flows/tasks";
 import type { BotContext, Inbound } from "../../src/bot/flow";
 import type { Outgoing } from "../../src/bot/outgoing";
 import type { Task, User } from "../../src/domain/types";
-import { ADMIN, ADMIN2, STAFF_DURG, STAFF_JAG, STAFF_RAIPUR, USERS, makeCtx, say, tap, task } from "../helpers/bot";
+import { ADMIN, ADMIN2, NOW, STAFF_DURG, STAFF_JAG, STAFF_RAIPUR, USERS, makeCtx, say, tap, task } from "../helpers/bot";
 
 function seed(): Task[] {
   const jag = Array.from({ length: 11 }, (_, i) =>
@@ -199,10 +199,22 @@ describe("task detail", () => {
     const msg = out[0];
     if (msg.kind !== "buttons") throw new Error("expected buttons");
     expect(msg.body).toBe(
-      "*Purana kaam*\nKisko: Hardware\nDiya: Bhaskar\nDue: 25 Oct ⚠️ Overdue\nStatus: Pending\nLast remark: Kal aayenge (25 Oct, 12:00 PM)",
+      "*Purana kaam*\nKisko: Hardware\nDiya: Bhaskar\nDue: 25 Oct ⚠️ Overdue\nReminder: Ek baar\nStatus: Pending\nLast remark: Kal aayenge (25 Oct, 12:00 PM)",
     );
     expect(msg.buttons.map((b) => b.id)).toEqual(["tasks:act:done", "tasks:act:update", "tasks:act:date"]);
     expect(await step(ctx)).toBe("detail");
+  });
+
+  it("shows the reminder kind and a pending date request", async () => {
+    const ctx = setup(STAFF_DURG);
+    await ctx.store.updateTask("d2", {
+      repeat: "every90",
+      dateRequest: { dueAt: "2026-12-01T08:30:00.000Z", hasTime: true, remark: "r", byPhone: STAFF_DURG.phone, byName: "Hardware", requestedAt: "2026-10-20T04:30:00.000Z" },
+    });
+    const body = bodies(await openMine(ctx, "d2"));
+    expect(body).toContain("Reminder: Har 90 min\n⏳ Date request: 1 Dec, 2:00 PM (approval pending)\nStatus: Pending");
+    await ctx.store.updateTask("d2", { repeat: "monthly", dateRequest: null });
+    expect(bodies(await openMine(ctx, "d2"))).toContain("Reminder: Har mahine\nStatus: Pending");
   });
 
   it("done task shows text only", async () => {
@@ -268,6 +280,46 @@ describe("done", () => {
     expect(await step(ctx)).toBeNull();
   });
 
+  it("clears a pending date request", async () => {
+    const ctx = setup(STAFF_DURG);
+    await ctx.store.updateTask("d2", {
+      dateRequest: { dueAt: "2026-12-01T04:30:00.000Z", hasTime: false, remark: "r", byPhone: STAFF_DURG.phone, byName: "Hardware", requestedAt: "2026-10-20T04:30:00.000Z" },
+    });
+    await openMine(ctx, "d2");
+    await send(ctx, tap("tasks:act:done"));
+    expect((await ctx.store.getTask("d2"))?.dateRequest).toBeNull();
+  });
+
+  it("monthly done creates next month's task", async () => {
+    const ctx = setup(STAFF_DURG);
+    await ctx.store.updateTask("d2", { repeat: "monthly", repeatDay: 27, remarks: [{ at: NOW.toISOString(), byPhone: STAFF_DURG.phone, byName: "Hardware", text: "x" }] });
+    await openMine(ctx, "d2");
+    const out = await send(ctx, tap("tasks:act:done"));
+    expect(bodies([out[0]])).toBe("✅ *Kal wala kaam* done mark ho gaya. Shabash! 👏\n🔁 Agla task: *27 Nov*");
+    expect(out[1]).toMatchObject({ template: "task_done_v1" });
+    const pending = await ctx.store.listTasks({ assigneePhone: STAFF_DURG.phone, status: "pending" });
+    const next = pending.find((t) => t.title === "Kal wala kaam");
+    expect(next).toMatchObject({
+      dueAt: "2026-11-27T04:30:00.000Z",
+      nextReminderAt: "2026-11-27T04:30:00.000Z",
+      repeat: "monthly",
+      repeatDay: 27,
+      remarks: [],
+      status: "pending",
+      doneAt: null,
+      createdByPhone: ADMIN.phone,
+    });
+    expect(next?.id).not.toBe("d2");
+    expect((await ctx.store.getTask("d2"))?.status).toBe("done");
+  });
+
+  it("non-monthly done creates nothing", async () => {
+    const ctx = setup(STAFF_DURG);
+    await openMine(ctx, "d2");
+    await send(ctx, tap("tasks:act:done"));
+    expect(await ctx.store.listTasks({ assigneePhone: STAFF_DURG.phone, status: "pending" })).toHaveLength(2);
+  });
+
   it("no template when the creator marks it done", async () => {
     const ctx = setup(STAFF_DURG);
     await openMine(ctx, "d3");
@@ -305,11 +357,51 @@ describe("update remark", () => {
     expect(await step(ctx)).toBe("ask_remark");
     expect(bodies(await send(ctx, say("x".repeat(501))))).toContain("500");
     const out = await send(ctx, say("Customer ne kal bulaya"));
-    expect(bodies(out)).toBe("📝 Remark save ho gaya.");
+    expect(bodies([out[0]])).toBe("📝 Remark save ho gaya.");
     const t = await ctx.store.getTask("d2");
     expect(t?.remarks).toEqual([{ at: ctx.now.toISOString(), byPhone: STAFF_DURG.phone, byName: "Hardware", text: "Customer ne kal bulaya" }]);
     expect(t?.updatedAt).toBe(ctx.now.toISOString());
     expect(t?.status).toBe("pending");
+    expect(t?.nextReminderAt).toBe("2026-10-27T04:30:00.000Z");
+  });
+
+  async function remark(ctx: BotContext, id: string, body: string): Promise<Outgoing[]> {
+    await openMine(ctx, id);
+    await send(ctx, tap("tasks:act:update"));
+    return send(ctx, say(body));
+  }
+
+  it("notifies the creator with task_updated_v1 when someone else remarks", async () => {
+    const ctx = setup(STAFF_DURG);
+    const out = await remark(ctx, "d2", "Customer ne kal bulaya " + "y".repeat(300));
+    expect(out).toHaveLength(2);
+    const tpl = out[1];
+    if (tpl.kind !== "template") throw new Error("expected template");
+    expect(tpl).toMatchObject({ to: ADMIN.phone, template: "task_updated_v1" });
+    expect(tpl.bodyValues.slice(0, 3)).toEqual(["Bhaskar", "Hardware", "Kal wala kaam"]);
+    expect(tpl.bodyValues[3].length).toBeLessThanOrEqual(200);
+    expect(tpl.bodyValues[3].startsWith("Customer ne kal bulaya")).toBe(true);
+    expect(tpl.fallbackText).toContain("Update: Customer ne kal bulaya");
+  });
+
+  it("no notice when the creator remarks", async () => {
+    const ctx = setup(STAFF_DURG);
+    const out = await remark(ctx, "d3", "Apna note");
+    expect(out).toHaveLength(1);
+  });
+
+  it("every90 pauses until the next morning", async () => {
+    const ctx = setup(STAFF_DURG);
+    await ctx.store.updateTask("d1", { repeat: "every90", nextReminderAt: "2026-10-26T10:00:00.000Z" });
+    await remark(ctx, "d1", "Kaam chal raha hai");
+    expect((await ctx.store.getTask("d1"))?.nextReminderAt).toBe("2026-10-27T04:30:00.000Z");
+  });
+
+  it("monthly keeps its schedule", async () => {
+    const ctx = setup(STAFF_DURG);
+    await ctx.store.updateTask("d2", { repeat: "monthly", nextReminderAt: "2026-10-27T04:30:00.000Z" });
+    await remark(ctx, "d2", "Note");
+    expect((await ctx.store.getTask("d2"))?.nextReminderAt).toBe("2026-10-27T04:30:00.000Z");
   });
 });
 
@@ -331,7 +423,7 @@ describe("date badlo", () => {
     const r = await send(ctx, tap("tasks:time:skip"));
     expect(bodies(r)).toContain("Date kyun badal rahe hain?");
     const out = await send(ctx, say("Customer bahar hai"));
-    expect(bodies(out)).toBe("📅 Date badal di: *27 Oct*");
+    expect(bodies([out[0]])).toBe("📅 Date badal di: *27 Oct*");
     const task1 = await ctx.store.getTask("d1");
     expect(task1).toMatchObject({
       dueAt: "2026-10-27T04:30:00.000Z",
@@ -349,7 +441,7 @@ describe("date badlo", () => {
     expect(bodies(await send(ctx, tap("tasks:due:custom")))).toContain("*28/10*");
     await send(ctx, say("28/10 4pm"));
     const out = await send(ctx, say("Shaam ko milenge"));
-    expect(bodies(out)).toBe("📅 Date badal di: *28 Oct, 4:00 PM*");
+    expect(bodies([out[0]])).toBe("📅 Date badal di: *28 Oct, 4:00 PM*");
     const t = await ctx.store.getTask("d2");
     expect(t).toMatchObject({ dueAt: "2026-10-28T10:30:00.000Z", dueHasTime: true });
     expect(t?.remarks.at(-1)?.text).toBe("Date badli: 27 Oct → 28 Oct, 4:00 PM. Shaam ko milenge");
@@ -400,16 +492,123 @@ describe("date badlo", () => {
     expect((await ctx.store.getTask("d2"))?.dueAt).toBe("2026-10-27T04:30:00.000Z");
   });
 
-  it("25-day rule blocks staff", async () => {
+  it("25-day rule turns a staff change into an approval request", async () => {
     const ctx = setup(STAFF_DURG);
     await toDue(ctx);
     await send(ctx, tap("tasks:due:custom"));
-    const out = await send(ctx, say("30/11"));
-    expect(bodies(out)).toBe(
-      "⚠️ 25 din se zyada aage ki date allowed nahi hai. Iske liye admin ki approval chahiye (ye feature jaldi aa raha hai). Abhi purani date (*27 Oct*) hi rahegi.",
-    );
+    const ask = await send(ctx, say("30/11"));
+    expect(bodies(ask)).toBe("⚠️ 25 din se aage ki date ke liye admin approval chahiye. Remark likhiye, request admin ko jayegi.");
+    expect(await step(ctx)).toBe("ask_date_remark");
+    const out = await send(ctx, say("Customer bahar gaya hai"));
+    expect(out[0]).toEqual({
+      to: STAFF_DURG.phone,
+      kind: "text",
+      body: "📨 Request admin ko bhej di. Approve hone tak purani date (*27 Oct*) rahegi.",
+    });
+    // Creator is an active admin → only they are asked.
+    expect(out).toHaveLength(2);
+    expect(out[1]).toMatchObject({
+      to: ADMIN.phone,
+      kind: "template",
+      template: "date_approval_request_v1",
+      bodyValues: ["Bhaskar", "Hardware", "Kal wala kaam", "27 Oct", "30 Nov"],
+    });
+    if (out[1].kind === "template") expect(out[1].fallbackText).toMatch(/Approve\/Reject ke liye \*Hi\* bhejiye → Approvals\.$/);
+    const t = await ctx.store.getTask("d2");
+    expect(t).toMatchObject({
+      dueAt: "2026-10-27T04:30:00.000Z",
+      nextReminderAt: "2026-10-27T04:30:00.000Z",
+      updatedAt: ctx.now.toISOString(),
+      dateRequest: {
+        dueAt: "2026-11-30T04:30:00.000Z",
+        hasTime: false,
+        remark: "Customer bahar gaya hai",
+        byPhone: STAFF_DURG.phone,
+        byName: "Hardware",
+        requestedAt: ctx.now.toISOString(),
+      },
+    });
+    expect(t?.remarks).toEqual([]);
     expect(await step(ctx)).toBeNull();
-    expect((await ctx.store.getTask("d2"))?.dueAt).toBe("2026-10-27T04:30:00.000Z");
+  });
+
+  it("approval request goes to all active admins when the creator is staff", async () => {
+    const ctx = setup(STAFF_DURG);
+    await toDue(ctx, "d3");
+    await send(ctx, tap("tasks:due:custom"));
+    await send(ctx, say("30/11"));
+    const out = await send(ctx, say("Late hoga"));
+    const targets = out.filter((o) => o.kind === "template").map((o) => o.to);
+    expect(targets).toEqual([ADMIN.phone, ADMIN2.phone]);
+    expect(targets).not.toContain(STAFF_DURG.phone);
+    expect(out[2]).toMatchObject({ bodyValues: ["Partner Two", "Hardware", "Apna kaam", "28 Oct", "30 Nov"] });
+  });
+
+  it("approval request falls back to all admins when the creator admin is inactive", async () => {
+    const ctx = setup(STAFF_DURG);
+    await ctx.store.saveUser({ ...ADMIN, active: false });
+    await toDue(ctx);
+    await send(ctx, tap("tasks:due:custom"));
+    await send(ctx, say("30/11"));
+    const out = await send(ctx, say("Late hoga"));
+    expect(out.filter((o) => o.kind === "template").map((o) => o.to)).toEqual([ADMIN2.phone]);
+  });
+
+  it("a new request replaces a pending one", async () => {
+    const ctx = setup(STAFF_DURG);
+    await ctx.store.updateTask("d2", {
+      dateRequest: { dueAt: "2026-12-01T04:30:00.000Z", hasTime: false, remark: "old", byPhone: STAFF_DURG.phone, byName: "Hardware", requestedAt: "2026-10-20T04:30:00.000Z" },
+    });
+    await toDue(ctx);
+    await send(ctx, tap("tasks:due:custom"));
+    await send(ctx, say("30/11"));
+    const out = await send(ctx, say("naya"));
+    expect(bodies([out[0]])).toContain("Pehle wali pending request hata ke");
+    const t = await ctx.store.getTask("d2");
+    expect(t?.dateRequest).toMatchObject({ dueAt: "2026-11-30T04:30:00.000Z", remark: "naya" });
+  });
+
+  it("staff change within 25 days notifies the creator with task_updated_v1", async () => {
+    const ctx = setup(STAFF_DURG);
+    await toDue(ctx);
+    await send(ctx, tap("tasks:due:custom"));
+    await send(ctx, say("28/10"));
+    const out = await send(ctx, say("Kal nahi ho payega"));
+    expect(out).toHaveLength(2);
+    expect(out[1]).toMatchObject({
+      to: ADMIN.phone,
+      kind: "template",
+      template: "task_updated_v1",
+      bodyValues: ["Bhaskar", "Hardware", "Kal wala kaam", "Date badli: 27 Oct → 28 Oct. Kal nahi ho payega"],
+    });
+  });
+
+  it("no task_updated_v1 when the creator changes the date", async () => {
+    const ctx = setup(STAFF_DURG);
+    await toDue(ctx, "d3");
+    await send(ctx, tap("tasks:due:custom"));
+    await send(ctx, say("29/10"));
+    const out = await send(ctx, say("ok"));
+    expect(out).toHaveLength(1);
+  });
+
+  it("admin date change clears a pending request", async () => {
+    const ctx = setup(ADMIN2);
+    await ctx.store.updateTask("d2", {
+      dateRequest: { dueAt: "2026-12-01T04:30:00.000Z", hasTime: false, remark: "r", byPhone: STAFF_DURG.phone, byName: "Hardware", requestedAt: "2026-10-20T04:30:00.000Z" },
+    });
+    await tasksFlow.start(ctx, "staff");
+    await send(ctx, tap("tasks:branch:DURG"));
+    await send(ctx, tap("tasks:all"));
+    await send(ctx, tap("tasks:task:d2"));
+    await send(ctx, tap("tasks:act:date"));
+    await send(ctx, tap("tasks:due:custom"));
+    await send(ctx, say("15/12"));
+    const out = await send(ctx, say("Theek hai"));
+    expect(bodies([out[0]])).toBe("📅 Date badal di: *15 Dec*");
+    expect(out[1]).toMatchObject({ to: ADMIN.phone, template: "task_updated_v1" });
+    const t = await ctx.store.getTask("d2");
+    expect(t).toMatchObject({ dueAt: "2026-12-15T04:30:00.000Z", dateRequest: null });
   });
 
   it("25-day rule does not limit admins", async () => {
@@ -418,7 +617,8 @@ describe("date badlo", () => {
     await send(ctx, tap("tasks:due:custom"));
     await send(ctx, say("30/11"));
     const out = await send(ctx, say("Partner ne bola"));
-    expect(bodies(out)).toBe("📅 Date badal di: *30 Nov*");
+    expect(bodies([out[0]])).toBe("📅 Date badal di: *30 Nov*");
+    expect(out[1]).toMatchObject({ to: ADMIN2.phone, template: "task_updated_v1", bodyValues: ["Partner Two", "Bhaskar", "Admin1 kaam", "Date badli: 29 Oct → 30 Nov. Partner ne bola"] });
     expect((await ctx.store.getTask("a2"))?.dueAt).toBe("2026-11-30T04:30:00.000Z");
   });
 
