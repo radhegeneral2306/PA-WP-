@@ -423,7 +423,7 @@ describe("date badlo", () => {
     const r = await send(ctx, tap("tasks:time:skip"));
     expect(bodies(r)).toContain("Date kyun badal rahe hain?");
     const out = await send(ctx, say("Customer bahar hai"));
-    expect(bodies([out[0]])).toBe("📅 Date badal di: *27 Oct*");
+    expect(bodies([out[0]])).toBe("🕒 Date badal di: *27 Oct*");
     const task1 = await ctx.store.getTask("d1");
     expect(task1).toMatchObject({
       dueAt: "2026-10-27T04:30:00.000Z",
@@ -441,7 +441,7 @@ describe("date badlo", () => {
     expect(bodies(await send(ctx, tap("tasks:due:custom")))).toContain("*28/10*");
     await send(ctx, say("28/10 4pm"));
     const out = await send(ctx, say("Shaam ko milenge"));
-    expect(bodies([out[0]])).toBe("📅 Date badal di: *28 Oct, 4:00 PM*");
+    expect(bodies([out[0]])).toBe("🕒 Date badal di: *28 Oct, 4:00 PM*");
     const t = await ctx.store.getTask("d2");
     expect(t).toMatchObject({ dueAt: "2026-10-28T10:30:00.000Z", dueHasTime: true });
     expect(t?.remarks.at(-1)?.text).toBe("Date badli: 27 Oct → 28 Oct, 4:00 PM. Shaam ko milenge");
@@ -605,7 +605,7 @@ describe("date badlo", () => {
     await send(ctx, tap("tasks:due:custom"));
     await send(ctx, say("15/12"));
     const out = await send(ctx, say("Theek hai"));
-    expect(bodies([out[0]])).toBe("📅 Date badal di: *15 Dec*");
+    expect(bodies([out[0]])).toBe("🕒 Date badal di: *15 Dec*");
     expect(out[1]).toMatchObject({ to: ADMIN.phone, template: "task_updated_v1" });
     const t = await ctx.store.getTask("d2");
     expect(t).toMatchObject({ dueAt: "2026-12-15T04:30:00.000Z", dateRequest: null });
@@ -631,7 +631,7 @@ describe("date badlo", () => {
     await send(ctx, tap("tasks:due:custom"));
     await send(ctx, say("30/11"));
     const out = await send(ctx, say("Partner ne bola"));
-    expect(bodies([out[0]])).toBe("📅 Date badal di: *30 Nov*");
+    expect(bodies([out[0]])).toBe("🕒 Date badal di: *30 Nov*");
     expect(out[1]).toMatchObject({ to: ADMIN2.phone, template: "task_updated_v1", bodyValues: ["Partner Two", "Bhaskar", "Admin1 kaam", "Date badli: 29 Oct → 30 Nov. Partner ne bola"] });
     expect((await ctx.store.getTask("a2"))?.dueAt).toBe("2026-11-30T04:30:00.000Z");
   });

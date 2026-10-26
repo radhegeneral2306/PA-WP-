@@ -264,7 +264,7 @@ function detailMessage(ctx: BotContext, t: Task): Outgoing {
   return buttons(ctx.user.phone, detailBody(t, ctx.now), [
     { id: `${ID}:act:done`, title: "Done ✅" },
     { id: `${ID}:act:update`, title: "Update ✏️" },
-    { id: `${ID}:act:date`, title: "Date badlo 📅" },
+    { id: `${ID}:act:date`, title: "Date badlo 🕒" },
   ]);
 }
 
@@ -454,7 +454,7 @@ async function onDateRemark(ctx: BotContext, data: Data, input: Inbound): Promis
     dateRequest: null,
     updatedAt: ctx.now.toISOString(),
   });
-  return [...(await finish(ctx, `📅 Date badal di: *${newText}*`)), ...updateNotice(ctx, t, update)];
+  return [...(await finish(ctx, `🕒 Date badal di: *${newText}*`)), ...updateNotice(ctx, t, update)];
 }
 
 // ---------- approval request (staff, beyond 25 days) ----------

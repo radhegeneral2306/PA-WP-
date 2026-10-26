@@ -238,7 +238,7 @@ function summary(ctx: BotContext, data: Data): string {
   return [
     `📝 Task: *${data.title}*`,
     `👤 Kisko: *${who}*`,
-    `📅 Due: *${dueText(ctx, data)}*`,
+    `🕒 Due: *${dueText(ctx, data)}*`,
     `🔔 Reminder: *${repeatText(data)}*`,
   ].join("\n");
 }
@@ -316,7 +316,7 @@ function assignedTemplate(ctx: BotContext, data: Data): Outgoing {
       `${creator} ne aapko ek naya task diya hai.`,
       "",
       `📝 Task: *${data.title}*`,
-      `📅 Due: *${due}*`,
+      `🕒 Due: *${due}*`,
       `⏰ Agla reminder: *${next}*`,
       "",
       "Menu ke liye *Hi* bhejiye.",
