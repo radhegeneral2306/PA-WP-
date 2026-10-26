@@ -1,11 +1,11 @@
 // "Naya task" wizard: pick assignee (admins only), title, due date/time,
-// confirm, then save and notify the assignee.
+// reminder type, confirm, then save and notify the assignee.
 
-import { BRANCHES, branchName, type BranchId, type Role, type User } from "../../domain/types";
+import { BRANCHES, branchName, type BranchId, type Role, type TaskRepeat, type User } from "../../domain/types";
 import { addDays, dueOnDay, formatDue, istDay, parseDue, type ISTDay, type ParsedDue } from "../../domain/dates";
 import { endFlow, isReply, replyValue, setStep, type BotContext, type Flow, type Inbound } from "../flow";
 import type { Outgoing } from "../outgoing";
-import { branchList, confirmButtons, dueDateButtons, text, timeButtons, userList } from "../ui";
+import { branchList, buttons, confirmButtons, dueDateButtons, text, timeButtons, userList } from "../ui";
 
 const ID = "create_task";
 const TITLE_MAX = 200;
@@ -20,6 +20,19 @@ const DUE_PROMPT = "Task ki due date kab hai?";
 const TIME_PROMPT = "Time bhi dena hai? Likhiye jaise *4pm* ya *11:30 am*. Time nahi hai toh Skip dabaiye (10 AM default).";
 const CUSTOM_DUE_PROMPT = "Date likhiye, jaise *28/10*, *28/10 4pm* ya *kal 11am*";
 const BROKEN = "Kuch gadbad hui, dobara *Hi* bhejiye.";
+const REPEAT_PROMPT = [
+  "Reminder kaise chahiye?",
+  "• *Ek baar*: due time pe ek reminder",
+  "• *Har 90 min*: jab tak jawab na mile, har 90 min (10 AM–8 PM)",
+  "• *Har mahine*: har mahine isi tareekh ko",
+].join("\n");
+
+const REPEAT_LABELS: Record<TaskRepeat, string> = { none: "Ek baar", every90: "Har 90 min", monthly: "Har mahine" };
+const REPEAT_SUFFIX: Record<TaskRepeat, string> = {
+  none: "",
+  every90: " (phir har 90 min, jab tak jawab na mile)",
+  monthly: " (har mahine)",
+};
 
 export const createTaskFlow: Flow = {
   id: ID,
@@ -49,6 +62,8 @@ export const createTaskFlow: Flow = {
         return askTime(ctx, data, input);
       case "ask_custom_due":
         return askCustomDue(ctx, data, input);
+      case "ask_repeat":
+        return askRepeat(ctx, data, input);
       case "confirm":
         return confirm(ctx, data, input);
       default:
@@ -179,6 +194,32 @@ async function acceptDue(ctx: BotContext, data: Data, due: ParsedDue): Promise<O
     return [dueDateButtons(to, ID, withHint("Ye date/time nikal chuka hai, aage ki date dijiye.", DUE_PROMPT))];
   }
   const next = { ...rest, dueAt: due.dueAt.toISOString(), dueHasTime: String(due.hasTime) };
+  await setStep(ctx, ID, "ask_repeat", next);
+  return [repeatButtons(to, REPEAT_PROMPT)];
+}
+
+function repeatButtons(to: string, body: string): Outgoing {
+  return buttons(to, body, (Object.keys(REPEAT_LABELS) as TaskRepeat[]).map((r) => ({
+    id: `${ID}:repeat:${r}`,
+    title: REPEAT_LABELS[r],
+  })));
+}
+
+function isRepeat(s: string | null | undefined): s is TaskRepeat {
+  return s === "none" || s === "every90" || s === "monthly";
+}
+
+/** Sessions started before the repeat step existed default to a single reminder. */
+function repeatOf(data: Data): TaskRepeat {
+  return isRepeat(data.repeat) ? data.repeat : "none";
+}
+
+async function askRepeat(ctx: BotContext, data: Data, input: Inbound): Promise<Outgoing[]> {
+  const to = ctx.user.phone;
+  if (!data.title || !data.dueAt) return broken(ctx);
+  const repeat = replyValue(input, ID, "repeat");
+  if (!isRepeat(repeat)) return [repeatButtons(to, withHint(TAP_HINT, REPEAT_PROMPT))];
+  const next = { ...data, repeat };
   await setStep(ctx, ID, "confirm", next);
   return [confirmButtons(to, ID, `${summary(ctx, next)}\n\nTask bana du?`)];
 }
@@ -194,7 +235,27 @@ function dueText(ctx: BotContext, data: Data): string {
 
 function summary(ctx: BotContext, data: Data): string {
   const who = data.assigneePhone === ctx.user.phone ? "Aap khud" : `${data.assigneeName} (${assigneeLabel(data)})`;
-  return [`📝 Task: *${data.title}*`, `👤 Kisko: *${who}*`, `📅 Due: *${dueText(ctx, data)}*`].join("\n");
+  return [
+    `📝 Task: *${data.title}*`,
+    `👤 Kisko: *${who}*`,
+    `📅 Due: *${dueText(ctx, data)}*`,
+    `🔔 Reminder: *${repeatText(data)}*`,
+  ].join("\n");
+}
+
+function dueDay(data: Data): number {
+  return istDay(new Date(data.dueAt)).day;
+}
+
+function repeatText(data: Data): string {
+  const repeat = repeatOf(data);
+  const label = REPEAT_LABELS[repeat];
+  return repeat === "monthly" ? `${label} (${dueDay(data)} tareekh)` : label;
+}
+
+/** First reminder (at the due time) plus how it repeats. */
+function nextReminderText(ctx: BotContext, data: Data): string {
+  return dueText(ctx, data) + REPEAT_SUFFIX[repeatOf(data)];
 }
 
 async function confirm(ctx: BotContext, data: Data, input: Inbound): Promise<Outgoing[]> {
@@ -212,6 +273,7 @@ async function confirm(ctx: BotContext, data: Data, input: Inbound): Promise<Out
 async function save(ctx: BotContext, data: Data): Promise<Outgoing[]> {
   const { user, now } = ctx;
   const nowIso = now.toISOString();
+  const repeat = repeatOf(data);
   await ctx.store.createTask({
     title: data.title,
     assigneePhone: data.assigneePhone,
@@ -222,8 +284,11 @@ async function save(ctx: BotContext, data: Data): Promise<Outgoing[]> {
     dueAt: data.dueAt,
     dueHasTime: data.dueHasTime === "true",
     status: "pending",
-    repeat: "none",
+    repeat,
     nextReminderAt: data.dueAt,
+    repeatDay: repeat === "monthly" ? dueDay(data) : null,
+    dateRequest: null,
+    lastReminderAt: null,
     remarks: [],
     createdAt: nowIso,
     updatedAt: nowIso,
@@ -231,26 +296,28 @@ async function save(ctx: BotContext, data: Data): Promise<Outgoing[]> {
   });
   await endFlow(ctx);
 
-  const out: Outgoing[] = [text(user.phone, `✅ Task ban gaya!\n\n${summary(ctx, data)}`)];
+  const created = `✅ Task ban gaya!\n\n${summary(ctx, data)}\n⏰ Pehla reminder: *${nextReminderText(ctx, data)}*`;
+  const out: Outgoing[] = [text(user.phone, created)];
   if (data.assigneePhone !== user.phone) out.push(assignedTemplate(ctx, data));
   return out;
 }
 
 function assignedTemplate(ctx: BotContext, data: Data): Outgoing {
   const due = dueText(ctx, data);
+  const next = nextReminderText(ctx, data);
   const creator = ctx.user.name;
   return {
     to: data.assigneePhone,
     kind: "template",
     template: "task_assigned_v1",
-    bodyValues: [data.assigneeName, creator, data.title, due, due],
+    bodyValues: [data.assigneeName, creator, data.title, due, next],
     fallbackText: [
       `Namaste ${data.assigneeName} ji,`,
       `${creator} ne aapko ek naya task diya hai.`,
       "",
       `📝 Task: *${data.title}*`,
       `📅 Due: *${due}*`,
-      `⏰ Agla reminder: *${due}*`,
+      `⏰ Agla reminder: *${next}*`,
       "",
       "Menu ke liye *Hi* bhejiye.",
     ].join("\n"),

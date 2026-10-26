@@ -5,7 +5,7 @@ import type { Inbound } from "../../src/bot/flow";
 import type { Outgoing } from "../../src/bot/outgoing";
 import { manageStaffFlow } from "../../src/bot/flows/manageStaff";
 import { normalizePhone } from "../../src/numbers";
-import { ADMIN, ADMIN2, INACTIVE, NOW, STAFF_DURG, USERS, makeCtx, say, tap, task } from "../helpers/bot";
+import { ADMIN, ADMIN2, INACTIVE, NOW, STAFF_DURG, STAFF_RAIPUR, USERS, makeCtx, say, tap, task } from "../helpers/bot";
 
 const F = "manage_staff";
 
@@ -40,10 +40,10 @@ describe("normalizePhone", () => {
 });
 
 describe("manageStaffFlow", () => {
-  it("start shows the three actions", async () => {
+  it("start shows the four actions", async () => {
     const t = setup(ADMIN);
     const out = await manageStaffFlow.start(t.ctx);
-    expect(ids(out[0])).toEqual([`${F}:action:add`, `${F}:action:remove`, `${F}:action:list`]);
+    expect(ids(out[0])).toEqual([`${F}:action:add`, `${F}:action:remove`, `${F}:action:list`, `${F}:action:edit`]);
     expect((await t.session())?.step).toBe("choose");
   });
 
@@ -223,5 +223,177 @@ describe("manageStaffFlow", () => {
     const out = await t.step(say("add"));
     expect(ids(out[0])).toContain(`${F}:action:add`);
     expect((await t.session())?.step).toBe("choose");
+  });
+
+  describe("edit", () => {
+    async function toField(t: ReturnType<typeof setup>, branch: string, user: User) {
+      await manageStaffFlow.start(t.ctx);
+      await t.step(tap(`${F}:action:edit`));
+      await t.step(tap(`${F}:branch:${branch}`));
+      return t.step(tap(`${F}:user:${user.phone}`));
+    }
+
+    it("picks a person and shows the field buttons; admins list includes self", async () => {
+      const t = setup(ADMIN);
+      await manageStaffFlow.start(t.ctx);
+      const br = await t.step(tap(`${F}:action:edit`));
+      expect(ids(br[0])).toContain(`${F}:branch:ADMINS`);
+      expect((await t.session())?.step).toBe("edit_branch");
+      const list = await t.step(tap(`${F}:branch:ADMINS`));
+      expect(ids(list[0])).toEqual([`${F}:user:${ADMIN.phone}`, `${F}:user:${ADMIN2.phone}`]);
+      const fields = await t.step(tap(`${F}:user:${ADMIN.phone}`));
+      expect(ids(fields[0])).toEqual([`${F}:field:name`, `${F}:field:branch`, `${F}:field:role`]);
+      expect((await t.session())?.step).toBe("edit_field");
+    });
+
+    it("renames a staff member, keeping phone, createdAt and active", async () => {
+      const t = setup(ADMIN);
+      await toField(t, "DURG", STAFF_DURG);
+      const ask = await t.step(tap(`${F}:field:name`));
+      expect(body(ask[0])).toContain("naya naam");
+      const bad = await t.step(say("X"));
+      expect(body(bad[0])).toContain("2 se 40");
+      expect((await t.session())?.step).toBe("edit_name");
+      const conf = await t.step(say("  Hardware Ramesh "));
+      expect(body(conf[0])).toContain("Naam: Hardware → *Hardware Ramesh*");
+      const out = await t.step(tap(`${F}:confirm:yes`));
+      expect(body(out[0])).toContain("✅ Update ho gaya");
+      expect(await t.store.getUser(STAFF_DURG.phone)).toEqual({ ...STAFF_DURG, name: "Hardware Ramesh" });
+      expect(await t.session()).toBeNull();
+    });
+
+    it("admin can rename themselves", async () => {
+      const t = setup(ADMIN);
+      await toField(t, "ADMINS", ADMIN);
+      await t.step(tap(`${F}:field:name`));
+      await t.step(say("Bhaskar Ji"));
+      await t.step(tap(`${F}:confirm:yes`));
+      expect((await t.store.getUser(ADMIN.phone))?.name).toBe("Bhaskar Ji");
+    });
+
+    it("changes a staff member's branch", async () => {
+      const t = setup(ADMIN);
+      await toField(t, "DURG", STAFF_DURG);
+      const br = await t.step(tap(`${F}:field:branch`));
+      expect(ids(br[0])).not.toContain(`${F}:branch:ADMINS`);
+      const same = await t.step(tap(`${F}:branch:DURG`));
+      expect(body(same[0])).toContain("pehle se Durg");
+      expect((await t.session())?.step).toBe("edit_new_branch");
+      const conf = await t.step(tap(`${F}:branch:RAIPUR`));
+      expect(body(conf[0])).toContain("Branch: Durg → *Raipur*");
+      await t.step(tap(`${F}:confirm:yes`));
+      expect(await t.store.getUser(STAFF_DURG.phone)).toEqual({ ...STAFF_DURG, branch: "RAIPUR" });
+    });
+
+    it("admin has no branch: says so and re-shows the fields", async () => {
+      const t = setup(ADMIN);
+      await toField(t, "ADMINS", ADMIN2);
+      const out = await t.step(tap(`${F}:field:branch`));
+      expect(body(out[0])).toContain("Admin ki branch nahi hoti");
+      expect(ids(out[0])).toEqual([`${F}:field:name`, `${F}:field:branch`, `${F}:field:role`]);
+      expect((await t.session())?.step).toBe("edit_field");
+    });
+
+    it("staff → admin clears the branch", async () => {
+      const t = setup(ADMIN);
+      await toField(t, "RAIPUR", STAFF_RAIPUR);
+      const conf = await t.step(tap(`${F}:field:role`));
+      expect((await t.session())?.step).toBe("edit_confirm");
+      expect(body(conf[0])).toContain("Role: Staff (Raipur) → *Admin*");
+      await t.step(tap(`${F}:confirm:yes`));
+      expect(await t.store.getUser(STAFF_RAIPUR.phone)).toEqual({ ...STAFF_RAIPUR, role: "admin", branch: null });
+    });
+
+    it("admin → staff asks for the branch first", async () => {
+      const t = setup(ADMIN);
+      await toField(t, "ADMINS", ADMIN2);
+      const br = await t.step(tap(`${F}:field:role`));
+      expect(body(br[0])).toContain("staff banenge");
+      expect(ids(br[0])).not.toContain(`${F}:branch:ADMINS`);
+      expect((await t.session())?.step).toBe("edit_new_branch");
+      const conf = await t.step(tap(`${F}:branch:JAGDALPUR`));
+      expect(body(conf[0])).toContain("Role: Admin → *Staff (Jagdalpur)*");
+      const out = await t.step(tap(`${F}:confirm:yes`));
+      expect(body(out[0])).toContain("✅ Update ho gaya");
+      expect(await t.store.getUser(ADMIN2.phone)).toEqual({ ...ADMIN2, role: "staff", branch: "JAGDALPUR" });
+    });
+
+    it("cannot change your own role", async () => {
+      const t = setup(ADMIN);
+      await toField(t, "ADMINS", ADMIN);
+      const out = await t.step(tap(`${F}:field:role`));
+      expect(body(out[0])).toContain("Apna role khud nahi badal sakte");
+      expect((await t.session())?.step).toBe("edit_field");
+      expect((await t.store.getUser(ADMIN.phone))?.role).toBe("admin");
+    });
+
+    it("cannot demote the last active admin", async () => {
+      // The acting admin is no longer active in the store, so ADMIN2 is the only active admin.
+      const store = new MemoryStore({ users: [{ ...ADMIN, active: false }, ADMIN2, STAFF_DURG] });
+      const t = setup(ADMIN, store);
+      await toField(t, "ADMINS", ADMIN2);
+      const out = await t.step(tap(`${F}:field:role`));
+      expect(body(out[0])).toContain("akele admin");
+      expect((await t.session())?.step).toBe("edit_field");
+      expect((await store.getUser(ADMIN2.phone))?.role).toBe("admin");
+    });
+
+    it("re-checks the last-admin rule at confirm", async () => {
+      const t = setup(ADMIN);
+      await toField(t, "ADMINS", ADMIN2);
+      await t.step(tap(`${F}:field:role`));
+      await t.step(tap(`${F}:branch:DURG`));
+      await t.store.saveUser({ ...ADMIN, active: false });
+      const out = await t.step(tap(`${F}:confirm:yes`));
+      expect(body(out[0])).toContain("akele admin");
+      expect((await t.store.getUser(ADMIN2.phone))?.role).toBe("admin");
+    });
+
+    it("cancel at confirm changes nothing", async () => {
+      const t = setup(ADMIN);
+      await toField(t, "DURG", STAFF_DURG);
+      await t.step(tap(`${F}:field:name`));
+      await t.step(say("Naya Naam"));
+      const junk = await t.step(say("ok"));
+      expect(ids(junk[0])).toEqual([`${F}:confirm:yes`, `${F}:confirm:no`]);
+      const out = await t.step(tap(`${F}:confirm:no`));
+      expect(body(out[0])).toContain("kuch nahi badla");
+      expect(await t.store.getUser(STAFF_DURG.phone)).toEqual(STAFF_DURG);
+      expect(await t.session()).toBeNull();
+    });
+
+    it("wrong input at field re-prompts", async () => {
+      const t = setup(ADMIN);
+      await toField(t, "DURG", STAFF_DURG);
+      const out = await t.step(say("naam"));
+      expect(body(out[0])).toContain("chuniye");
+      expect((await t.session())?.step).toBe("edit_field");
+    });
+
+    it("pages the edit list", async () => {
+      const many: User[] = Array.from({ length: 10 }, (_, i) => ({
+        ...STAFF_DURG,
+        phone: `9190000003${String(i).padStart(2, "0")}`,
+        name: `Staff ${String(i).padStart(2, "0")}`,
+      }));
+      const t = setup(ADMIN, new MemoryStore({ users: [ADMIN, ...many] }));
+      await manageStaffFlow.start(t.ctx);
+      await t.step(tap(`${F}:action:edit`));
+      const p0 = await t.step(tap(`${F}:branch:DURG`));
+      expect(ids(p0[0])).toContain(`${F}:page:1`);
+      const p1 = await t.step(tap(`${F}:page:1`));
+      expect(ids(p1[0])).toEqual([`${F}:user:${many[8].phone}`, `${F}:user:${many[9].phone}`, `${F}:page:0`]);
+      const fields = await t.step(tap(`${F}:user:${many[9].phone}`));
+      expect(body(fields[0])).toContain("Staff 09");
+    });
+
+    it("empty branch on edit says so", async () => {
+      const t = setup(ADMIN, new MemoryStore({ users: [ADMIN] }));
+      await manageStaffFlow.start(t.ctx);
+      await t.step(tap(`${F}:action:edit`));
+      const out = await t.step(tap(`${F}:branch:DURG`));
+      expect(body(out[0])).toContain("koi nahi");
+      expect((await t.session())?.step).toBe("edit_branch");
+    });
   });
 });

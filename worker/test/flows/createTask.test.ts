@@ -55,8 +55,14 @@ describe("createTaskFlow", () => {
     const time = await t.step(tap(`${F}:due:tomorrow`));
     expect(ids(time[0])).toEqual([`${F}:time:skip`]);
 
-    const conf = await t.step(tap(`${F}:time:skip`));
+    const rep = await t.step(tap(`${F}:time:skip`));
+    expect((await t.session())?.step).toBe("ask_repeat");
+    expect(ids(rep[0])).toEqual([`${F}:repeat:none`, `${F}:repeat:every90`, `${F}:repeat:monthly`]);
+    expect(body(rep[0])).toContain("Reminder kaise chahiye?");
+
+    const conf = await t.step(tap(`${F}:repeat:none`));
     expect(conf[0].kind).toBe("buttons");
+    expect(body(conf[0])).toContain("🔔 Reminder: *Ek baar*");
     expect(body(conf[0])).toContain("*Sharma ji se payment lena*");
     expect(body(conf[0])).toContain("Hardware (Durg)");
     expect(body(conf[0])).toContain("27 Oct");
@@ -77,6 +83,9 @@ describe("createTaskFlow", () => {
       status: "pending",
       repeat: "none",
       nextReminderAt: "2026-10-27T04:30:00.000Z",
+      repeatDay: null,
+      dateRequest: null,
+      lastReminderAt: null,
       remarks: [],
       createdAt: NOW.toISOString(),
       updatedAt: NOW.toISOString(),
@@ -103,6 +112,7 @@ describe("createTaskFlow", () => {
     await t.step(tap(`${F}:user:${ADMIN2.phone}`));
     await t.step(say("GST file karna"));
     await t.step(say("28/10 4pm"));
+    await t.step(tap(`${F}:repeat:none`));
     const out = await t.step(tap(`${F}:confirm:yes`));
     const [saved] = await t.store.listTasks({});
     expect(saved.assigneePhone).toBe(ADMIN2.phone);
@@ -117,6 +127,7 @@ describe("createTaskFlow", () => {
     await t.step(say("Bank jana"));
     await t.step(tap(`${F}:due:tomorrow`));
     await t.step(tap(`${F}:time:skip`));
+    await t.step(tap(`${F}:repeat:none`));
     const out = await t.step(tap(`${F}:confirm:yes`));
     expect(out).toHaveLength(1);
     expect(body(out[0])).toContain("Aap khud");
@@ -129,7 +140,8 @@ describe("createTaskFlow", () => {
     expect((await t.session())?.step).toBe("ask_title");
     await t.step(say("Godown stock check"));
     await t.step(tap(`${F}:due:today`));
-    const conf = await t.step(say("6pm"));
+    await t.step(say("6pm"));
+    const conf = await t.step(tap(`${F}:repeat:none`));
     expect(conf[0].kind).toBe("buttons");
     const out = await t.step(tap(`${F}:confirm:yes`));
     expect(out).toHaveLength(1);
@@ -151,7 +163,8 @@ describe("createTaskFlow", () => {
     const ask = await t.step(tap(`${F}:due:custom`));
     expect(body(ask[0])).toContain("28/10");
     expect((await t.session())?.step).toBe("ask_custom_due");
-    const conf = await t.step(say("28/10 4pm"));
+    await t.step(say("28/10 4pm"));
+    const conf = await t.step(tap(`${F}:repeat:none`));
     expect(body(conf[0])).toContain("28 Oct, 4:00 PM");
     const s = await t.session();
     expect(s?.step).toBe("confirm");
@@ -166,7 +179,8 @@ describe("createTaskFlow", () => {
     const bad = await t.step(say("jaldi"));
     expect(body(bad[0])).toContain("Time samajh nahi aaya");
     expect((await t.session())?.step).toBe("ask_time");
-    const ok = await t.step(say("11:30 am"));
+    await t.step(say("11:30 am"));
+    const ok = await t.step(tap(`${F}:repeat:none`));
     expect(body(ok[0])).toContain("27 Oct, 11:30 AM");
 
     const t2 = setup(ADMIN);
@@ -196,7 +210,9 @@ describe("createTaskFlow", () => {
     const t = setup(ADMIN);
     await adminToTitle(t);
     await t.step(say("Visit"));
-    const conf = await t.step(say("kal 11am"));
+    await t.step(say("kal 11am"));
+    expect((await t.session())?.step).toBe("ask_repeat");
+    const conf = await t.step(tap(`${F}:repeat:none`));
     expect((await t.session())?.step).toBe("confirm");
     expect(body(conf[0])).toContain("27 Oct, 11:00 AM");
   });
@@ -207,6 +223,7 @@ describe("createTaskFlow", () => {
     await t.step(say("Visit"));
     await t.step(tap(`${F}:due:tomorrow`));
     await t.step(tap(`${F}:time:skip`));
+    await t.step(tap(`${F}:repeat:none`));
     const out = await t.step(tap(`${F}:confirm:no`));
     expect(body(out[0])).toBe("Theek hai, task cancel kar diya.");
     expect(await t.session()).toBeNull();
@@ -240,6 +257,7 @@ describe("createTaskFlow", () => {
 
     await t.step(tap(`${F}:due:tomorrow`));
     await t.step(tap(`${F}:time:skip`));
+    await t.step(tap(`${F}:repeat:none`));
     const confJunk = await t.step(say("ok"));
     expect(ids(confJunk[0])).toEqual([`${F}:confirm:yes`, `${F}:confirm:no`]);
     expect((await t.session())?.step).toBe("confirm");
@@ -281,6 +299,104 @@ describe("createTaskFlow", () => {
     expect(await t.store.listTasks({})).toHaveLength(0);
   });
 
+  async function toRepeat(t: ReturnType<typeof setup>) {
+    await adminToTitle(t);
+    await t.step(say("Rent dena"));
+    await t.step(say("28/10 4pm"));
+  }
+
+  it("Har 90 min: stored every90, summary line and template next-reminder text", async () => {
+    const t = setup(ADMIN);
+    await toRepeat(t);
+    const conf = await t.step(tap(`${F}:repeat:every90`));
+    expect((await t.session())?.data.repeat).toBe("every90");
+    expect(body(conf[0])).toContain("🔔 Reminder: *Har 90 min*");
+    const out = await t.step(tap(`${F}:confirm:yes`));
+    const [saved] = await t.store.listTasks({});
+    expect(saved).toMatchObject({
+      repeat: "every90",
+      repeatDay: null,
+      nextReminderAt: "2026-10-28T10:30:00.000Z",
+      dateRequest: null,
+      lastReminderAt: null,
+    });
+    const next = "28 Oct, 4:00 PM (phir har 90 min, jab tak jawab na mile)";
+    expect(body(out[0])).toContain(`⏰ Pehla reminder: *${next}*`);
+    const tpl = out[1];
+    if (tpl.kind !== "template") throw new Error("expected template");
+    expect(tpl.bodyValues[3]).toBe("28 Oct, 4:00 PM");
+    expect(tpl.bodyValues[4]).toBe(next);
+    expect(tpl.fallbackText).toContain(`Agla reminder: *${next}*`);
+  });
+
+  it("Har mahine: stored monthly with IST repeatDay", async () => {
+    const t = setup(ADMIN);
+    await toRepeat(t);
+    const conf = await t.step(tap(`${F}:repeat:monthly`));
+    expect(body(conf[0])).toContain("🔔 Reminder: *Har mahine (28 tareekh)*");
+    const out = await t.step(tap(`${F}:confirm:yes`));
+    const [saved] = await t.store.listTasks({});
+    expect(saved).toMatchObject({ repeat: "monthly", repeatDay: 28, nextReminderAt: "2026-10-28T10:30:00.000Z" });
+    const tpl = out[1];
+    if (tpl.kind !== "template") throw new Error("expected template");
+    expect(tpl.bodyValues[4]).toBe("28 Oct, 4:00 PM (har mahine)");
+    expect(tpl.fallbackText).toContain("(har mahine)");
+    expect(body(out[0])).toContain("Har mahine (28 tareekh)");
+  });
+
+  it("monthly repeatDay uses the IST day even when UTC is the previous day", async () => {
+    const t = setup(ADMIN);
+    await adminToTitle(t);
+    await t.step(say("Bill"));
+    await t.step(say("1/11 1am")); // 31 Oct 19:30 UTC
+    await t.step(tap(`${F}:repeat:monthly`));
+    await t.step(tap(`${F}:confirm:yes`));
+    const [saved] = await t.store.listTasks({});
+    expect(saved.dueAt).toBe("2026-10-31T19:30:00.000Z");
+    expect(saved.repeatDay).toBe(1);
+  });
+
+  it("Ek baar: template next reminder is just the due time", async () => {
+    const t = setup(ADMIN);
+    await toRepeat(t);
+    await t.step(tap(`${F}:repeat:none`));
+    const out = await t.step(tap(`${F}:confirm:yes`));
+    const tpl = out[1];
+    if (tpl.kind !== "template") throw new Error("expected template");
+    expect(tpl.bodyValues[4]).toBe("28 Oct, 4:00 PM");
+  });
+
+  it("wrong input at ask_repeat re-prompts", async () => {
+    const t = setup(ADMIN);
+    await toRepeat(t);
+    const typed = await t.step(say("har mahine"));
+    expect(body(typed[0])).toContain("chuniye");
+    expect(ids(typed[0])).toEqual([`${F}:repeat:none`, `${F}:repeat:every90`, `${F}:repeat:monthly`]);
+    const stale = await t.step(tap(`${F}:repeat:weekly`));
+    expect(ids(stale[0])).toContain(`${F}:repeat:none`);
+    const old = await t.step(tap(`${F}:confirm:yes`));
+    expect(old[0].kind).toBe("buttons");
+    expect((await t.session())?.step).toBe("ask_repeat");
+    expect(await t.store.listTasks({})).toHaveLength(0);
+  });
+
+  it("confirm without a stored repeat (old session) defaults to a single reminder", async () => {
+    const t = setup(ADMIN);
+    await t.store.saveSession({
+      phone: ADMIN.phone,
+      flow: F,
+      step: "confirm",
+      data: {
+        title: "Visit", assigneePhone: STAFF_DURG.phone, assigneeName: STAFF_DURG.name,
+        assigneeBranch: "DURG", assigneeRole: "staff", dueAt: "2026-10-27T04:30:00.000Z", dueHasTime: "false",
+      },
+      updatedAt: NOW.toISOString(),
+    });
+    await t.step(tap(`${F}:confirm:yes`));
+    const [saved] = await t.store.listTasks({});
+    expect(saved).toMatchObject({ repeat: "none", repeatDay: null });
+  });
+
   it("every emitted reply id is namespaced", async () => {
     const t = setup(ADMIN);
     const outs = [
@@ -290,6 +406,7 @@ describe("createTaskFlow", () => {
       ...(await t.step(say("Visit"))),
       ...(await t.step(tap(`${F}:due:tomorrow`))),
       ...(await t.step(tap(`${F}:time:skip`))),
+      ...(await t.step(tap(`${F}:repeat:monthly`))),
     ];
     for (const o of outs) for (const id of ids(o)) expect(id.startsWith(`${F}:`)).toBe(true);
   });

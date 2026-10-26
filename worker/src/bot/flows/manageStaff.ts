@@ -1,4 +1,5 @@
-// "Staff manage" (admin only): add a user, remove (deactivate) one, or list everyone.
+// "Staff manage" (admin only): add a user, remove (deactivate) one, edit one
+// (name / branch / role), or list everyone.
 
 import { BRANCHES, branchName, type BranchId, type Role, type User } from "../../domain/types";
 import { endFlow, replyValue, setStep, type BotContext, type Flow, type Inbound } from "../flow";
@@ -20,6 +21,9 @@ const ROLE_PROMPT = "Role kya hoga?";
 const ADD_BRANCH_PROMPT = "Kis branch mein add karna hai?";
 const REMOVE_BRANCH_PROMPT = "Kis branch se hatana hai?";
 const BROKEN = "Kuch gadbad hui, dobara *Hi* bhejiye.";
+const EDIT_BRANCH_PROMPT = "Kiski details badalni hain? Branch chuniye.";
+const EDIT_NAME_PROMPT = "Naya naam likhiye ✍️";
+const EDIT_NEW_BRANCH_PROMPT = "Nayi branch chuniye.";
 
 export const manageStaffFlow: Flow = {
   id: ID,
@@ -52,6 +56,18 @@ export const manageStaffFlow: Flow = {
         return removeUser(ctx, data, input);
       case "remove_confirm":
         return removeConfirm(ctx, data, input);
+      case "edit_branch":
+        return editBranch(ctx, input);
+      case "edit_user":
+        return editUser(ctx, data, input);
+      case "edit_field":
+        return editField(ctx, data, input);
+      case "edit_name":
+        return editName(ctx, data, input);
+      case "edit_new_branch":
+        return editNewBranch(ctx, data, input);
+      case "edit_confirm":
+        return editConfirm(ctx, data, input);
       default:
         return broken(ctx);
     }
@@ -77,6 +93,7 @@ function menu(to: string, body: string): Outgoing {
     { id: `${ID}:action:add`, title: "➕ Staff add karo" },
     { id: `${ID}:action:remove`, title: "➖ Staff hatao" },
     { id: `${ID}:action:list`, title: "📃 Sabka list" },
+    { id: `${ID}:action:edit`, title: "✏️ Staff edit karo" },
   ], "Staff manage");
 }
 
@@ -112,6 +129,9 @@ async function choose(ctx: BotContext, input: Inbound): Promise<Outgoing[]> {
     case "list":
       await endFlow(ctx);
       return [text(to, await everyone(ctx))];
+    case "edit":
+      await setStep(ctx, ID, "edit_branch");
+      return [branchList(to, ID, EDIT_BRANCH_PROMPT, { includeAdmins: true })];
     default:
       return [menu(to, withHint(TAP_HINT, "Staff manage ⚙️ Kya karna hai?"))];
   }
@@ -214,12 +234,16 @@ async function addConfirm(ctx: BotContext, data: Data, input: Inbound): Promise<
 
 // ---- remove ----
 
+/** Active members of a branch (staff) or of the admins group; null for an unknown key. */
+async function groupUsers(ctx: BotContext, key: string): Promise<User[] | null> {
+  if (key === ADMINS) return ctx.store.listUsers({ role: "admin" });
+  if (isBranch(key)) return ctx.store.listUsers({ branch: key, role: "staff" });
+  return null;
+}
+
 async function removable(ctx: BotContext, key: string): Promise<User[] | null> {
-  let users: User[];
-  if (key === ADMINS) users = await ctx.store.listUsers({ role: "admin" });
-  else if (isBranch(key)) users = await ctx.store.listUsers({ branch: key, role: "staff" });
-  else return null;
-  return users.filter((u) => u.phone !== ctx.user.phone);
+  const users = await groupUsers(ctx, key);
+  return users && users.filter((u) => u.phone !== ctx.user.phone);
 }
 
 function groupLabel(key: string): string {
@@ -283,6 +307,181 @@ async function removeConfirm(ctx: BotContext, data: Data, input: Inbound): Promi
   await ctx.store.saveUser({ ...target, active: false });
   await endFlow(ctx);
   return [text(to, `✅ *${target.name}* ko hata diya. Ab wo bot use nahi kar payenge.`)];
+}
+
+// ---- edit ----
+
+type Field = "name" | "branch" | "role";
+
+function editPrompt(key: string): string {
+  return `*${groupLabel(key)}* mein kiski details badalni hain?`;
+}
+
+function fieldButtons(to: string, body: string): Outgoing {
+  return buttons(to, body, [
+    { id: `${ID}:field:name`, title: "Naam" },
+    { id: `${ID}:field:branch`, title: "Branch" },
+    { id: `${ID}:field:role`, title: "Role" },
+  ]);
+}
+
+function fieldPrompt(u: User): string {
+  return `*${u.name}* (${roleLabel(u.role, u.branch ?? "")}): kya badalna hai?`;
+}
+
+async function editTarget(ctx: BotContext, data: Data): Promise<User | null> {
+  const target = data.phone ? await ctx.store.getUser(data.phone) : null;
+  return target?.active ? target : null;
+}
+
+async function editBranch(ctx: BotContext, input: Inbound): Promise<Outgoing[]> {
+  const to = ctx.user.phone;
+  const key = replyValue(input, ID, "branch");
+  const users = key ? await groupUsers(ctx, key) : null;
+  if (!key || !users) return [branchList(to, ID, withHint(TAP_HINT, EDIT_BRANCH_PROMPT), { includeAdmins: true })];
+  if (users.length === 0) {
+    return [branchList(to, ID, `*${groupLabel(key)}* mein abhi koi nahi hai. Dusri branch chuniye.`, { includeAdmins: true })];
+  }
+  await setStep(ctx, ID, "edit_user", { branch: key });
+  return [userList(to, ID, users, editPrompt(key))];
+}
+
+async function editUser(ctx: BotContext, data: Data, input: Inbound): Promise<Outgoing[]> {
+  const to = ctx.user.phone;
+  const key = data.branch;
+  const users = key ? await groupUsers(ctx, key) : null;
+  if (!key || !users) return broken(ctx);
+
+  const page = replyValue(input, ID, "page");
+  if (page !== null) return [userList(to, ID, users, editPrompt(key), { page: Number(page) || 0 })];
+
+  const phone = replyValue(input, ID, "user");
+  const target = phone ? users.find((u) => u.phone === phone) : undefined;
+  if (!target) {
+    const hint = phone ? "Ye naam is list mein nahi hai." : TAP_HINT;
+    return [userList(to, ID, users, withHint(hint, editPrompt(key)))];
+  }
+  await setStep(ctx, ID, "edit_field", { ...data, phone: target.phone });
+  return [fieldButtons(to, fieldPrompt(target))];
+}
+
+async function activeAdminCount(ctx: BotContext): Promise<number> {
+  return (await ctx.store.listUsers({ role: "admin" })).length;
+}
+
+/** Why this role change is not allowed, or null when it is. */
+async function roleBlock(ctx: BotContext, target: User): Promise<string | null> {
+  if (target.phone === ctx.user.phone) return "Apna role khud nahi badal sakte.";
+  if (target.role === "admin" && (await activeAdminCount(ctx)) <= 1) {
+    return "Ye akele admin hain, inhe staff nahi bana sakte.";
+  }
+  return null;
+}
+
+async function editField(ctx: BotContext, data: Data, input: Inbound): Promise<Outgoing[]> {
+  const to = ctx.user.phone;
+  const target = await editTarget(ctx, data);
+  if (!target) return broken(ctx);
+  const field = replyValue(input, ID, "field");
+  const base = { branch: data.branch ?? "", phone: target.phone };
+
+  if (field === "name") {
+    await setStep(ctx, ID, "edit_name", { ...base, field });
+    return [text(to, `*${target.name}* ka ${EDIT_NAME_PROMPT.toLowerCase()}`)];
+  }
+  if (field === "branch") {
+    if (target.role === "admin") return [fieldButtons(to, withHint("Admin ki branch nahi hoti.", fieldPrompt(target)))];
+    await setStep(ctx, ID, "edit_new_branch", { ...base, field });
+    return [branchList(to, ID, EDIT_NEW_BRANCH_PROMPT)];
+  }
+  if (field === "role") {
+    const blockedBy = await roleBlock(ctx, target);
+    if (blockedBy) return [fieldButtons(to, withHint(blockedBy, fieldPrompt(target)))];
+    if (target.role === "staff") return toEditConfirm(ctx, target, { ...base, field, newRole: "admin" });
+    await setStep(ctx, ID, "edit_new_branch", { ...base, field, newRole: "staff" });
+    return [branchList(to, ID, `*${target.name}* staff banenge. Kis branch mein?`)];
+  }
+  return [fieldButtons(to, withHint(TAP_HINT, fieldPrompt(target)))];
+}
+
+async function editName(ctx: BotContext, data: Data, input: Inbound): Promise<Outgoing[]> {
+  const target = await editTarget(ctx, data);
+  if (!target) return broken(ctx);
+  const name = input.text.trim();
+  if (input.reply || name.length < NAME_MIN || name.length > NAME_MAX) {
+    return [text(ctx.user.phone, withHint(`Naam ${NAME_MIN} se ${NAME_MAX} akshar ka likhiye.`, EDIT_NAME_PROMPT))];
+  }
+  return toEditConfirm(ctx, target, { ...data, newName: name });
+}
+
+async function editNewBranch(ctx: BotContext, data: Data, input: Inbound): Promise<Outgoing[]> {
+  const to = ctx.user.phone;
+  const target = await editTarget(ctx, data);
+  if (!target) return broken(ctx);
+  const branch = replyValue(input, ID, "branch");
+  const prompt = data.newRole === "staff" ? `*${target.name}* staff banenge. Kis branch mein?` : EDIT_NEW_BRANCH_PROMPT;
+  if (!branch || !isBranch(branch)) return [branchList(to, ID, withHint(TAP_HINT, prompt))];
+  if (data.field === "branch" && branch === target.branch) {
+    return [branchList(to, ID, withHint(`*${target.name}* pehle se ${branchName(branch)} mein hain.`, prompt))];
+  }
+  return toEditConfirm(ctx, target, { ...data, newBranch: branch });
+}
+
+/** The user as it will be saved, or null when the session data does not describe a valid change. */
+function editedUser(target: User, data: Data): User | null {
+  const field = data.field as Field;
+  if (field === "name" && data.newName) return { ...target, name: data.newName };
+  if (field === "branch" && target.role === "staff" && isBranch(data.newBranch ?? "")) {
+    return { ...target, branch: data.newBranch as BranchId };
+  }
+  if (field === "role" && target.role === "staff" && data.newRole === "admin") return { ...target, role: "admin", branch: null };
+  if (field === "role" && target.role === "admin" && data.newRole === "staff" && isBranch(data.newBranch ?? "")) {
+    return { ...target, role: "staff", branch: data.newBranch as BranchId };
+  }
+  return null;
+}
+
+function editSummary(before: User, after: User): string {
+  const lines = [`✏️ *${before.name}* ki details badlengi:`];
+  if (before.name !== after.name) lines.push(`👤 Naam: ${before.name} → *${after.name}*`);
+  if (before.role !== after.role) {
+    lines.push(`🏷️ Role: ${roleLabel(before.role, before.branch ?? "")} → *${roleLabel(after.role, after.branch ?? "")}*`);
+  } else if (before.branch !== after.branch) {
+    lines.push(`🏢 Branch: ${branchName(before.branch)} → *${branchName(after.branch)}*`);
+  }
+  return lines.join("\n");
+}
+
+async function toEditConfirm(ctx: BotContext, target: User, data: Data): Promise<Outgoing[]> {
+  const after = editedUser(target, data);
+  if (!after) return broken(ctx);
+  await setStep(ctx, ID, "edit_confirm", data);
+  return [confirmButtons(ctx.user.phone, ID, `${editSummary(target, after)}\n\nUpdate kar du?`)];
+}
+
+async function editConfirm(ctx: BotContext, data: Data, input: Inbound): Promise<Outgoing[]> {
+  const to = ctx.user.phone;
+  const target = await editTarget(ctx, data);
+  const after = target && editedUser(target, data);
+  if (!target || !after) return broken(ctx);
+
+  const answer = replyValue(input, ID, "confirm");
+  if (answer === "no") {
+    await endFlow(ctx);
+    return [text(to, "Theek hai, kuch nahi badla.")];
+  }
+  if (answer !== "yes") return [confirmButtons(to, ID, withHint(TAP_HINT, `${editSummary(target, after)}\n\nUpdate kar du?`))];
+
+  if (data.field === "role") {
+    const blockedBy = await roleBlock(ctx, target);
+    if (blockedBy) {
+      await endFlow(ctx);
+      return [text(to, blockedBy)];
+    }
+  }
+  await ctx.store.saveUser(after);
+  await endFlow(ctx);
+  return [text(to, `✅ Update ho gaya\n\n${editSummary(target, after).split("\n").slice(1).join("\n")}`)];
 }
 
 // ---- list ----
