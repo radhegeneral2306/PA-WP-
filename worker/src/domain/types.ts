@@ -29,10 +29,11 @@ export interface User {
 export type TaskStatus = "pending" | "done";
 
 /**
- * none: one reminder at the due time.
+ * none: reminder at the due time, then daily at 11 AM IST while still pending.
  * every90: reminder at the due time, then every 90 minutes within working
  *   hours (10 AM to 8 PM IST) until the assignee responds.
- * monthly: due on the same day every month; marking it Done creates next month's task.
+ * monthly: due on the same day every month (overdue: daily at 11 AM like none);
+ *   marking it Done creates next month's task.
  */
 export type TaskRepeat = "none" | "every90" | "monthly";
 

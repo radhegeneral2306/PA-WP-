@@ -72,17 +72,18 @@ describe("runReminders", () => {
     expect(out[1].bodyValues[2]).toBe("26 Oct, 2:57 PM");
   });
 
-  it("repeat none: stops after one reminder", async () => {
+  it("repeat none: reminds again next day at 11 AM while pending", async () => {
     const store = setup([task({ nextReminderAt: PAST })]);
     await runReminders(store, NOW);
-    expect(store.tasks.get("task1")!.nextReminderAt).toBeNull();
+    expect(store.tasks.get("task1")!.nextReminderAt).toBe("2026-10-27T05:30:00.000Z"); // 27 Oct 11:00 IST
     expect(await runReminders(store, NOW)).toEqual([]);
+    expect(await runReminders(store, new Date("2026-10-27T05:30:00Z"))).toHaveLength(1);
   });
 
-  it("monthly: stops after the reminder (Done creates the next one)", async () => {
+  it("monthly: overdue reminders daily at 11 AM too", async () => {
     const store = setup([task({ repeat: "monthly", repeatDay: 27, nextReminderAt: PAST })]);
     await runReminders(store, NOW);
-    expect(store.tasks.get("task1")!.nextReminderAt).toBeNull();
+    expect(store.tasks.get("task1")!.nextReminderAt).toBe("2026-10-27T05:30:00.000Z");
   });
 
   it("every90: next reminder 90 minutes later", async () => {

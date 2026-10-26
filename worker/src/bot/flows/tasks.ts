@@ -451,7 +451,7 @@ async function onDateRemark(ctx: BotContext, data: Data, input: Inbound): Promis
     dueHasTime: hasTime,
     nextReminderAt: data.newDue,
     remarks: [...t.remarks, remarkOf(ctx, update)],
-    ...(ctx.user.role === "admin" ? { dateRequest: null } : {}),
+    dateRequest: null,
     updatedAt: ctx.now.toISOString(),
   });
   return [...(await finish(ctx, `📅 Date badal di: *${newText}*`)), ...updateNotice(ctx, t, update)];

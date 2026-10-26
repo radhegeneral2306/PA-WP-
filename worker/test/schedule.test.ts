@@ -24,9 +24,13 @@ describe("afterReminder", () => {
     // 7:00 PM IST + 90 min = 8:30 PM → next morning
     expect(afterReminder({ repeat: "every90" }, at("2026-10-26T13:30:00Z"))).toBe("2026-10-27T04:30:00.000Z");
   });
-  it("stops after one reminder for other kinds", () => {
-    expect(afterReminder({ repeat: "none" }, at("2026-10-26T06:00:00Z"))).toBeNull();
-    expect(afterReminder({ repeat: "monthly" }, at("2026-10-26T06:00:00Z"))).toBeNull();
+  it("repeats other kinds daily at 11 AM IST", () => {
+    expect(afterReminder({ repeat: "none" }, at("2026-10-26T06:00:00Z"))).toBe("2026-10-27T05:30:00.000Z");
+    expect(afterReminder({ repeat: "monthly" }, at("2026-10-26T06:00:00Z"))).toBe("2026-10-27T05:30:00.000Z");
+    // sent just after midnight (00:30 IST on 27 Oct) → 11 AM the same day
+    expect(afterReminder({ repeat: "none" }, at("2026-10-26T19:00:00Z"))).toBe("2026-10-27T05:30:00.000Z");
+    // due reminder at 9 AM IST → not again at 11 AM the same day, but the next day
+    expect(afterReminder({ repeat: "none" }, at("2026-10-26T03:30:00Z"))).toBe("2026-10-27T05:30:00.000Z");
   });
 });
 

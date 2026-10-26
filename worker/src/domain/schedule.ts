@@ -6,6 +6,8 @@ import type { NewTask, Task } from "./types";
 export const WORK_START_HOUR = 10;
 export const WORK_END_HOUR = 20;
 export const REPEAT_MINUTES = 90;
+/** Pending one-time/monthly tasks get one reminder a day at this hour after the due reminder. */
+export const OVERDUE_HOUR = 11;
 
 const IST_OFFSET_MS = 330 * 60_000;
 
@@ -28,10 +30,20 @@ export function nextMorning(now: Date): Date {
   return atIST(addDays(istDay(now), 1), { hour: WORK_START_HOUR, minute: 0 });
 }
 
-/** nextReminderAt to store after a reminder went out at `sentAt`; null = no more reminders. */
-export function afterReminder(task: Pick<Task, "repeat">, sentAt: Date): string | null {
-  if (task.repeat !== "every90") return null;
-  return intoWorkingHours(new Date(sentAt.getTime() + REPEAT_MINUTES * 60_000)).toISOString();
+/** Overdue reminders at least this far apart, so a 9 AM due reminder isn't followed at 11 AM. */
+const MIN_OVERDUE_GAP_MS = 6 * 60 * 60_000;
+
+/**
+ * nextReminderAt to store after a reminder went out at `sentAt`. every90 repeats
+ * in 90 minutes; the others repeat daily at 11 AM until the task is done.
+ */
+export function afterReminder(task: Pick<Task, "repeat">, sentAt: Date): string {
+  if (task.repeat === "every90") {
+    return intoWorkingHours(new Date(sentAt.getTime() + REPEAT_MINUTES * 60_000)).toISOString();
+  }
+  let next = atIST(istDay(sentAt), { hour: OVERDUE_HOUR, minute: 0 });
+  while (next.getTime() - sentAt.getTime() < MIN_OVERDUE_GAP_MS) next = atIST(addDays(istDay(next), 1), { hour: OVERDUE_HOUR, minute: 0 });
+  return next.toISOString();
 }
 
 /**

@@ -397,3 +397,35 @@ describe("manageStaffFlow", () => {
     });
   });
 });
+
+describe("staff edit carries over to existing tasks", () => {
+  it("renames the assignee and creator on old tasks and moves the branch", async () => {
+    const store = new MemoryStore({
+      users: USERS,
+      tasks: [
+        task({ id: "a", assigneePhone: STAFF_DURG.phone, assigneeName: "Hardware", branch: "DURG", createdByPhone: STAFF_DURG.phone, createdByName: "Hardware" }),
+        task({ id: "b", assigneePhone: STAFF_DURG.phone, assigneeName: "Hardware", branch: "DURG", status: "done" }),
+        task({ id: "c", assigneePhone: STAFF_RAIPUR.phone, assigneeName: "Chikku", branch: "RAIPUR", createdByPhone: STAFF_DURG.phone, createdByName: "Hardware" }),
+      ],
+    });
+    const ctx = makeCtx(ADMIN, store);
+    await store.saveSession({
+      phone: ADMIN.phone, flow: "manage_staff", step: "edit_confirm",
+      data: { phone: STAFF_DURG.phone, field: "name", newName: "Hardware Bhai" }, updatedAt: NOW.toISOString(),
+    });
+    const s = await store.getSession(ADMIN.phone);
+    const out = await manageStaffFlow.handle(ctx, s!, tap("manage_staff:confirm:yes"));
+    expect(JSON.stringify(out)).toContain("3 task(s) bhi update");
+    expect(store.tasks.get("a")).toMatchObject({ assigneeName: "Hardware Bhai", createdByName: "Hardware Bhai" });
+    expect(store.tasks.get("b")!.assigneeName).toBe("Hardware Bhai");
+    expect(store.tasks.get("c")).toMatchObject({ assigneeName: "Chikku", createdByName: "Hardware Bhai" });
+
+    await store.saveSession({
+      phone: ADMIN.phone, flow: "manage_staff", step: "edit_confirm",
+      data: { phone: STAFF_DURG.phone, field: "branch", newBranch: "RAIPUR" }, updatedAt: NOW.toISOString(),
+    });
+    await manageStaffFlow.handle(ctx, (await store.getSession(ADMIN.phone))!, tap("manage_staff:confirm:yes"));
+    expect(store.tasks.get("a")!.branch).toBe("RAIPUR");
+    expect(store.tasks.get("c")!.branch).toBe("RAIPUR");
+  });
+});

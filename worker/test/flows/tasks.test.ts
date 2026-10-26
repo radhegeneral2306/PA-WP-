@@ -611,6 +611,20 @@ describe("date badlo", () => {
     expect(t).toMatchObject({ dueAt: "2026-12-15T04:30:00.000Z", dateRequest: null });
   });
 
+  it("staff date change within 25 days also clears their pending request", async () => {
+    const ctx = setup(STAFF_DURG);
+    await ctx.store.updateTask("d2", {
+      dateRequest: { dueAt: "2026-12-01T04:30:00.000Z", hasTime: false, remark: "r", byPhone: STAFF_DURG.phone, byName: "Hardware", requestedAt: "2026-10-20T04:30:00.000Z" },
+    });
+    await tasksFlow.start(ctx, "mine");
+    await send(ctx, tap("tasks:task:d2"));
+    await send(ctx, tap("tasks:act:date"));
+    await send(ctx, tap("tasks:due:custom"));
+    await send(ctx, say("5/11"));
+    await send(ctx, say("Customer ne 5 ko bola"));
+    expect(await ctx.store.getTask("d2")).toMatchObject({ dueAt: "2026-11-05T04:30:00.000Z", dateRequest: null });
+  });
+
   it("25-day rule does not limit admins", async () => {
     const ctx = setup(ADMIN);
     await toDue(ctx, "a2");

@@ -218,7 +218,7 @@ describe("cron", () => {
     const t = await store.createTask(due);
     await runCron(env, "*/5 * * * *", new Date("2026-10-26T09:30:00Z"), { store });
     expect(interaktCalls().map((c) => [c.body.type, c.body.template?.name])).toEqual([["Template", "task_reminder_v1"]]);
-    expect((await store.getTask(t.id))?.nextReminderAt).toBeNull();
+    expect((await store.getTask(t.id))?.nextReminderAt).toBe("2026-10-27T05:30:00.000Z");
   });
 
   it("sends the daily summary unless switched off", async () => {

@@ -480,8 +480,33 @@ async function editConfirm(ctx: BotContext, data: Data, input: Inbound): Promise
     }
   }
   await ctx.store.saveUser(after);
+  const moved = await syncTasks(ctx, target, after);
   await endFlow(ctx);
-  return [text(to, `✅ Update ho gaya\n\n${editSummary(target, after).split("\n").slice(1).join("\n")}`)];
+  const tasksLine = moved ? `\n\n📋 ${moved} task(s) bhi update ho gaye.` : "";
+  return [text(to, `✅ Update ho gaya\n\n${editSummary(target, after).split("\n").slice(1).join("\n")}${tasksLine}`)];
+}
+
+/** Carries a name or branch change over to the user's existing tasks (assigned and created). */
+async function syncTasks(ctx: BotContext, before: User, after: User): Promise<number> {
+  const { store } = ctx;
+  let count = 0;
+  if (before.name !== after.name || before.branch !== after.branch) {
+    for (const t of await store.listTasks({ assigneePhone: after.phone })) {
+      await store.updateTask(t.id, { assigneeName: after.name, branch: after.branch });
+      count++;
+    }
+  }
+  if (before.name !== after.name) {
+    for (const t of await store.listTasks({ createdByPhone: after.phone })) {
+      if (t.assigneePhone === after.phone) continue; // already counted above
+      await store.updateTask(t.id, { createdByName: after.name });
+      count++;
+    }
+    for (const t of await store.listTasks({ assigneePhone: after.phone })) {
+      if (t.createdByPhone === after.phone) await store.updateTask(t.id, { createdByName: after.name });
+    }
+  }
+  return count;
 }
 
 // ---- list ----
