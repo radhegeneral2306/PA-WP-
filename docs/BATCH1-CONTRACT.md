@@ -40,3 +40,23 @@ editing. Nobody commits; the coordinator commits after review.
 - Staff may not move a due date more than 25 days ahead (Batch 1: reject with a warning; approval flow is Batch 2).
 - All bot text is Hinglish (Roman script).
 - Reply ids are namespaced `<flowId>:<...>` so stale taps from old lists can be detected.
+
+---
+
+# Batch 2: Work Split
+
+New shared contract (coordinator owns): `Task.repeatDay`, `Task.dateRequest`,
+`Task.lastReminderAt` and `DateRequest` in `types.ts`; reminder timing rules in
+`worker/src/domain/schedule.ts` (`intoWorkingHours`, `nextMorning`,
+`afterReminder`, `afterResponse`, `nextMonthlyDue`, `nextMonthlyTask`).
+Coordinator also owns `router.ts` (adds the Approvals menu entry and the
+"Approvals dekhein" quick reply) and `index.ts` (cron wiring).
+
+| Agent | Owns | Delivers |
+|---|---|---|
+| **E1: Scheduler** | `src/scheduler/reminders.ts`, `src/scheduler/daily.ts`, `test/scheduler/*.test.ts` | Due reminders (`task_reminder_v1`), 90-min repeats, daily summary (`daily_summary_v1`) |
+| **E2: Create + staff edit** | `src/bot/flows/createTask.ts`, `src/bot/flows/manageStaff.ts`, their tests | Reminder type step (Ek baar / Har 90 min / Har mahine); "Staff edit" (name / branch / role) |
+| **E3: Task actions + approvals** | `src/bot/flows/tasks.ts`, new `src/bot/flows/approvals.ts`, their tests | 25-day approval requests, Approve/Reject flow, monthly next occurrence on Done, `task_updated_v1` to creator, every90 pause on remark |
+
+Rules: tasks saved before Batch 2 may lack the new optional fields; treat
+missing as null. Working hours for 90-minute repeats: 10 AM to 8 PM IST.

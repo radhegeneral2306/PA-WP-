@@ -28,8 +28,23 @@ export interface User {
 
 export type TaskStatus = "pending" | "done";
 
-/** Batch 2 fills in reminder behaviour; Batch 1 always writes "none". */
+/**
+ * none: one reminder at the due time.
+ * every90: reminder at the due time, then every 90 minutes within working
+ *   hours (10 AM to 8 PM IST) until the assignee responds.
+ * monthly: due on the same day every month; marking it Done creates next month's task.
+ */
 export type TaskRepeat = "none" | "every90" | "monthly";
+
+/** A staff request to move a due date beyond the 25-day limit, waiting for an admin. */
+export interface DateRequest {
+  dueAt: string; // ISO UTC
+  hasTime: boolean;
+  remark: string;
+  byPhone: string;
+  byName: string;
+  requestedAt: string; // ISO UTC
+}
 
 export interface Remark {
   at: string; // ISO UTC
@@ -52,8 +67,14 @@ export interface Task {
   dueHasTime: boolean;
   status: TaskStatus;
   repeat: TaskRepeat;
-  /** When the next reminder should go out (Batch 2 scheduler reads this). */
+  /** When the next reminder should go out; null = no more reminders. The scheduler reads this. */
   nextReminderAt: string | null;
+  /** Monthly tasks: the day of month the user chose (31 stays 31 even in 30-day months). */
+  repeatDay?: number | null;
+  /** Pending date-change approval, if any. Tasks saved before Batch 2 lack this field. */
+  dateRequest?: DateRequest | null;
+  /** Last time a reminder was sent (for logs and the dashboard later). */
+  lastReminderAt?: string | null;
   remarks: Remark[];
   createdAt: string;
   updatedAt: string;
