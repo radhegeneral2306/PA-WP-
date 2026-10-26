@@ -48,3 +48,31 @@
 ---
 
 **Kuch galat lage toh:** screenshot + kya kiya tha, bas itna bhej do. Cloudflare logs se main baaki dekh lunga.
+
+---
+
+# Batch 2 Testing
+
+> Pehle Cloudflare se `TEST_NUMBERS` hata do, taaki naye staff ko bhi message jaaye.
+
+## D. Reminders
+- [ ] Naya task banao → time **5-10 min baad** ka do → **Ek baar** → time aane pe staff ko ⏰ reminder template aaya (max 5 min late ho sakta hai)
+- [ ] Task pe remark do, phir naya reminder aaye toh usme **last remark** dikha
+- [ ] Naya task → **Har 90 min** → pehla reminder due time pe, phir har 90 min (sirf 10 AM–8 PM)
+- [ ] 90-min wale task pe staff **Update ✏️** kare → aaj aur reminder nahi, agli subah 10 baje se phir
+- [ ] Naya task → **Har mahine** → Done karo → "🔁 Agla task" agle mahine ki usi tareekh ka bana
+- [ ] Agle din subah 10 baje ☀️ daily summary aayi (jinke pending tasks hain)
+
+## E. 25 din approval
+- [ ] Staff: task → **Date badlo** → 30+ din aage ki date → remark → "Request admin ko bhej di", date **nahi** badli
+- [ ] Admin (jisne task diya) ko approval request template aaya
+- [ ] Admin: **Hi → ⏳ Approvals** (ya template ka "Approvals dekhein" button) → request → **Approve ✅** → staff ko "Approved" message, date badal gayi
+- [ ] Dobara request → **Reject ❌** → staff ko "Rejected", purani date rahi
+
+## F. Creator ko updates
+- [ ] Staff remark de → admin (creator) ko "task update" template aaya
+- [ ] Staff date badle (25 din ke andar) → admin ko update aaya
+
+## G. Staff edit
+- [ ] Admin: **Staff manage → Staff edit** → kisi ka naam badlo → list mein naya naam
+- [ ] Staff ki branch badlo; staff ko admin banao; apna role badalne ki koshish → mana
