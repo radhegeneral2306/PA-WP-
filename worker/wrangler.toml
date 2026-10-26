@@ -1,6 +1,8 @@
 name = "pa-wp-bot"
 main = "src/index.ts"
 compatibility_date = "2025-10-01"
+# Don't wipe variables added in the dashboard on each deploy.
+keep_vars = true
 
 # All config values are secrets. Set them with `npx wrangler secret put <NAME>`
 # (see docs/SETUP-batch0.md). For local `wrangler dev`, copy .dev.vars.example to .dev.vars.
