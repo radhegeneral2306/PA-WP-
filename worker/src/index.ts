@@ -14,6 +14,20 @@ export default {
     if (request.method === "GET" && url.pathname === "/") {
       return new Response("pa-wp-bot ok");
     }
+    // TEMPORARY setup aid: setting names plus length and a short hash of the webhook
+    // secret (never the value). Remove once Batch 0 setup is confirmed.
+    if (request.method === "GET" && url.pathname === "/diag") {
+      return Response.json(
+        {
+          settingNames: Object.keys(rawEnv).sort(),
+          webhookSecret: {
+            length: env.WEBHOOK_SECRET?.length ?? 0,
+            sha256Prefix: env.WEBHOOK_SECRET ? (await sha256Hex(env.WEBHOOK_SECRET)).slice(0, 8) : null,
+          },
+        },
+        { headers: { "Cache-Control": "no-store" } },
+      );
+    }
 
     const match = url.pathname.match(/^\/webhook\/([^/]+)(\/status)?$/);
     if (!match || !env.WEBHOOK_SECRET || !safeEqual(match[1], env.WEBHOOK_SECRET)) {
@@ -112,4 +126,9 @@ async function forwardToSheet(sheetUrl: string, rawBody: string): Promise<void> 
   } catch (err) {
     console.error("Sheet forward failed", err);
   }
+}
+
+async function sha256Hex(text: string): Promise<string> {
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text)));
+  return Array.from(digest, (b) => b.toString(16).padStart(2, "0")).join("");
 }
