@@ -5,6 +5,7 @@
 
 import type { Store } from "./data/store";
 import { BRANCHES, type BranchId, type Role, type User } from "./domain/types";
+import { normalizePhone } from "./numbers";
 
 export async function handleUsersEndpoint(request: Request, store: Store, now: Date): Promise<Response> {
   if (request.method === "GET") {
@@ -29,13 +30,6 @@ export async function handleUsersEndpoint(request: Request, store: Store, now: D
   }
   for (const u of users) await store.saveUser(u);
   return Response.json({ saved: users.length });
-}
-
-export function normalizePhone(input: string): string | null {
-  const digits = input.replace(/\D/g, "");
-  if (digits.length === 10) return `91${digits}`;
-  if (digits.length === 12 && digits.startsWith("91")) return digits;
-  return null;
 }
 
 function toUser(raw: unknown, now: Date): User | string {

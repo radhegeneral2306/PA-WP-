@@ -3,6 +3,7 @@ import worker, { processWebhook } from "../src/index";
 import type { Env } from "../src/env";
 import { textWebhook } from "./fixtures";
 import { interaktSignature } from "../src/interakt/signature";
+import { MemoryStore } from "../src/data/memoryStore";
 
 const env: Env = {
   WEBHOOK_SECRET: "s3cret",
@@ -102,35 +103,103 @@ describe("fetch handler", () => {
 });
 
 describe("processWebhook", () => {
-  it("sends the list and the buttons for Hi from a test number", async () => {
-    await processWebhook(env, textWebhook("Hi"), "{}");
-    expect(interaktCalls().map((c) => c.body.type)).toEqual(["InteractiveList", "InteractiveButton"]);
+  // Fixture sender 919999999999 registered as an admin.
+  const admin = { phone: "919999999999", name: "Test Admin", role: "admin" as const, branch: null, active: true, createdAt: "2026-10-01T00:00:00.000Z" };
+  const deps = () => ({ store: new MemoryStore({ users: [admin] }), now: new Date("2026-10-26T09:30:00Z") });
+
+  it("answers Hi from a registered user with the main menu", async () => {
+    await processWebhook(env, textWebhook("Hi"), "{}", deps());
+    expect(interaktCalls()).toHaveLength(1);
+    expect(interaktCalls()[0].body.type).toBe("InteractiveList");
     expect(interaktCalls()[0].body.phoneNumber).toBe("9999999999");
+    expect(JSON.stringify(interaktCalls()[0].body)).toContain("MENU:manage_staff");
   });
 
-  it("stays silent for numbers outside TEST_NUMBERS", async () => {
+  it("stays silent for unregistered or removed numbers", async () => {
+    await processWebhook(env, textWebhook("Hi"), "{}", { store: new MemoryStore() });
+    await processWebhook(env, textWebhook("Hi"), "{}", { store: new MemoryStore({ users: [{ ...admin, active: false }] }) });
+    expect(interaktCalls()).toHaveLength(0);
+  });
+
+  it("stays silent for numbers outside TEST_NUMBERS when that list is set", async () => {
     const body = textWebhook("Hi");
     body.data.customer.channel_phone_number = "915555555555";
-    await processWebhook(env, body, "{}");
+    await processWebhook(env, body, "{}", { store: new MemoryStore({ users: [{ ...admin, phone: "915555555555" }] }) });
     expect(interaktCalls()).toHaveLength(0);
   });
 
   it("ignores other organizations", async () => {
     const body = textWebhook("Hi");
     body.data.organization_id = "someone-else";
-    await processWebhook(env, body, "{}");
+    await processWebhook(env, body, "{}", deps());
     expect(interaktCalls()).toHaveLength(0);
   });
 
   it("skips duplicate deliveries", async () => {
     const { createIfAbsent } = await import("../src/firebase/firestore");
     vi.mocked(createIfAbsent).mockResolvedValueOnce(false);
-    await processWebhook(env, textWebhook("Hi"), "{}");
+    await processWebhook(env, textWebhook("Hi"), "{}", deps());
     expect(interaktCalls()).toHaveLength(0);
   });
 
-  it("echoes a list reply", async () => {
-    await processWebhook(env, textWebhook({ type: "list_reply", list_reply: { id: "BRANCH_DURG", title: "Durg" } }), "{}");
-    expect(interaktCalls()[0].body.data.message).toContain("Durg");
+  it("starts a flow from a menu tap", async () => {
+    const d = deps();
+    await processWebhook(env, textWebhook({ type: "list_reply", list_reply: { id: "MENU:create_task", title: "Naya task" } }), "{}", d);
+    expect(interaktCalls()).toHaveLength(1);
+    expect(await d.store.getSession(admin.phone)).toMatchObject({ flow: "create_task" });
+  });
+});
+
+describe("TEST_NUMBERS outgoing guard", () => {
+  it("does not message assignees outside TEST_NUMBERS", async () => {
+    const admin = { phone: "919999999999", name: "Test Admin", role: "admin" as const, branch: null, active: true, createdAt: "2026-10-01T00:00:00.000Z" };
+    const dummy = { phone: "910000000011", name: "Dummy", role: "staff" as const, branch: "DURG" as const, active: true, createdAt: "2026-10-01T00:00:00.000Z" };
+    const store = new MemoryStore({ users: [admin, dummy] });
+    await store.saveSession({
+      phone: admin.phone,
+      flow: "create_task",
+      step: "confirm",
+      data: {
+        assigneePhone: dummy.phone, assigneeName: dummy.name, assigneeBranch: "DURG", assigneeRole: "staff",
+        title: "Test", dueAt: "2026-10-27T04:30:00.000Z", dueHasTime: "false",
+      },
+      updatedAt: "2026-10-26T09:29:00.000Z",
+    });
+    await processWebhook(env, textWebhook({ type: "button_reply", button_reply: { id: "create_task:confirm:yes", title: "Haan" } }), "{}", {
+      store,
+      now: new Date("2026-10-26T09:30:00Z"),
+    });
+    expect(interaktCalls().map((c) => c.body.phoneNumber)).toEqual(["9999999999"]);
+  });
+});
+
+describe("users endpoint", () => {
+  it("rejects bad input", async () => {
+    const { handleUsersEndpoint } = await import("../src/admin");
+    const store = new MemoryStore();
+    const put = (body: unknown) =>
+      handleUsersEndpoint(new Request("https://x/", { method: "PUT", body: JSON.stringify(body) }), store, new Date());
+    expect((await put({})).status).toBe(400);
+    expect((await put([{ phone: "123", name: "A", role: "staff", branch: "DURG" }])).status).toBe(400);
+    expect((await put([{ phone: "9000000011", name: "A", role: "staff" }])).status).toBe(400);
+    expect((await put([{ phone: "9000000011", name: "A", role: "staff", branch: "PUNE" }])).status).toBe(400);
+    expect(store.users.size).toBe(0);
+  });
+
+  it("upserts users and keeps createdAt", async () => {
+    const { handleUsersEndpoint } = await import("../src/admin");
+    const store = new MemoryStore();
+    const put = (body: unknown, now: string) =>
+      handleUsersEndpoint(new Request("https://x/", { method: "PUT", body: JSON.stringify(body) }), store, new Date(now));
+    await put([{ phone: "+91 90000 00011", name: "Hardware", role: "staff", branch: "durg" }], "2026-10-01T00:00:00Z");
+    await put([{ phone: "9000000011", name: "Hardware 2", role: "staff", branch: "DURG" }], "2026-10-02T00:00:00Z");
+    expect(await store.getUser("919000000011")).toMatchObject({
+      name: "Hardware 2",
+      branch: "DURG",
+      active: true,
+      createdAt: "2026-10-01T00:00:00.000Z",
+    });
+    const res = await handleUsersEndpoint(new Request("https://x/"), store, new Date());
+    expect(((await res.json()) as unknown[]).length).toBe(1);
   });
 });

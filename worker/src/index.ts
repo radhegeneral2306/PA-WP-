@@ -1,10 +1,16 @@
 import { cleanEnv, type Env } from "./env";
 import { parseWebhook, type IncomingMessage } from "./interakt/parse";
 import { createIfAbsent, type FirestoreConfig } from "./firebase/firestore";
-import { handleBatch0 } from "./batch0";
 import { safeEqual, verifyInteraktSignature } from "./interakt/signature";
 import { statusReport } from "./status";
 import { mask, testNumbers } from "./numbers";
+import { FirestoreStore } from "./data/firestoreStore";
+import type { Store } from "./data/store";
+import { handleMessage } from "./bot/router";
+import { text } from "./bot/ui";
+import type { Outgoing } from "./bot/outgoing";
+import { deliverAll } from "./interakt/deliver";
+import { handleUsersEndpoint } from "./admin";
 
 export default {
   async fetch(request: Request, rawEnv: Env, ctx: ExecutionContext): Promise<Response> {
@@ -14,15 +20,16 @@ export default {
     if (request.method === "GET" && url.pathname === "/") {
       return new Response("pa-wp-bot ok");
     }
-    const match = url.pathname.match(/^\/webhook\/([^/]+)(\/status)?$/);
+    const match = url.pathname.match(/^\/webhook\/([^/]+)(\/status|\/users)?$/);
     if (!match || !env.WEBHOOK_SECRET || !safeEqual(match[1], env.WEBHOOK_SECRET)) {
       console.warn("Rejected request: unknown path or wrong webhook secret", request.method, url.pathname.slice(0, 12));
       return new Response("Not found", { status: 404 });
     }
-    if (match[2]) {
+    if (match[2] === "/status") {
       if (request.method !== "GET") return new Response("Not found", { status: 404 });
       return Response.json(await statusReport(env), { headers: { "Cache-Control": "no-store" } });
     }
+    if (match[2] === "/users") return handleUsersEndpoint(request, storeFor(env), new Date());
     if (request.method !== "POST") return new Response("Not found", { status: 404 });
 
     const rawBody = await request.text();
@@ -48,7 +55,12 @@ export default {
   },
 };
 
-export async function processWebhook(env: Env, body: unknown, rawBody: string): Promise<void> {
+export interface Deps {
+  store?: Store;
+  now?: Date;
+}
+
+export async function processWebhook(env: Env, body: unknown, rawBody: string, deps: Deps = {}): Promise<void> {
   const parsed = parseWebhook(body);
   if (parsed.kind === "ignored") {
     console.log("Webhook event ignored:", parsed.type);
@@ -61,9 +73,18 @@ export async function processWebhook(env: Env, body: unknown, rawBody: string): 
     console.warn("Ignoring webhook from unknown organization", msg.organizationId);
     return;
   }
-  // The business number also serves customers; only test numbers talk to the bot.
-  if (!testNumbers(env).has(msg.phone)) {
-    console.log("Not a test number, no reply:", mask(msg.phone));
+  // Optional extra gate while testing; registered users are the real gate below.
+  const allow = testNumbers(env);
+  if (allow.size > 0 && !allow.has(msg.phone)) {
+    console.log("Not in TEST_NUMBERS, no reply:", mask(msg.phone));
+    return;
+  }
+
+  // The business number also serves customers: only registered, active users talk to the bot.
+  const store = deps.store ?? storeFor(env);
+  const user = await store.getUser(msg.phone);
+  if (!user?.active) {
+    console.log("Unregistered number, no reply:", mask(msg.phone));
     return;
   }
 
@@ -71,19 +92,45 @@ export async function processWebhook(env: Env, body: unknown, rawBody: string): 
     console.log("Duplicate webhook skipped", msg.messageId);
     return;
   }
-  await handleBatch0(env.INTERAKT_API_KEY, msg);
+
+  const ctx = { store, user, now: deps.now ?? new Date() };
+  try {
+    const outs = await handleMessage(ctx, { text: msg.text, reply: msg.reply });
+    await deliverAll(env.INTERAKT_API_KEY, onlyAllowed(outs, allow));
+  } catch (err) {
+    console.error("Bot failed", err);
+    await store.clearSession(user.phone).catch(() => undefined);
+    await deliverAll(env.INTERAKT_API_KEY, [text(user.phone, "Maaf kijiye, kuch gadbad ho gayi 🙏 Dobara *Hi* bhejiye.")]);
+  }
+}
+
+/** While TEST_NUMBERS is set, never message anyone outside it (dummy users can't reach real phones). */
+function onlyAllowed(outs: Outgoing[], allow: Set<string>): Outgoing[] {
+  if (allow.size === 0) return outs;
+  return outs.filter((o) => {
+    if (allow.has(o.to)) return true;
+    console.log("Skipped message to number outside TEST_NUMBERS:", mask(o.to), o.kind);
+    return false;
+  });
+}
+
+function storeFor(env: Env): Store {
+  return new FirestoreStore(firestoreConfig(env));
+}
+
+function firestoreConfig(env: Env): FirestoreConfig {
+  return {
+    projectId: env.FIREBASE_PROJECT_ID,
+    clientEmail: env.FIREBASE_CLIENT_EMAIL,
+    privateKey: env.FIREBASE_PRIVATE_KEY,
+  };
 }
 
 /** Logs the raw webhook to Firestore; false means this message id was already handled. */
 async function isFirstDelivery(env: Env, msg: IncomingMessage, rawBody: string): Promise<boolean> {
   if (!msg.messageId) return true;
-  const cfg: FirestoreConfig = {
-    projectId: env.FIREBASE_PROJECT_ID,
-    clientEmail: env.FIREBASE_CLIENT_EMAIL,
-    privateKey: env.FIREBASE_PRIVATE_KEY,
-  };
   try {
-    return await createIfAbsent(cfg, "webhook_log", msg.messageId, {
+    return await createIfAbsent(firestoreConfig(env), "webhook_log", msg.messageId, {
       phone: msg.phone,
       contentType: msg.contentType,
       text: msg.text,
