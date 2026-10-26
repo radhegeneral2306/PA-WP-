@@ -1,0 +1,19 @@
+{
+  "name": "pa-wp-bot",
+  "version": "0.1.0",
+  "private": true,
+  "description": "WhatsApp task bot (Interakt webhook) on Cloudflare Workers",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261026.1",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.7",
+    "wrangler": "^4.152.0"
+  }
+}
