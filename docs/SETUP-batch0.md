@@ -45,6 +45,7 @@ Bot sirf `TEST_NUMBERS` wale numbers ko reply karega. Customers ko kuch nahi jay
 |---|---|
 | `WEBHOOK_SECRET` | Claude ne chat mein diya hai |
 | `INTERAKT_API_KEY` | Interakt → Settings → Developer Settings → API key |
+| `INTERAKT_WEBHOOK_KEY` | Step 3 mein Interakt ke "Secret key" box se (baad mein add kar sakte ho) |
 | `INTERAKT_ORG_ID` | Claude ne chat mein diya hai |
 | `TEST_NUMBERS` | Claude ne chat mein diya hai |
 | `FIREBASE_PROJECT_ID` | JSON file ka `project_id` |
@@ -56,10 +57,19 @@ Bot sirf `TEST_NUMBERS` wale numbers ko reply karega. Customers ko kuch nahi jay
 
 ## Step 3: Interakt ka webhook URL badlo (~5 min)
 
+> Ye step Step 2 ke **baad** hi hoga, kyunki URL Cloudflare deploy karne pe milta hai.
+
 1. Interakt → **Settings → Developer Settings → Webhook**
-2. URL daalo: `https://pa-wp-bot.<tumhara-naam>.workers.dev/webhook/<WEBHOOK_SECRET>`
-3. **Message received** event ON hona chahiye
-4. Save. Purana Google Sheet URL yahan se hat jayega, par `SHEET_FORWARD_URL` daala hai toh sheet mein data aata rahega.
+2. **Webhook URL:** `https://pa-wp-bot.<tumhara-naam>.workers.dev/webhook/<WEBHOOK_SECRET>`
+   - `<tumhara-naam>` aur `<WEBHOOK_SECRET>` ki jagah **asli values** daalo. `<` `>` brackets bhi hata do.
+   - Sahi URL kuch aisa dikhega: `https://pa-wp-bot.abc123.workers.dev/webhook/2c6002...`
+3. **Secret key:** 🔄 (refresh) button dabao → naya key banega → **Copy** dabao
+   - Yahi key Cloudflare → Variables and Secrets mein `INTERAKT_WEBHOOK_KEY` naam se **Secret** ki tarah daalo
+   - Isse bot check karega ki har message sach mein Interakt se aaya hai
+4. **Message received** event ON hona chahiye
+5. Save. Purana Google Sheet URL yahan se hat jayega, par `SHEET_FORWARD_URL` daala hai toh sheet mein data aata rahega.
+
+**Agar save karne ke baad bot bilkul reply na kare:** Cloudflare Logs mein "Rejected webhook ... Interakt-Signature" dikhe, toh `INTERAKT_WEBHOOK_KEY` aur Interakt wala key match nahi kar rahe. Dono dobara copy-paste karo.
 
 ## Step 4: Test (~5 min)
 

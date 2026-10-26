@@ -7,6 +7,7 @@ compatibility_date = "2025-10-01"
 #
 #   WEBHOOK_SECRET         long random string; the webhook URL is /webhook/<WEBHOOK_SECRET>
 #   INTERAKT_API_KEY       Interakt Developer Settings API key (already base64, used as Basic auth)
+#   INTERAKT_WEBHOOK_KEY   "Secret key" set next to the webhook URL in Interakt; checks Interakt-Signature
 #   INTERAKT_ORG_ID        organization_id from Interakt webhooks; other orgs are ignored
 #   TEST_NUMBERS           comma-separated full numbers (e.g. 919999999999); only these get bot replies
 #   FIREBASE_PROJECT_ID    Firebase project id

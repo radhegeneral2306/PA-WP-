@@ -2,6 +2,7 @@ import type { Env } from "./env";
 import { parseWebhook, type IncomingMessage } from "./interakt/parse";
 import { createIfAbsent, type FirestoreConfig } from "./firebase/firestore";
 import { handleBatch0 } from "./batch0";
+import { safeEqual, verifyInteraktSignature } from "./interakt/signature";
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -17,6 +18,13 @@ export default {
     }
 
     const rawBody = await request.text();
+    if (
+      env.INTERAKT_WEBHOOK_KEY &&
+      !(await verifyInteraktSignature(env.INTERAKT_WEBHOOK_KEY, rawBody, request.headers.get("Interakt-Signature")))
+    ) {
+      console.warn("Rejected webhook with missing or invalid Interakt-Signature");
+      return new Response("Invalid signature", { status: 401 });
+    }
     if (env.SHEET_FORWARD_URL) ctx.waitUntil(forwardToSheet(env.SHEET_FORWARD_URL, rawBody));
 
     let body: unknown;
@@ -97,11 +105,4 @@ async function forwardToSheet(sheetUrl: string, rawBody: string): Promise<void> 
   } catch (err) {
     console.error("Sheet forward failed", err);
   }
-}
-
-function safeEqual(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  let diff = 0;
-  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  return diff === 0;
 }

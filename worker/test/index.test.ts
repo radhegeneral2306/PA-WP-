@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import worker, { processWebhook } from "../src/index";
 import type { Env } from "../src/env";
 import { textWebhook } from "./fixtures";
+import { interaktSignature } from "../src/interakt/signature";
 
 const env: Env = {
   WEBHOOK_SECRET: "s3cret",
@@ -48,6 +49,25 @@ describe("fetch handler", () => {
       ctx,
     );
     expect(res.status).toBe(200);
+  });
+
+  it("checks Interakt-Signature when a webhook key is set", async () => {
+    const signed = { ...env, INTERAKT_WEBHOOK_KEY: "interakt-key" };
+    const body = JSON.stringify({ type: "ping" });
+    const post = (sig?: string) =>
+      worker.fetch(
+        new Request("https://x/webhook/s3cret", {
+          method: "POST",
+          body,
+          headers: sig ? { "Interakt-Signature": sig } : {},
+        }),
+        signed,
+        ctx,
+      );
+
+    expect((await post()).status).toBe(401);
+    expect((await post("sha256=" + "0".repeat(64))).status).toBe(401);
+    expect((await post(await interaktSignature("interakt-key", body))).status).toBe(200);
   });
 
   it("answers health checks", async () => {
