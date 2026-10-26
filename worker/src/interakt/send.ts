@@ -94,6 +94,8 @@ export async function send(apiKey: string, payload: object): Promise<SendResult>
     body: JSON.stringify(payload),
   });
   const body = await res.text();
-  if (!res.ok) console.error("Interakt send failed", res.status, body);
+  const type = (payload as { type?: string }).type;
+  if (res.ok) console.log("Interakt send ok", type, body.slice(0, 200));
+  else console.error("Interakt send failed", type, res.status, body.slice(0, 500));
   return { ok: res.ok, status: res.status, body };
 }

@@ -52,3 +52,12 @@ export async function createIfAbsent(
   if (!res.ok) throw new Error(`Firestore create ${collection}/${docId} failed ${res.status}: ${await res.text()}`);
   return true;
 }
+
+/** Reads one document page to prove the credentials and project id work. */
+export async function checkAccess(cfg: FirestoreConfig, collection: string): Promise<void> {
+  const token = await getAccessToken(cfg);
+  const res = await fetch(`${docsUrl(cfg)}/${collection}?pageSize=1`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw new Error(`Firestore read ${collection} failed ${res.status}: ${await res.text()}`);
+}

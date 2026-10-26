@@ -14,3 +14,7 @@ compatibility_date = "2025-10-01"
 #   FIREBASE_CLIENT_EMAIL  service account client_email
 #   FIREBASE_PRIVATE_KEY   service account private_key (the -----BEGIN PRIVATE KEY----- block)
 #   SHEET_FORWARD_URL      optional; every webhook body is also POSTed here (old Google Sheet logger)
+
+# Keeps console logs viewable in the dashboard (Worker -> Observability / Logs).
+[observability]
+enabled = true

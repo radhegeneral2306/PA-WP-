@@ -15,7 +15,10 @@ const env: Env = {
 };
 
 // Skip Google auth: pretend the Firestore log write succeeded unless a test overrides it.
-vi.mock("../src/firebase/firestore", () => ({ createIfAbsent: vi.fn(async () => true) }));
+vi.mock("../src/firebase/firestore", () => ({
+  createIfAbsent: vi.fn(async () => true),
+  checkAccess: vi.fn(async () => undefined),
+}));
 
 let calls: { url: string; body: any }[];
 
@@ -68,6 +71,19 @@ describe("fetch handler", () => {
     expect((await post()).status).toBe(401);
     expect((await post("sha256=" + "0".repeat(64))).status).toBe(401);
     expect((await post(await interaktSignature("interakt-key", body))).status).toBe(200);
+  });
+
+  it("reports settings presence on the status page without leaking values", async () => {
+    const res = await worker.fetch(new Request("https://x/webhook/s3cret/status"), env, ctx);
+    const json = (await res.json()) as any;
+    expect(json.settings.INTERAKT_API_KEY).toBe(true);
+    expect(json.settings.SHEET_FORWARD_URL).toBe(false);
+    expect(json.testNumbers).toEqual([
+      { number: "***9999", digits: 12 },
+      { number: "***7777", digits: 12 },
+    ]);
+    expect(JSON.stringify(json)).not.toContain("919999999999");
+    expect((await worker.fetch(new Request("https://x/webhook/nope/status"), env, ctx)).status).toBe(404);
   });
 
   it("answers health checks", async () => {

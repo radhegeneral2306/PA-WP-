@@ -3,6 +3,8 @@ import { parseWebhook, type IncomingMessage } from "./interakt/parse";
 import { createIfAbsent, type FirestoreConfig } from "./firebase/firestore";
 import { handleBatch0 } from "./batch0";
 import { safeEqual, verifyInteraktSignature } from "./interakt/signature";
+import { statusReport } from "./status";
+import { mask, testNumbers } from "./numbers";
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -12,10 +14,16 @@ export default {
       return new Response("pa-wp-bot ok");
     }
 
-    const match = url.pathname.match(/^\/webhook\/([^/]+)$/);
-    if (request.method !== "POST" || !match || !env.WEBHOOK_SECRET || !safeEqual(match[1], env.WEBHOOK_SECRET)) {
+    const match = url.pathname.match(/^\/webhook\/([^/]+)(\/status)?$/);
+    if (!match || !env.WEBHOOK_SECRET || !safeEqual(match[1], env.WEBHOOK_SECRET)) {
+      console.warn("Rejected request: unknown path or wrong webhook secret", request.method, url.pathname.slice(0, 12));
       return new Response("Not found", { status: 404 });
     }
+    if (match[2]) {
+      if (request.method !== "GET") return new Response("Not found", { status: 404 });
+      return Response.json(await statusReport(env), { headers: { "Cache-Control": "no-store" } });
+    }
+    if (request.method !== "POST") return new Response("Not found", { status: 404 });
 
     const rawBody = await request.text();
     if (
@@ -42,15 +50,22 @@ export default {
 
 export async function processWebhook(env: Env, body: unknown, rawBody: string): Promise<void> {
   const parsed = parseWebhook(body);
-  if (parsed.kind === "ignored") return;
+  if (parsed.kind === "ignored") {
+    console.log("Webhook event ignored:", parsed.type);
+    return;
+  }
   const msg = parsed.message;
+  console.log("Message received", { from: mask(msg.phone), type: msg.contentType, text: msg.text.slice(0, 40) });
 
   if (env.INTERAKT_ORG_ID && msg.organizationId !== env.INTERAKT_ORG_ID) {
     console.warn("Ignoring webhook from unknown organization", msg.organizationId);
     return;
   }
   // The business number also serves customers; only test numbers talk to the bot.
-  if (!testNumbers(env).has(msg.phone)) return;
+  if (!testNumbers(env).has(msg.phone)) {
+    console.log("Not a test number, no reply:", mask(msg.phone));
+    return;
+  }
 
   if (!(await isFirstDelivery(env, msg, rawBody))) {
     console.log("Duplicate webhook skipped", msg.messageId);
@@ -82,15 +97,6 @@ async function isFirstDelivery(env: Env, msg: IncomingMessage, rawBody: string):
     console.error("Webhook log failed", err);
     return true;
   }
-}
-
-export function testNumbers(env: Env): Set<string> {
-  return new Set(
-    (env.TEST_NUMBERS ?? "")
-      .split(",")
-      .map((n) => n.replace(/\D/g, ""))
-      .filter(Boolean),
-  );
 }
 
 async function forwardToSheet(sheetUrl: string, rawBody: string): Promise<void> {
