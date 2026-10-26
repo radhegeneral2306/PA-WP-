@@ -45,9 +45,10 @@ export async function handleMessage(ctx: BotContext, input: Inbound): Promise<Ou
   const { store, user } = ctx;
   const lower = input.text.toLowerCase();
   const replyId = input.reply?.id ?? "";
+  // Template quick replies carry only the button text (as plain text or as the reply id).
+  const quick = (input.reply && !replyId.includes(":") ? replyId : input.text).toLowerCase();
 
-  // Template quick replies arrive with the button text as id/title.
-  if (GREETINGS.has(lower) || replyId === "Menu") {
+  if (GREETINGS.has(lower) || quick === "menu") {
     await store.clearSession(user.phone);
     return [mainMenu(ctx)];
   }
@@ -55,7 +56,7 @@ export async function handleMessage(ctx: BotContext, input: Inbound): Promise<Ou
     await store.clearSession(user.phone);
     return [text(user.phone, "Theek hai, cancel kar diya. Menu ke liye *Hi* bhejiye.")];
   }
-  if (replyId === "Mere tasks") return startEntry(ctx, "my_tasks");
+  if (quick === "mere tasks") return startEntry(ctx, "my_tasks");
   if (replyId.startsWith("MENU:")) return startEntry(ctx, replyId.slice("MENU:".length));
 
   const session = await store.getSession(user.phone);
