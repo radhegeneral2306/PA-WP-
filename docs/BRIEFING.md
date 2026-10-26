@@ -76,6 +76,8 @@ Ek **WhatsApp task management bot**, Radhe ke staff ke liye.
 - 3 agents: E1 scheduler, E2 reminder type + staff edit, E3 task actions + approvals
 - Cloudflare cron: har 5 min due reminders (`task_reminder_v1`, last remark ke saath); roz 10 AM IST daily summary (`DAILY_SUMMARY=off` se band)
 - Reminder types: Ek baar / Har 90 min (10 AM–8 PM, remark dene pe agli subah tak ruk jaata hai) / Har mahine (Done pe agle mahine ka task, 31 → mahine ki last date)
+- Overdue (Ek baar / Har mahine): Done hone tak roz 11 AM reminder
+- Staff ka naam/branch edit karne pe purane tasks bhi update; koi bhi date change hone pe pending date-request apne aap hat jaati hai
 - Staff 25 din se aage date maange → admin ko approval request → Approvals menu se Approve/Reject → staff ko result
 - Staff update / date badle → creator ko `task_updated_v1`
 - Staff edit (naam / branch / role)
