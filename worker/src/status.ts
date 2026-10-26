@@ -32,7 +32,7 @@ export async function statusReport(env: Env) {
 // Interakt's key is base64 of "<key>:" and goes straight into Basic auth.
 function interaktKeyShape(key: string | undefined): string {
   if (!key?.trim()) return "missing";
-  if (/\s/.test(key.trim()) || key !== key.trim()) return "has spaces or line breaks; paste it again";
+  if (/\s/.test(key)) return "has spaces inside; paste it again";
   try {
     return atob(key).endsWith(":") ? "looks right" : "decodes, but not the usual Interakt format";
   } catch {

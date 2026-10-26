@@ -1,4 +1,4 @@
-import type { Env } from "./env";
+import { cleanEnv, type Env } from "./env";
 import { parseWebhook, type IncomingMessage } from "./interakt/parse";
 import { createIfAbsent, type FirestoreConfig } from "./firebase/firestore";
 import { handleBatch0 } from "./batch0";
@@ -7,7 +7,8 @@ import { statusReport } from "./status";
 import { mask, testNumbers } from "./numbers";
 
 export default {
-  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  async fetch(request: Request, rawEnv: Env, ctx: ExecutionContext): Promise<Response> {
+    const env = cleanEnv(rawEnv);
     const url = new URL(request.url);
 
     if (request.method === "GET" && url.pathname === "/") {

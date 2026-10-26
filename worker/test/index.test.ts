@@ -45,6 +45,15 @@ describe("fetch handler", () => {
     expect(res.status).toBe(404);
   });
 
+  it("tolerates a stray newline around the configured secret", async () => {
+    const res = await worker.fetch(
+      new Request("https://x/webhook/s3cret", { method: "POST", body: JSON.stringify({ type: "ping" }) }),
+      { ...env, WEBHOOK_SECRET: " s3cret\n" },
+      ctx,
+    );
+    expect(res.status).toBe(200);
+  });
+
   it("accepts the right secret", async () => {
     const res = await worker.fetch(
       new Request("https://x/webhook/s3cret", { method: "POST", body: JSON.stringify({ type: "ping" }) }),
