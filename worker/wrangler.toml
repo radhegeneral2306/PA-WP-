@@ -1,0 +1,15 @@
+name = "pa-wp-bot"
+main = "src/index.ts"
+compatibility_date = "2025-10-01"
+
+# All config values are secrets. Set them with `npx wrangler secret put <NAME>`
+# (see docs/SETUP-batch0.md). For local `wrangler dev`, copy .dev.vars.example to .dev.vars.
+#
+#   WEBHOOK_SECRET         long random string; the webhook URL is /webhook/<WEBHOOK_SECRET>
+#   INTERAKT_API_KEY       Interakt Developer Settings API key (already base64, used as Basic auth)
+#   INTERAKT_ORG_ID        organization_id from Interakt webhooks; other orgs are ignored
+#   TEST_NUMBERS           comma-separated full numbers (e.g. 919999999999); only these get bot replies
+#   FIREBASE_PROJECT_ID    Firebase project id
+#   FIREBASE_CLIENT_EMAIL  service account client_email
+#   FIREBASE_PRIVATE_KEY   service account private_key (the -----BEGIN PRIVATE KEY----- block)
+#   SHEET_FORWARD_URL      optional; every webhook body is also POSTed here (old Google Sheet logger)
