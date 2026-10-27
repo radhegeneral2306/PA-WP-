@@ -1,7 +1,7 @@
 // Storage contract. FirestoreStore (production) and MemoryStore (tests)
 // both implement it; bot code only ever sees this interface.
 
-import type { BranchId, LoginGuard, NewTask, Role, Session, Task, TaskStatus, User } from "../domain/types";
+import type { BranchId, Health, LoginGuard, NewTask, Role, Session, Task, TaskStatus, User } from "../domain/types";
 
 export interface UserFilter {
   branch?: BranchId;
@@ -37,4 +37,9 @@ export interface Store {
 
   getLoginGuard(key: string): Promise<LoginGuard | null>;
   saveLoginGuard(guard: LoginGuard): Promise<void>;
+  /** system/health; null before the first problem or check. */
+  getHealth(): Promise<Health | null>;
+  saveHealth(health: Health): Promise<void>;
+  /** loggedAt of the newest webhook_log entry (any incoming message), or null if none. */
+  latestWebhookAt(): Promise<Date | null>;
 }

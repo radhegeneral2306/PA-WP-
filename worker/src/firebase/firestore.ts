@@ -155,6 +155,20 @@ export async function queryDocs(cfg: FirestoreConfig, collection: string, filter
   return rows.filter((r) => r.document).map((r) => decodeDoc(r.document as RawDoc));
 }
 
+/** The document with the highest `field` value (single-field index, automatic), or null. */
+export async function latestDoc(cfg: FirestoreConfig, collection: string, field: string): Promise<Doc | null> {
+  const structuredQuery = {
+    from: [{ collectionId: collection }],
+    orderBy: [{ field: { fieldPath: field }, direction: "DESCENDING" }],
+    limit: 1,
+  };
+  const res = await call(cfg, "POST", `${docsUrl(cfg)}:runQuery`, { structuredQuery });
+  if (!res.ok) return fail(`latest ${collection}`, res);
+  const rows = (await res.json()) as { document?: RawDoc }[];
+  const raw = rows.find((r) => r.document)?.document;
+  return raw ? decodeDoc(raw) : null;
+}
+
 /**
  * Creates `collection/docId` only if it does not exist yet.
  * Returns false when the document already exists, which doubles as

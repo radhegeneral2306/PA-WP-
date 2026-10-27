@@ -113,3 +113,23 @@ export interface LoginGuard {
   /** Logins from this key are refused until then (ISO UTC). */
   lockedUntil: string | null;
 }
+
+/**
+ * Bot health since the last daily check (one Firestore document, system/health).
+ * Counters are bumped when sends or handlers fail; the 10 AM check reads and resets them.
+ */
+export interface Health {
+  /** Start of the current counting window (ISO UTC). */
+  since: string;
+  /** Interakt sends that failed outright (message never left). */
+  sendFailures: number;
+  /** Template sends that failed and fell back to plain text. */
+  templateFailures: number;
+  /** Exceptions in webhook handling or cron runs. */
+  errors: number;
+  /** Short description of the latest problem (no phone numbers). */
+  lastProblem: string | null;
+  lastProblemAt: string | null;
+  /** When the daily check last ran (ISO UTC). */
+  lastCheckAt: string | null;
+}

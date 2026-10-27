@@ -3,11 +3,12 @@
 // indexes are needed; remaining filters and sorting happen in memory,
 // matching MemoryStore exactly.
 
-import type { LoginGuard, NewTask, Session, Task, User } from "../domain/types";
+import type { Health, LoginGuard, NewTask, Session, Task, User } from "../domain/types";
 import {
   createDoc,
   deleteDoc,
   getDoc,
+  latestDoc,
   patchDoc,
   queryDocs,
   setDoc,
@@ -22,6 +23,8 @@ const USERS = "users";
 const TASKS = "tasks";
 const SESSIONS = "sessions";
 const LOGIN_GUARDS = "login_guards";
+const SYSTEM = "system";
+const WEBHOOK_LOG = "webhook_log";
 
 type Fields = { [k: string]: Plain };
 
@@ -125,5 +128,21 @@ export class FirestoreStore implements Store {
 
   async saveLoginGuard(guard: LoginGuard): Promise<void> {
     await setDoc(this.cfg, LOGIN_GUARDS, guard.key, plain(guard));
+  }
+
+  async getHealth(): Promise<Health | null> {
+    const doc = await getDoc(this.cfg, SYSTEM, "health");
+    return doc ? (doc.data as unknown as Health) : null;
+  }
+
+  async saveHealth(health: Health): Promise<void> {
+    await setDoc(this.cfg, SYSTEM, "health", plain(health));
+  }
+
+  async latestWebhookAt(): Promise<Date | null> {
+    const doc = await latestDoc(this.cfg, WEBHOOK_LOG, "loggedAt");
+    const at = doc?.data.loggedAt;
+    if (at instanceof Date) return at;
+    return typeof at === "string" && !Number.isNaN(Date.parse(at)) ? new Date(at) : null;
   }
 }
