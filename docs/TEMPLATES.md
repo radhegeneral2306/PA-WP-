@@ -346,6 +346,40 @@ Poori list dekhne ke liye neeche "Mere tasks" dabayein.
 
 ---
 
+### 4.9 `task_cancelled_v1` (Dashboard)
+
+Kab jaata hai: jab dashboard se task cancel hota hai. Assignee aur creator dono ko jaata hai, par jisne cancel kiya usko nahi. Agar dono ek hi insaan hain, toh ek hi message jaata hai.
+
+| Field | Value |
+|---|---|
+| Name | `task_cancelled_v1` |
+| Category | Utility |
+| Language | English |
+| Header | Text: `Task Cancelled` |
+| Footer | `Radhe Task Bot` |
+| Buttons | Quick Reply: `Mere tasks` |
+
+**Body:**
+
+```
+Namaste {{1}} ji,
+{{2}} ne ek task cancel kar diya hai.
+
+Task: {{3}}
+Kiska task: {{4}}
+
+Is task ka ab koi reminder nahi aayega. Baaki tasks ke liye neeche "Mere tasks" dabayein.
+```
+
+| Variable | Matlab | Sample value |
+|---|---|---|
+| `{{1}}` | Jisko message ja raha hai | Hema |
+| `{{2}}` | Jisne cancel kiya | Dashboard (admin) |
+| `{{3}}` | Task | Sharma ji se payment lena |
+| `{{4}}` | Task kiske naam pe tha | Hema |
+
+---
+
 ## 5. Aage ke liye ideas (OPTIONAL, abhi code mein nahi hain)
 
 > Ye sirf ideas hain. Abhi submit karne ki zaroorat **nahi** hai. Jab ye features banenge tab
