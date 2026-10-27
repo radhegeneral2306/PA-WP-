@@ -23,7 +23,7 @@ interface MenuEntry {
 /** Batch 3: switch on for everyone once a real form submission has been checked. */
 export const FORMS_LIVE = false;
 /** Until then the form option shows only for these users (by name; templates approved 27 Oct). */
-export const FORM_TESTERS: ReadonlySet<string> = new Set(["Bhaskar", "Ofc Hardware - 66466"]);
+export const FORM_TESTERS: ReadonlySet<string> = new Set(["Bhaskar", "Ofc Hardware - 66466", "Chikku"]);
 
 const FORM_ENTRY: MenuEntry = {
   key: "create_task_form",
