@@ -7,7 +7,7 @@
 import { branchName, type TaskRepeat, type User } from "../../domain/types";
 import { atIST, formatDateTime, formatDue, istDay, isValidDay, parseTime, type ISTDay, type ParsedDue } from "../../domain/dates";
 import type { BotContext, Flow } from "../flow";
-import type { Outgoing } from "../outgoing";
+import type { Outgoing, TemplateName } from "../outgoing";
 import { createTaskFor, TITLE_MAX } from "../taskActions";
 import { text } from "../ui";
 
@@ -25,6 +25,12 @@ const REPEAT_SUFFIX: Record<TaskRepeat, string> = {
   monthly: " (har mahine)",
 };
 
+/**
+ * Admin form template in use. v1 opens "Naya Task Admin v2" (with Branch); v2 opens "Naya Task Admin v3"
+ * (no Branch). Switch to "task_form_admin_v2" once Meta approves it. Submissions from both forms work.
+ */
+export const ADMIN_FORM_TEMPLATE: TemplateName = "task_form_admin_v1";
+
 export const taskFormFlow: Flow = {
   id: ID,
   async start(ctx: BotContext) {
@@ -33,7 +39,7 @@ export const taskFormFlow: Flow = {
       {
         to: ctx.user.phone,
         kind: "template",
-        template: admin ? "task_form_admin_v1" : "task_form_staff_v1",
+        template: admin ? ADMIN_FORM_TEMPLATE : "task_form_staff_v1",
         bodyValues: [],
         fallbackText: FALLBACK,
         flowToken: admin ? ADMIN_TOKEN : STAFF_TOKEN,

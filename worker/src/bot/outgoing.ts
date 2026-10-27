@@ -35,10 +35,11 @@ export const TEMPLATE_PARAMS = {
   task_cancelled_v1: ["recipient name", "cancelled by", "task", "assigned to"],
   // Batch 3 form templates: no body placeholders, one "Form kholo" button that opens the form.
   task_form_admin_v1: [],
+  task_form_admin_v2: [], // Admin form v3 without the Branch field (submitted 27 Oct)
   task_form_staff_v1: [],
 } as const;
 
 /** Templates whose button opens a WhatsApp Form; sent with is_flow_template. */
-export const FLOW_TEMPLATES: ReadonlySet<TemplateName> = new Set<TemplateName>(["task_form_admin_v1", "task_form_staff_v1"]);
+export const FLOW_TEMPLATES: ReadonlySet<TemplateName> = new Set<TemplateName>(["task_form_admin_v1", "task_form_admin_v2", "task_form_staff_v1"]);
 
 export type TemplateName = keyof typeof TEMPLATE_PARAMS;

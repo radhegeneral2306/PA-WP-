@@ -30,8 +30,8 @@ describe("templatePayload for form (flow) templates", () => {
     expect(() => templatePayload(to, "task_form_admin_v1", ["x"])).toThrow(/needs 0/);
   });
 
-  it("only the two form templates are flow templates", () => {
-    expect([...FLOW_TEMPLATES].sort()).toEqual(["task_form_admin_v1", "task_form_staff_v1"]);
+  it("only the form templates are flow templates", () => {
+    expect([...FLOW_TEMPLATES].sort()).toEqual(["task_form_admin_v1", "task_form_admin_v2", "task_form_staff_v1"]);
   });
 });
 

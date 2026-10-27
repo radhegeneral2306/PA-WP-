@@ -252,3 +252,22 @@ describe("Interakt Person list short tags", () => {
     expect(body(out[0])).toContain("✅ Task ban gaya!");
   });
 });
+
+describe("Admin form v3 (no Branch field, template task_form_admin_v2)", () => {
+  it("a submission without a branch answer uses the person's own branch", async () => {
+    const t = setup(ADMIN);
+    const { branch: _b, ...noBranch } = ADMIN_FORM;
+    const out = await t.submit(noBranch);
+    const [saved] = await t.store.listTasks({});
+    expect(saved).toMatchObject({ assigneePhone: STAFF_DURG.phone, branch: "DURG" });
+    expect(body(out[0])).toContain("✅ Task ban gaya!");
+  });
+
+  it("a wrong bracket tag is still refused without a branch answer", async () => {
+    const t = setup(ADMIN);
+    const { branch: _b, ...noBranch } = ADMIN_FORM;
+    const out = await t.submit({ ...noBranch, person: "Hardware (Raipur)" });
+    expect(await t.store.listTasks({})).toEqual([]);
+    expect(body(out[0])).toContain("❌ Task nahi bana");
+  });
+});

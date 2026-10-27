@@ -12,6 +12,7 @@ Copy names and options **exactly** (spelling, capital letters, spaces). The bot 
 |---|---|---|---|
 | Naya Task Admin v2 | 2636999320105587 | `task_form_admin_v1` | approved (Utility) |
 | Naya Task Staff | 1676969103936562 | `task_form_staff_v1` | approved (Meta made it Marketing) |
+| Naya Task Admin v3 (no Branch) | 2211140249828307 | `task_form_admin_v2` | pending; bot switches via `ADMIN_FORM_TEMPLATE` once approved |
 
 Differences from the plan below:
 - Interakt limits: field label max 20 characters, option max 30. So the Hardware person option is `Ofc Hardware - 66466 (Hdw)`; the bot reads `(Hdw)` as Hardware.
