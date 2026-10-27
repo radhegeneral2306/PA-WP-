@@ -82,6 +82,12 @@ const decideRequest =
   (decision: "approve" | "reject"): TaskAction =>
   async (ctx, body, task, actor) => {
     const expected = typeof body.requestedAt === "string" ? body.requestedAt : null;
+    // Approving a date that has already gone by would restart reminders from the past
+    // (an instant, possibly night-time reminder). Reject it, or change the date instead.
+    const r = task.dateRequest;
+    if (decision === "approve" && task.status === "pending" && r && (!expected || r.requestedAt === expected) && Date.parse(r.dueAt) < ctx.now.getTime()) {
+      return json({ error: "Maangi gayi date nikal chuki hai. Reject kijiye ya nayi date dijiye.", code: "request_expired" }, 409);
+    }
     return respond(ctx, decision, actor, task, await decideDateRequest(ctx.store, task, actor, decision, ctx.now, expected));
   };
 
@@ -111,6 +117,10 @@ function boundRoute(action: WriteAction, id: string, path: string): Route {
   return { method: "POST", path, auth: "named", handler: (ctx, body) => runAction(ctx, body, id, action) };
 }
 
+function isSafeId(id: string): boolean {
+  return id.length <= 256 && id !== "." && id !== ".." && !/[/\\\u0000-\u001f\u007f]/.test(id);
+}
+
 /** `POST /api/tasks/<id>/<action>` → a route with the id bound into its handler; null otherwise. */
 export function matchWriteRoute(method: string, path: string): { route: Route; id: string } | null {
   if (method !== "POST") return null;
@@ -122,6 +132,8 @@ export function matchWriteRoute(method: string, path: string): { route: Route; i
   } catch {
     return null;
   }
+  // Task ids are Firestore document ids: never a path ("a%2Fb"), "." / "..", or control characters.
+  if (!isSafeId(id)) return null;
   return { route: boundRoute(m[2] as WriteAction, id, path), id };
 }
 

@@ -4,7 +4,7 @@
 
 import type { Store } from "../data/store";
 import { atIST, formatDateTime, formatDue, istDay, isValidDay, type ParsedDue } from "../domain/dates";
-import { afterResponse, nextMonthlyTask } from "../domain/schedule";
+import { afterReminder, afterResponse, intoWorkingHours, nextMonthlyTask } from "../domain/schedule";
 import type { DateRequest, Remark, Task, TaskRepeat, User } from "../domain/types";
 import type { Outgoing } from "./outgoing";
 import { clip } from "./ui";
@@ -41,6 +41,24 @@ async function reload(store: Store, id: string): Promise<Task> {
   const t = await store.getTask(id);
   if (!t) throw new Error(`Task ${id} vanished`);
   return t;
+}
+
+/**
+ * First reminder for a (new) due date: at the due time, except every90 tasks, which only
+ * nag in working hours (a 9 PM due time starts them at 10 AM next morning).
+ */
+export function firstReminderAt(repeat: TaskRepeat, dueAt: Date): string {
+  return (repeat === "every90" ? intoWorkingHours(dueAt) : dueAt).toISOString();
+}
+
+/** Drops notices to the actor and to users who are inactive or missing. */
+async function onlyActive(store: Store, outs: Outgoing[], actor: Actor): Promise<Outgoing[]> {
+  const kept: Outgoing[] = [];
+  for (const o of outs) {
+    if (o.to === actor.phone) continue;
+    if ((await store.getUser(o.to))?.active) kept.push(o);
+  }
+  return kept;
 }
 
 // ---------- notifications ----------
@@ -99,7 +117,7 @@ export async function markDone(store: Store, t: Task, actor: Actor, now: Date): 
   const remarks = actor.viaDashboard ? [...t.remarks, remarkBy(actor, "Done kiya", now)] : t.remarks;
   await store.updateTask(t.id, { status: "done", doneAt: at, updatedAt: at, nextReminderAt: null, dateRequest: null, remarks });
   const next = t.repeat === "monthly" ? await store.createTask(nextMonthlyTask(t, now)) : undefined;
-  const outs = t.createdByPhone !== actor.phone ? [doneNotice(t, actor.name, now)] : [];
+  const outs = await onlyActive(store, [doneNotice(t, actor.name, now)], actor);
   return { ok: true, task: await reload(store, t.id), next, outs };
 }
 
@@ -115,7 +133,7 @@ export async function addRemark(store: Store, t: Task, actor: Actor, text: strin
     nextReminderAt: afterResponse(t, now),
     updatedAt: now.toISOString(),
   });
-  const outs = t.createdByPhone !== actor.phone ? [updateNotice(t, { phone: t.createdByPhone, name: t.createdByName }, actor.name, body)] : [];
+  const outs = await onlyActive(store, [updateNotice(t, { phone: t.createdByPhone, name: t.createdByName }, actor.name, body)], actor);
   return { ok: true, task: await reload(store, t.id), outs };
 }
 
@@ -141,7 +159,7 @@ export async function changeDue(
   await store.updateTask(t.id, {
     dueAt: due.dueAt.toISOString(),
     dueHasTime: due.hasTime,
-    nextReminderAt: due.dueAt.toISOString(),
+    nextReminderAt: firstReminderAt(t.repeat, due.dueAt),
     dateRequest: null,
     remarks: [...t.remarks, remarkBy(actor, update, now)],
     updatedAt: now.toISOString(),
@@ -150,27 +168,40 @@ export async function changeDue(
   recipients.set(t.createdByPhone, t.createdByName);
   if (opts.notifyAssignee) recipients.set(t.assigneePhone, t.assigneeName);
   recipients.delete(actor.phone);
-  const outs = [...recipients].map(([phone, name]) => updateNotice(t, { phone, name }, actor.name, update));
+  const outs = await onlyActive(store, [...recipients].map(([phone, name]) => updateNotice(t, { phone, name }, actor.name, update)), actor);
   return { ok: true, task: await reload(store, t.id), outs };
 }
 
-/** Reassign to another active user; the new assignee gets task_assigned_v1 (unless they did it). */
+/**
+ * Reassign to another active user; the new assignee gets task_assigned_v1 (unless they did it).
+ * Reminders follow the new assignee: if they had stopped (the old assignee was removed), they restart.
+ */
 export async function reassign(store: Store, t: Task, actor: Actor, to: User, now: Date): Promise<ActionResult> {
   const blocked = closed(t);
   if (blocked) return blocked;
   if (!to.active) return fail(400, "bad_request", "Ye user ab active nahi hai");
   if (to.phone === t.assigneePhone) return fail(400, "bad_request", "Task pehle se isi ke naam pe hai");
-  const note = `Assign badla: ${t.assigneeName} → ${to.name}`;
+  // A pending date request belonged to the old assignee; the new one never asked for it.
+  const dropped = t.dateRequest ? ` (${t.assigneeName} ki date request hata di)` : "";
+  const note = `Assign badla: ${t.assigneeName} → ${to.name}${dropped}`;
   await store.updateTask(t.id, {
     assigneePhone: to.phone,
+    dateRequest: null,
     assigneeName: to.name,
     branch: to.branch,
+    ...(t.nextReminderAt ? {} : { nextReminderAt: restartReminder(t, now) }),
     remarks: [...t.remarks, remarkBy(actor, note, now)],
     updatedAt: now.toISOString(),
   });
   const task = await reload(store, t.id);
   const outs = to.phone !== actor.phone ? [assignedNotice(task, actor.name, now)] : [];
   return { ok: true, task, outs };
+}
+
+/** A stopped pending task's next reminder: its due time if still ahead, else the normal overdue cadence. */
+function restartReminder(t: Task, now: Date): string {
+  const due = new Date(t.dueAt);
+  return due.getTime() > now.getTime() ? firstReminderAt(t.repeat, due) : afterReminder(t, now);
 }
 
 /** cancelled_v1 for one recipient. */
@@ -226,7 +257,7 @@ export async function reopenTask(store: Store, t: Task, actor: Actor, due: Parse
     status: "pending",
     dueAt: due.dueAt.toISOString(),
     dueHasTime: due.hasTime,
-    nextReminderAt: due.dueAt.toISOString(),
+    nextReminderAt: firstReminderAt(t.repeat, due.dueAt),
     cancelledAt: null,
     cancelledByName: null,
     dateRequest: null,
@@ -256,7 +287,7 @@ export function dateResultNotice(t: Task, req: DateRequest, approved: boolean, d
 
 /**
  * Approve or reject a staff date request (beyond the 25-day limit). Approve moves the due date
- * and restarts reminders from it; reject keeps the old date. The requester is always told.
+ * and restarts reminders from it; reject keeps the old date. The requester is told (if still active).
  * expectedRequestedAt (when given) guards against deciding on a request that was replaced meanwhile.
  */
 export async function decideDateRequest(
@@ -281,7 +312,7 @@ export async function decideDateRequest(
     await store.updateTask(t.id, {
       dueAt: r.dueAt,
       dueHasTime: r.hasTime,
-      nextReminderAt: r.dueAt,
+      nextReminderAt: firstReminderAt(t.repeat, new Date(r.dueAt)),
       dateRequest: null,
       remarks: [...t.remarks, remarkBy(actor, `Date approve hui (${actor.name}): ${oldText} → ${newText}. ${r.remark}`, now)],
       updatedAt: now.toISOString(),
@@ -293,7 +324,7 @@ export async function decideDateRequest(
       updatedAt: now.toISOString(),
     });
   }
-  const outs = [dateResultNotice(t, r, approved, approved ? newText : oldText)];
+  const outs = await onlyActive(store, [dateResultNotice(t, r, approved, approved ? newText : oldText)], actor);
   return { ok: true, task: await reload(store, t.id), outs };
 }
 
@@ -328,7 +359,7 @@ export async function createTaskFor(store: Store, actor: Actor, input: NewTaskIn
     dueHasTime: input.due.hasTime,
     status: "pending",
     repeat: input.repeat,
-    nextReminderAt: dueAt,
+    nextReminderAt: firstReminderAt(input.repeat, input.due.dueAt),
     repeatDay: input.repeat === "monthly" ? istDay(input.due.dueAt).day : null,
     dateRequest: null,
     lastReminderAt: null,

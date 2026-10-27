@@ -107,7 +107,10 @@ async function postLogin(ctx: ApiContext, body: unknown): Promise<Response> {
 
 async function getMe(ctx: ApiContext): Promise<Response> {
   const s = ctx.session!;
-  return json({ name: s.name, expiresAt: new Date(s.exp * 1000).toISOString(), admins: await activeAdminNames(ctx.store) });
+  const admins = await activeAdminNames(ctx.store);
+  // A name picked before that admin was removed or renamed no longer counts: ask "Aap kaun ho?" again.
+  const name = s.name && admins.includes(s.name) ? s.name : null;
+  return json({ name, expiresAt: new Date(s.exp * 1000).toISOString(), admins });
 }
 
 /** "Aap kaun ho?": re-issues the token with the picked admin name. */

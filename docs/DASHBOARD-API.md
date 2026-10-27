@@ -130,7 +130,7 @@ Shared with WhatsApp "Approvals" via `decideDateRequest` in `src/bot/taskActions
 - **reject:** date unchanged, request cleared, remark "Date request reject hui (Name). Date <old> hi rahegi."
 - The requester always gets `date_approval_result_v1` (Approved/Rejected + the due date now in force).
 
-Errors: 409 `no_request` (already handled), 409 `request_changed` (request replaced), 409 `task_closed`, 404 `not_found`. The PWA closes its confirm dialog on any 409/404, shows the message and refreshes.
+Errors: 409 `no_request` (already handled), 409 `request_changed` (request replaced), 409 `request_expired` (approve only: the requested date has already passed; reject it or set a new date), 409 `task_closed`, 404 `not_found`. The PWA closes its confirm dialog on any 409/404, shows the message and refreshes.
 
 ## New task from the dashboard (owner request, 27 Oct)
 
@@ -139,6 +139,13 @@ Body `{ "title": string, "assigneePhone": string, "date": "YYYY-MM-DD", "time": 
 Rules (`createTaskFor` in `src/bot/taskActions.ts`, same record as the WhatsApp "Naya task" wizard): title trimmed, 1-200 chars; assignee any active user (staff of any branch or an admin, including yourself; branch copied from the user); due date required and in the future, no time = 10:00 AM IST; reminders start at the due time; monthly sets `repeatDay` = IST day of the due date; no 25-day limit (admins only). `createdBy` = the picked admin, first remark "Dashboard se banaya" by "Name (dashboard)".
 WhatsApp `task_assigned_v1` to the assignee unless they created it. Response **201** `{ task: TaskDTO, next: null }`. 400 `bad_request` on any invalid field. `GET /api/tasks` is unchanged (the list).
 PWA: "Naya task" button (floating on phone, top bar on desktop) opens a form: Task kya hai?, Kisko dena hai? (staff picker, pre-picked from the staff filter), Due date, Time (optional), Reminder (Ek baar / Har 90 min / Har mahine with a one-line explanation). Closing a filled form asks "Form band karein?".
+
+## Hardening notes (27 Oct audit)
+
+- `GET /api/me` returns `name: null` when the picked admin was removed or renamed, so the app asks "Aap kaun ho?" again.
+- Task ids that decode to `/`, `\`, control characters, `.`/`..` or more than 256 chars get 404.
+- Shared rules (`taskActions.ts`) never message removed users or the actor; every90 first reminders are moved into working hours (10:00-20:00 IST); reassign restarts a stopped reminder and drops the old assignee's pending date request (noted in the remark).
+- Known limit: two requests at the very same instant can still both apply (no Firestore transactions yet). A stale screen gets 409.
 
 ## Later phases
 

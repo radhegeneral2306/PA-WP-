@@ -115,3 +115,18 @@ describe("dueFromInput", () => {
     }
   });
 });
+
+describe("reassign clears the old assignee's date request", () => {
+  it("drops a pending request and says so in the remark", async () => {
+    const { MemoryStore } = await import("../src/data/memoryStore");
+    const { reassign } = await import("../src/bot/taskActions");
+    const { ADMIN, NOW, STAFF_DURG, STAFF_RAIPUR, USERS, task } = await import("./helpers/bot");
+    const req = { dueAt: "2026-12-05T04:30:00.000Z", hasTime: false, remark: "x", byPhone: STAFF_DURG.phone, byName: STAFF_DURG.name, requestedAt: NOW.toISOString() };
+    const store = new MemoryStore({ users: USERS, tasks: [task({ dateRequest: req })] });
+    const r = await reassign(store, (await store.getTask("task1"))!, { phone: ADMIN.phone, name: ADMIN.name }, STAFF_RAIPUR, NOW);
+    expect(r.ok).toBe(true);
+    const saved = await store.getTask("task1");
+    expect(saved?.dateRequest).toBeNull();
+    expect(saved?.remarks.at(-1)?.text).toBe(`Assign badla: ${STAFF_DURG.name} → ${STAFF_RAIPUR.name} (${STAFF_DURG.name} ki date request hata di)`);
+  });
+});
