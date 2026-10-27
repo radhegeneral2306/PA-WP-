@@ -1,15 +1,16 @@
-// Write routes: POST /api/tasks/:id/{done,remark,due,assign,cancel}.
+// Write routes: POST /api/tasks/:id/{done,remark,due,assign,cancel,reopen}.
 // Rules live in bot/taskActions (shared with WhatsApp); this module only resolves
 // the acting admin, validates the body and turns ActionResults into responses.
 // The router matches exact paths, so matchWriteRoute binds the :id into the handler.
 
-import { addRemark, cancelTask, changeDue, dueFromInput, markDone, reassign, REMARK_MAX, type ActionResult, type Actor } from "../../bot/taskActions";
+import { addRemark, cancelTask, changeDue, dueFromInput, markDone, reassign, reopenTask, REMARK_MAX, type ActionResult, type Actor } from "../../bot/taskActions";
+import type { ParsedDue } from "../../domain/dates";
 import type { Task } from "../../domain/types";
 import { mask } from "../../numbers";
 import { json, type ApiContext, type Route } from "../api";
 import { toTaskDTO } from "./read";
 
-export type WriteAction = "done" | "remark" | "due" | "assign" | "cancel";
+export type WriteAction = "done" | "remark" | "due" | "assign" | "cancel" | "reopen";
 
 /** Runs one action on a loaded task for a resolved actor. */
 type TaskAction = (ctx: ApiContext, body: Record<string, unknown>, task: Task, actor: Actor) => Promise<Response>;
@@ -43,13 +44,20 @@ const remark: TaskAction = async (ctx, body, task, actor) => {
   return respond(ctx, "remark", actor, task, await addRemark(ctx.store, task, actor, body.text, ctx.now));
 };
 
-const due: TaskAction = async (ctx, body, task, actor) => {
+/** Shared body check for date + optional remark (due, reopen). */
+function dateBody(body: Record<string, unknown>): { due: ParsedDue; note: string | null } | Response {
   const parsed = dueFromInput(body.date, body.time);
   if (!parsed) return bad("Date ya time galat hai");
   const note = body.remark ?? null;
   if (note !== null && typeof note !== "string") return bad("Remark text hona chahiye");
   if (note && note.length > REMARK_MAX) return bad(`Remark ${REMARK_MAX} characters se chhota rakhiye`);
-  const result = await changeDue(ctx.store, task, actor, parsed, note, ctx.now, { notifyAssignee: true });
+  return { due: parsed, note };
+}
+
+const due: TaskAction = async (ctx, body, task, actor) => {
+  const input = dateBody(body);
+  if (input instanceof Response) return input;
+  const result = await changeDue(ctx.store, task, actor, input.due, input.note, ctx.now, { notifyAssignee: true });
   return respond(ctx, "due", actor, task, result);
 };
 
@@ -63,7 +71,13 @@ const assign: TaskAction = async (ctx, body, task, actor) => {
 const cancel: TaskAction = async (ctx, _body, task, actor) =>
   respond(ctx, "cancel", actor, task, await cancelTask(ctx.store, task, actor, ctx.now));
 
-const ACTIONS: Record<WriteAction, TaskAction> = { done, remark, due, assign, cancel };
+const reopen: TaskAction = async (ctx, body, task, actor) => {
+  const input = dateBody(body);
+  if (input instanceof Response) return input;
+  return respond(ctx, "reopen", actor, task, await reopenTask(ctx.store, task, actor, input.due, input.note, ctx.now));
+};
+
+const ACTIONS: Record<WriteAction, TaskAction> = { done, remark, due, assign, cancel, reopen };
 
 /** Common prelude: actor (403), task (404), then the action. */
 async function runAction(ctx: ApiContext, body: unknown, id: string, action: WriteAction): Promise<Response> {
@@ -74,7 +88,7 @@ async function runAction(ctx: ApiContext, body: unknown, id: string, action: Wri
   return ACTIONS[action](ctx, asObject(body), task, actor);
 }
 
-const PATH_RE = /^\/api\/tasks\/([^/]+)\/(done|remark|due|assign|cancel)$/;
+const PATH_RE = /^\/api\/tasks\/([^/]+)\/(done|remark|due|assign|cancel|reopen)$/;
 
 function boundRoute(action: WriteAction, id: string, path: string): Route {
   return { method: "POST", path, auth: "named", handler: (ctx, body) => runAction(ctx, body, id, action) };

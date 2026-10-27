@@ -1,5 +1,5 @@
 import { useId, useRef, useState } from "react";
-import { CalendarDots, CheckCircle, ChatText, SpinnerGap, UserSwitch, WarningCircle, WifiSlash, XCircle } from "@phosphor-icons/react";
+import { ArrowCounterClockwise, CalendarDots, CheckCircle, ChatText, SpinnerGap, UserSwitch, WarningCircle, WifiSlash, XCircle } from "@phosphor-icons/react";
 import { api, ApiError, errorText, isTaskClosed } from "../lib/api";
 import { REMARK_MAX, todayIst, validateDue, validateRemark, type DueError } from "../lib/due";
 import { formatDue } from "../lib/format";
@@ -273,7 +273,7 @@ function Counter({ id, length }: { id: string; length: number }) {
   );
 }
 
-function SaveButton({ busy, disabled }: { busy: boolean; disabled: boolean }) {
+function SaveButton({ busy, disabled, label = "Save karo", busyLabel = "Save ho raha hai…" }: { busy: boolean; disabled: boolean; label?: string; busyLabel?: string }) {
   return (
     <button
       type="submit"
@@ -282,7 +282,7 @@ function SaveButton({ busy, disabled }: { busy: boolean; disabled: boolean }) {
       className="press flex h-12 w-full items-center justify-center gap-2 rounded-lg bg-accent px-4 text-title font-medium text-on-accent disabled:cursor-not-allowed disabled:opacity-60"
     >
       {busy ? <SpinnerGap size={20} className="animate-spin" aria-hidden="true" /> : null}
-      {busy ? "Save ho raha hai…" : "Save karo"}
+      {busy ? busyLabel : label}
     </button>
   );
 }
@@ -366,18 +366,29 @@ function RemarkSheet({ task, busy, online, onClose, onSubmit }: { task: TaskDTO;
   );
 }
 
+interface DueSheetText {
+  title: string;
+  subtitle: string;
+  remarkLabel: string;
+  saveLabel?: string;
+  busyLabel?: string;
+}
+
 function DueSheet({
   task,
   busy,
   online,
   onClose,
   onSubmit,
+  text,
 }: {
   task: TaskDTO;
   busy: boolean;
   online: boolean;
   onClose: () => void;
   onSubmit: Submit<[string, string | null, string]>;
+  /** Defaults to the "Date badlo" wording; Reopen passes its own. */
+  text?: DueSheetText;
 }) {
   const id = useId();
   const dateRef = useRef<HTMLInputElement>(null);
@@ -407,7 +418,12 @@ function DueSheet({
   const timeErr = fieldError?.field === "time" ? fieldError.message : null;
 
   return (
-    <Sheet title="Date badlo" subtitle={`Abhi ki date: ${formatDue(task.dueAt, task.dueHasTime)}${task.dueHasTime ? "" : ", 10:00 AM"}`} onClose={onClose} initialFocus={dateRef}>
+    <Sheet
+      title={text?.title ?? "Date badlo"}
+      subtitle={text?.subtitle ?? `Abhi ki date: ${formatDue(task.dueAt, task.dueHasTime)}${task.dueHasTime ? "" : ", 10:00 AM"}`}
+      onClose={onClose}
+      initialFocus={dateRef}
+    >
       <form onSubmit={submit} noValidate className="space-y-4 pt-1">
         <div>
           <label htmlFor={`${id}-date`} className="mb-1.5 block text-body font-medium">
@@ -463,7 +479,7 @@ function DueSheet({
         <div>
           <div className="mb-1.5 flex items-baseline justify-between gap-3">
             <label htmlFor={`${id}-remark`} className="text-body font-medium">
-              Remark (kyun badli?)
+              {text?.remarkLabel ?? "Remark (kyun badli?)"}
             </label>
             <Counter id={`${id}-count`} length={remark.length} />
           </div>
@@ -478,8 +494,73 @@ function DueSheet({
           />
         </div>
         <FormError message={serverError ?? (!online ? "Internet nahi hai. Net aane par save karein." : null)} />
-        <SaveButton busy={busy} disabled={busy || !online} />
+        <SaveButton busy={busy} disabled={busy || !online} label={text?.saveLabel} busyLabel={text?.busyLabel} />
       </form>
     </Sheet>
+  );
+}
+
+/** Archive, cancelled tasks only: back to pending with a new date (an old date would fire overdue reminders at once). */
+export function ReopenAction({ task, onReopened, onStale }: { task: TaskDTO; onReopened: (task: TaskDTO) => void; onStale: () => void }) {
+  const online = useOnline();
+  const toast = useToast();
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const inFlight = useRef(false);
+
+  async function submit(date: string, time: string | null, remark: string): Promise<string | null> {
+    if (inFlight.current) return null;
+    inFlight.current = true;
+    setBusy(true);
+    try {
+      const res = await api.reopen(task.id, date, time, remark);
+      toast("Task wapas chalu ho gaya");
+      setOpen(false);
+      onReopened(res.task);
+      return null;
+    } catch (e) {
+      if (e instanceof ApiError && (e.status === 409 || e.status === 404)) onStale();
+      return errorText(e);
+    } finally {
+      inFlight.current = false;
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="pb-3">
+      {!online ? (
+        <p role="status" className="mb-2 flex items-center justify-center gap-2 text-meta font-medium text-muted">
+          <WifiSlash size={16} aria-hidden="true" className="text-warn" />
+          Internet nahi hai
+        </p>
+      ) : null}
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        disabled={!online}
+        className="press flex h-12 w-full items-center justify-center gap-2 rounded-lg bg-accent text-title font-medium text-on-accent disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        <ArrowCounterClockwise size={20} aria-hidden="true" />
+        Wapas chalu karo
+      </button>
+      <p className="mt-2 text-center text-meta text-muted">Nayi date deni hogi, usi se reminders phir shuru honge.</p>
+      {open ? (
+        <DueSheet
+          task={task}
+          busy={busy}
+          online={online}
+          onClose={() => setOpen(false)}
+          onSubmit={submit}
+          text={{
+            title: "Wapas chalu karo",
+            subtitle: `${task.assigneeName} ka task phir se pending ho jayega`,
+            remarkLabel: "Remark (kyun chalu kiya?)",
+            saveLabel: "Wapas chalu karo",
+            busyLabel: "Chalu ho raha hai…",
+          }}
+        />
+      ) : null}
+    </div>
   );
 }

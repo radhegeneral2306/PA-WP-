@@ -159,7 +159,7 @@ function Shell({ name, onChangeName, onLogout }: { name: string; onChangeName: (
   const screen = (
     <Suspense fallback={<SkeletonRows count={6} />}>
       {tab === "tasks" ? <Tasks pending={pending} users={users} /> : null}
-      {tab === "archive" ? <Archive branches={users.data?.branches ?? []} /> : null}
+      {tab === "archive" ? <Archive branches={users.data?.branches ?? []} onReopened={pending.reload} /> : null}
       {tab === "approvals" ? <Approvals count={approvals} /> : null}
       {tab === "settings" ? <Settings name={name} onChangeName={onChangeName} onLogout={onLogout} /> : null}
     </Suspense>

@@ -5,7 +5,7 @@ import { branchLabel } from "../lib/filters";
 import type { Branch, TaskDTO, UserDTO } from "../lib/types";
 import { repeatText } from "./TaskRow";
 import { Sheet } from "./Sheet";
-import { TaskActions } from "./TaskActions";
+import { ReopenAction, TaskActions } from "./TaskActions";
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -93,7 +93,7 @@ function DetailBody({ t, branches }: { t: TaskDTO; branches: Branch[] }) {
 interface Props {
   task: TaskDTO;
   branches: Branch[];
-  /** The write props below are only passed from the Tasks screen (Archive is read-only). */
+  /** The write props below are only passed from the Tasks screen (Archive only gets onReopened). */
   users?: UserDTO[];
   /** Pending count per assignee phone (shown in the Assign picker). */
   counts?: Map<string, number>;
@@ -105,12 +105,16 @@ interface Props {
   onDone?: () => void;
   /** 409/404: the task is no longer open; keep showing it and refresh the list. */
   onStale?: () => void;
+  /** Archive: a cancelled task was reopened (it is pending again). */
+  onReopened?: (task: TaskDTO) => void;
 }
 
-export function TaskDetail({ task, branches, users, counts, onClose, variant, onSaved, onDone, onStale }: Props) {
+export function TaskDetail({ task, branches, users, counts, onClose, variant, onSaved, onDone, onStale, onReopened }: Props) {
   const footer =
     task.status === "pending" && onSaved && onDone && onStale ? (
       <TaskActions task={task} branches={branches} users={users ?? []} counts={counts ?? new Map()} onSaved={onSaved} onDone={onDone} onStale={onStale} />
+    ) : task.status === "cancelled" && onReopened && onStale ? (
+      <ReopenAction task={task} onReopened={onReopened} onStale={onStale} />
     ) : null;
   if (variant === "sheet") {
     return (

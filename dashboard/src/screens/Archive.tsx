@@ -10,7 +10,8 @@ import { TaskRow } from "../components/TaskRow";
 import { TaskDetail } from "../components/TaskDetail";
 import { DetailPlaceholder } from "../components/DetailPlaceholder";
 
-export default function Archive({ branches }: { branches: Branch[] }) {
+/** onReopened lets the app refresh its pending list after a task comes back from the archive. */
+export default function Archive({ branches, onReopened }: { branches: Branch[]; onReopened: () => void }) {
   const isDesktop = useIsDesktop();
   const archive = useResource(() => api.tasks("archive"));
   const [kind, setKind] = useState<ArchiveKind>("all");
@@ -19,6 +20,19 @@ export default function Archive({ branches }: { branches: Branch[] }) {
   const all = archive.data?.tasks ?? [];
   const visible = useMemo(() => filterArchive(all, kind), [all, kind]);
   const selected = selectedId ? all.find((t) => t.id === selectedId) ?? null : null;
+  const detailProps = selected
+    ? {
+        task: selected,
+        branches,
+        onClose: () => setSelectedId(null),
+        onReopened: () => {
+          setSelectedId(null);
+          archive.reload();
+          onReopened();
+        },
+        onStale: archive.reload,
+      }
+    : null;
   const kinds: { key: ArchiveKind; label: string }[] = [
     { key: "all", label: "Sab" },
     { key: "done", label: "Done" },
@@ -65,14 +79,14 @@ export default function Archive({ branches }: { branches: Branch[] }) {
     return (
       <div className="grid grid-cols-[minmax(0,480px)_minmax(0,1fr)]">
         {list}
-        {selected ? <TaskDetail task={selected} branches={branches} onClose={() => setSelectedId(null)} variant="panel" /> : <DetailPlaceholder />}
+        {detailProps ? <TaskDetail key={detailProps.task.id} {...detailProps} variant="panel" /> : <DetailPlaceholder />}
       </div>
     );
   }
   return (
     <>
       {list}
-      {selected ? <TaskDetail task={selected} branches={branches} onClose={() => setSelectedId(null)} variant="sheet" /> : null}
+      {detailProps ? <TaskDetail key={detailProps.task.id} {...detailProps} variant="sheet" /> : null}
     </>
   );
 }

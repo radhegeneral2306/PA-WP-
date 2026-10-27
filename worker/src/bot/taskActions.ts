@@ -210,6 +210,33 @@ export async function cancelTask(store: Store, t: Task, actor: Actor, now: Date)
   return { ok: true, task: await reload(store, t.id), outs };
 }
 
+/**
+ * Reopen (dashboard only): a cancelled task goes back to pending with a new due date,
+ * so reminders restart from that date (never an old, already-passed one).
+ * The assignee gets task_assigned_v1 (unless they did it). Done tasks stay closed.
+ */
+export async function reopenTask(store: Store, t: Task, actor: Actor, due: ParsedDue, remark: string | null, now: Date): Promise<ActionResult> {
+  if (t.status !== "cancelled") return fail(409, "not_cancelled", "Sirf cancel hua task wapas chalu ho sakta hai");
+  if (due.dueAt.getTime() < now.getTime()) return fail(400, "bad_request", "Ye date/time nikal chuka hai, aage ki date dijiye");
+  const assignee = await store.getUser(t.assigneePhone);
+  if (!assignee?.active) return fail(400, "bad_request", `${t.assigneeName} ab active nahi hai, naya task banaiye`);
+  const note = `Wapas chalu kiya, nayi date: ${formatDue(due.dueAt, due.hasTime, now)}.${remark?.trim() ? ` ${remark.trim()}` : ""}`;
+  await store.updateTask(t.id, {
+    status: "pending",
+    dueAt: due.dueAt.toISOString(),
+    dueHasTime: due.hasTime,
+    nextReminderAt: due.dueAt.toISOString(),
+    cancelledAt: null,
+    cancelledByName: null,
+    dateRequest: null,
+    remarks: [...t.remarks, remarkBy(actor, note, now)],
+    updatedAt: now.toISOString(),
+  });
+  const task = await reload(store, t.id);
+  const outs = task.assigneePhone !== actor.phone ? [assignedNotice(task, actor.name, now)] : [];
+  return { ok: true, task, outs };
+}
+
 /** Dashboard date input ("YYYY-MM-DD", optional "HH:MM") → instant; no time means 10:00 AM IST. */
 export function dueFromInput(date: unknown, time: unknown): ParsedDue | null {
   if (typeof date !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;

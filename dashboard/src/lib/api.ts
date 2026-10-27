@@ -94,6 +94,12 @@ export const api = {
     }),
   assign: (id: string, phone: string) => request<TaskActionResponse>(`${taskPath(id)}/assign`, { method: "POST", body: { phone } }),
   cancel: (id: string) => request<TaskActionResponse>(`${taskPath(id)}/cancel`, { method: "POST", body: {} }),
+  /** Cancelled task back to pending with a new date (Archive only). */
+  reopen: (id: string, date: string, time: string | null, remark?: string) =>
+    request<TaskActionResponse>(`${taskPath(id)}/reopen`, {
+      method: "POST",
+      body: remark && remark.trim() ? { date, time, remark: remark.trim() } : { date, time },
+    }),
 };
 
 function taskPath(id: string): string {

@@ -111,7 +111,13 @@ The 25-day staff limit does not apply to the dashboard (admins only).
 ### `POST /api/tasks/:id/cancel`  (auth: named)
 Body `{}`. Status → `cancelled`, `cancelledAt` = now, `cancelledByName` = "Name (dashboard)", reminders and any date request stop, remark "Cancel kiya". The task is never deleted; it shows in the archive (`closedAt` = `cancelledAt`).
 WhatsApp `task_cancelled_v1` to the assignee and the creator: once each, never the actor, skipped for inactive users.
-Response `{ task: TaskDTO, next: null }`. 409 `task_closed` if already done/cancelled. The PWA must ask "Pakka cancel karna hai?" first (no undo in v1).
+Response `{ task: TaskDTO, next: null }`. 409 `task_closed` if already done/cancelled. The PWA must ask "Pakka cancel karna hai?" first (it can be reopened later from the Archive with a new date, see reopen below).
+
+### `POST /api/tasks/:id/reopen`  (auth: named)  (owner decision 16)
+Body `{ "date": "YYYY-MM-DD", "time": "HH:MM" | null, "remark"?: string }`. Only for **cancelled** tasks (409 `not_cancelled` otherwise; done tasks never reopen).
+Status → `pending`, new due date (required, must be in the future; no time = 10:00 AM IST), `nextReminderAt` = new due, `cancelledAt`/`cancelledByName` cleared, remark "Wapas chalu kiya, nayi date: ... <remark>". Repeat setting (monthly etc.) is kept.
+WhatsApp `task_assigned_v1` to the assignee (not if they are the actor). 400 if the assignee is no longer active (create a new task instead).
+Response `{ task: TaskDTO, next: null }`. The PWA shows "Wapas chalu karo" only on cancelled tasks in the Archive.
 
 ## Later phases (planned, not built)
 

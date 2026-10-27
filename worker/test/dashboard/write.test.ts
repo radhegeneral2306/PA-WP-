@@ -37,7 +37,7 @@ const storeWith = (...tasks: Task[]) => new MemoryStore({ users: USERS, tasks: t
 
 describe("matchWriteRoute", () => {
   it("parses POST /api/tasks/<id>/<action>", () => {
-    for (const action of ["done", "remark", "due", "assign", "cancel"]) {
+    for (const action of ["done", "remark", "due", "assign", "cancel", "reopen"]) {
       const m = matchWriteRoute("POST", `/api/tasks/abc123/${action}`);
       expect(m?.id).toBe("abc123");
       expect(m?.route).toMatchObject({ method: "POST", auth: "named", path: `/api/tasks/abc123/${action}` });
@@ -63,6 +63,7 @@ describe("matchWriteRoute", () => {
       ["POST", "/api/tasks/:id/due", "named"],
       ["POST", "/api/tasks/:id/assign", "named"],
       ["POST", "/api/tasks/:id/cancel", "named"],
+      ["POST", "/api/tasks/:id/reopen", "named"],
     ]);
   });
 });
@@ -244,5 +245,58 @@ describe("cancel", () => {
       expect(res.status).toBe(409);
       expect(sent).toEqual([]);
     }
+  });
+});
+
+describe("reopen", () => {
+  const cancelled = (extra: Partial<Task> = {}) =>
+    task({ status: "cancelled", cancelledAt: "2026-10-25T09:00:00.000Z", cancelledByName: "Bhaskar (dashboard)", nextReminderAt: null, ...extra });
+
+  it("puts a cancelled task back to pending with the new date and tells the assignee", async () => {
+    const store = storeWith(cancelled({ repeat: "monthly", repeatDay: 5 }));
+    const { res, body, sent } = await post(store, "/api/tasks/task1/reopen", { date: "2026-10-30", time: "15:00", remark: "Party wapas aayi" }, ADMIN2.name);
+    expect(res.status).toBe(200);
+    expect(body.task).toMatchObject({ status: "pending", closedAt: null, dueHasTime: true, repeat: "monthly" });
+    const saved = await store.getTask("task1");
+    expect(saved).toMatchObject({
+      status: "pending",
+      dueAt: "2026-10-30T09:30:00.000Z",
+      nextReminderAt: "2026-10-30T09:30:00.000Z",
+      cancelledAt: null,
+      cancelledByName: null,
+    });
+    expect(saved?.remarks.at(-1)).toMatchObject({ byName: "Partner Two (dashboard)" });
+    expect(saved?.remarks.at(-1)?.text).toMatch(/^Wapas chalu kiya, nayi date: .*\. Party wapas aayi$/);
+    expect((sent as { to: string; template: string }[]).map((o) => [o.to, o.template])).toEqual([[STAFF_DURG.phone, "task_assigned_v1"]]);
+  });
+
+  it("date without time means 10:00 AM; no message when the assignee reopens it", async () => {
+    const store = storeWith(cancelled({ assigneePhone: ADMIN.phone, assigneeName: ADMIN.name }));
+    const { res, sent } = await post(store, "/api/tasks/task1/reopen", { date: "2026-10-28" }, ADMIN.name);
+    expect(res.status).toBe(200);
+    expect(sent).toEqual([]);
+    expect(await store.getTask("task1")).toMatchObject({ dueAt: "2026-10-28T04:30:00.000Z", dueHasTime: false });
+  });
+
+  it("needs a valid future date", async () => {
+    for (const body of [{}, { date: "2026-13-01" }, { date: "2026-10-25" }]) {
+      const store = storeWith(cancelled());
+      const { res, sent } = await post(store, "/api/tasks/task1/reopen", body, ADMIN.name);
+      expect(res.status).toBe(400);
+      expect(sent).toEqual([]);
+      expect((await store.getTask("task1"))?.status).toBe("cancelled");
+    }
+  });
+
+  it("refuses pending and done tasks, and tasks of inactive users", async () => {
+    for (const status of ["pending", "done"] as const) {
+      const { res, body } = await post(storeWith(task({ status })), "/api/tasks/task1/reopen", { date: "2026-10-30" }, ADMIN.name);
+      expect(res.status).toBe(409);
+      expect(body.code).toBe("not_cancelled");
+    }
+    const gone = storeWith(cancelled({ assigneePhone: INACTIVE.phone, assigneeName: INACTIVE.name }));
+    const r = await post(gone, "/api/tasks/task1/reopen", { date: "2026-10-30" }, ADMIN.name);
+    expect(r.res.status).toBe(400);
+    expect((await gone.getTask("task1"))?.status).toBe("cancelled");
   });
 });
