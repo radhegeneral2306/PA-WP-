@@ -18,9 +18,9 @@ export interface ApiContext {
   session: DashSession | null;
 }
 
-type Handler = (ctx: ApiContext, body: unknown) => Promise<Response>;
+export type Handler = (ctx: ApiContext, body: unknown) => Promise<Response>;
 
-interface Route {
+export interface Route {
   method: string;
   path: string;
   auth: "none" | "session" | "named";
