@@ -23,6 +23,7 @@ const MSG = {
   none: "✅ Koi approval pending nahi hai.",
   handled: "Ye request pehle hi handle ho chuki hai.",
   changed: "Is request mein badlav hua hai, dobara dekh ke decide kijiye.",
+  expired: "⏰ Maangi gayi date nikal chuki hai, ise approve nahi kar sakte. Reject kijiye, staff nayi date ki request bhej sakta hai.",
   useList: "👆 Upar wali list se chuniye.",
   useButtons: "👆 Upar wale buttons se chuniye.",
 };
@@ -150,7 +151,12 @@ async function onDecide(ctx: BotContext, data: Data, input: Inbound): Promise<Ou
 }
 
 async function decide(ctx: BotContext, t: Pending, choice: Decision, data: Data): Promise<Outgoing[]> {
-  const result = await decideDateRequest(ctx.store, t, { phone: ctx.user.phone, name: ctx.user.name }, choice, ctx.now);
+  // An old request can outlive its date: approving would move the task into the past.
+  if (choice === "approve" && Date.parse(t.dateRequest.dueAt) < ctx.now.getTime()) {
+    return [say(ctx, MSG.expired), detailMessage(ctx, t)];
+  }
+  const actor = { phone: ctx.user.phone, name: ctx.user.name };
+  const result = await decideDateRequest(ctx.store, t, actor, choice, ctx.now, data.requestedAt ?? t.dateRequest.requestedAt);
   if (!result.ok) return handledAlready(ctx, data);
   const approved = choice === "approve";
   const head = [say(ctx, approved ? "✅ Approve kar diya" : "❌ Reject kar diya"), ...result.outs];

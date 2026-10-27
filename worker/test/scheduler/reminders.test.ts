@@ -118,14 +118,14 @@ describe("runReminders", () => {
     expect(m.bodyValues[2]).toBe("27 Oct");
   });
 
-  it("inactive or missing assignee: stops reminders, sends nothing", async () => {
+  it("inactive or missing assignee: sends nothing, pauses until the next slot (resumes if re-activated)", async () => {
     const store = setup([
       task({ id: "inactive", assigneePhone: INACTIVE.phone, assigneeName: INACTIVE.name, nextReminderAt: PAST }),
       task({ id: "missing", assigneePhone: "910000000000", assigneeName: "Ghost", nextReminderAt: PAST }),
     ]);
     expect(await runReminders(store, NOW)).toEqual([]);
-    expect(store.tasks.get("inactive")!.nextReminderAt).toBeNull();
-    expect(store.tasks.get("missing")!.nextReminderAt).toBeNull();
+    expect(store.tasks.get("inactive")!.nextReminderAt).toBe("2026-10-27T05:30:00.000Z");
+    expect(store.tasks.get("missing")!.nextReminderAt).toBe("2026-10-27T05:30:00.000Z");
     expect(store.tasks.get("inactive")!.lastReminderAt).toBeUndefined();
   });
 

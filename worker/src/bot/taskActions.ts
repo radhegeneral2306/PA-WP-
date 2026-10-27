@@ -4,7 +4,7 @@
 
 import type { Store } from "../data/store";
 import { atIST, formatDateTime, formatDue, istDay, isValidDay, type ParsedDue } from "../domain/dates";
-import { afterReminder, afterResponse, intoWorkingHours, nextMonthlyTask } from "../domain/schedule";
+import { afterReminder, afterResponse, nextMonthlyTask, reminderSlot } from "../domain/schedule";
 import type { DateRequest, Remark, Task, TaskRepeat, User } from "../domain/types";
 import type { Outgoing } from "./outgoing";
 import { clip } from "./ui";
@@ -48,7 +48,7 @@ async function reload(store: Store, id: string): Promise<Task> {
  * nag in working hours (a 9 PM due time starts them at 10 AM next morning).
  */
 export function firstReminderAt(repeat: TaskRepeat, dueAt: Date): string {
-  return (repeat === "every90" ? intoWorkingHours(dueAt) : dueAt).toISOString();
+  return reminderSlot({ repeat }, dueAt).toISOString();
 }
 
 /** Drops notices to the actor and to users who are inactive or missing. */

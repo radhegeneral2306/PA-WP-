@@ -186,18 +186,20 @@ Steps: `list → decide`. Lists pending `dateRequest`s (any admin can decide any
 | Type | First reminder | After that |
 |---|---|---|
 | **Ek baar** (`none`) | at the due time | **daily at 11 AM IST** while pending (at least 6 h after the previous one) |
-| **Har 90 min** (`every90`) | at the due time | every 90 min, only **10 AM–8 PM IST** (outside that window → next 10 AM). A remark pauses it until the next 10 AM. |
-| **Har mahine** (`monthly`) | at the due time | overdue: daily 11 AM. **Done** creates next month's task (same day, clamped: 31 → 30/28/29, then back to 31) |
+| **Har 90 min** (`every90`) | at the due time, but never at night: a due time outside 10 AM–8 PM starts at the next 10 AM | every 90 min, only **10 AM–8 PM IST** (outside that window → next 10 AM). A remark pauses it until the next 10 AM. |
+| **Har mahine** (`monthly`) | at the due time | overdue: daily 11 AM. **Done** creates next month's task (same day, clamped: 31 → 30/28/29, then back to 31). "Next month" counts from the month the occurrence belongs to, so a date moved a few days into the next month does not skip a month |
 
 - Cron runs every 5 min, so reminders can be up to ~5 min late
 - Reminder = template **task_reminder_v1** (name, task, due + "(overdue)", last remark or "-")
 - `nextReminderAt` is saved **before** sending, so a crash never double-sends (it may skip one)
-- An inactive or missing assignee stops the reminders
+- An inactive or missing assignee **pauses** the reminders (no send, schedule moves on); they resume by themselves when the user is re-activated, or when the task is reassigned
+- Before sending, the cron re-reads each task and skips it if it was done, cancelled or re-dated meanwhile
+- Known limit: two cron runs at the very same moment could send one reminder twice (needs a conditional Firestore write; Cloudflare rarely does this)
 - **Daily summary** 10:00 AM IST: **daily_summary_v1** (pending count, overdue count) to each active user with pending tasks
 
 ---
 
-## 9. WhatsApp templates (all 8 approved in Interakt)
+## 9. WhatsApp templates (all 9 approved in Interakt)
 
 Defined in `bot/outgoing.ts` (`TEMPLATE_PARAMS`), wording in `docs/TEMPLATES.md`. Category Utility, language English (Hinglish text), quick-reply buttons only.
 
@@ -211,6 +213,7 @@ Defined in `bot/outgoing.ts` (`TEMPLATE_PARAMS`), wording in `docs/TEMPLATES.md`
 | `date_approval_result_v1` | approve or reject | staff, task, Approved/Rejected, due |
 | `daily_summary_v1` | 10 AM daily | name, pending, overdue |
 | `welcome_user_v1` | new user added via WhatsApp | name, added by, role |
+| `task_cancelled_v1` | task cancelled (dashboard) | recipient, cancelled by, task, assigned to |
 
 **Template delivery:** if a template send fails, `deliver.ts` sends the `fallbackText` as a plain message instead (this only works inside the 24 h window). Params are sanitized: newlines/tabs are flattened and empty values become "-". **Template names must never change**; editing a template in Meta means creating `_v2` and updating the code.
 

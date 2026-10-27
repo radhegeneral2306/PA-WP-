@@ -2,7 +2,7 @@
 // returns the messages to send; delivery is the caller's job.
 
 import { formatDue } from "../domain/dates";
-import { afterReminder } from "../domain/schedule";
+import { afterReminder, reminderSlot } from "../domain/schedule";
 import type { Task, User } from "../domain/types";
 import type { Store } from "../data/store";
 import type { Outgoing } from "../bot/outgoing";
@@ -50,10 +50,25 @@ export function reminderMessage(task: Task, user: User, now: Date): Outgoing {
   };
 }
 
-async function remindOne(store: Store, task: Task, now: Date, stats: ReminderStats): Promise<Outgoing | null> {
+async function remindOne(store: Store, listed: Task, now: Date, stats: ReminderStats): Promise<Outgoing | null> {
+  // Re-read: the task may have been done, cancelled, re-dated or reminded (an overlapping cron run)
+  // since the list was loaded.
+  const task = await store.getTask(listed.id);
+  if (!task || !isReminderDue(task, now)) {
+    stats.stopped++;
+    return null;
+  }
+  // every90 reminders only go out 10 AM–8 PM IST: a due time at night waits for the morning.
+  const slot = reminderSlot(task, new Date(task.nextReminderAt!));
+  if (slot.getTime() > now.getTime()) {
+    await store.updateTask(task.id, { nextReminderAt: slot.toISOString() });
+    stats.stopped++;
+    return null;
+  }
   const user = await store.getUser(task.assigneePhone);
   if (!user || !user.active) {
-    await store.updateTask(task.id, { nextReminderAt: null });
+    // Paused, not stopped: nothing is sent, but if the user is re-activated the reminders resume.
+    await store.updateTask(task.id, { nextReminderAt: afterReminder(task, now) });
     stats.stopped++;
     return null;
   }
