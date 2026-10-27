@@ -1,15 +1,30 @@
 name = "pa-wp-bot"
 main = "src/index.ts"
 compatibility_date = "2025-10-01"
+# Don't wipe variables added in the dashboard on each deploy.
+keep_vars = true
 
 # All config values are secrets. Set them with `npx wrangler secret put <NAME>`
 # (see docs/SETUP-batch0.md). For local `wrangler dev`, copy .dev.vars.example to .dev.vars.
 #
 #   WEBHOOK_SECRET         long random string; the webhook URL is /webhook/<WEBHOOK_SECRET>
 #   INTERAKT_API_KEY       Interakt Developer Settings API key (already base64, used as Basic auth)
+#   INTERAKT_WEBHOOK_KEY   "Secret key" set next to the webhook URL in Interakt; checks Interakt-Signature
 #   INTERAKT_ORG_ID        organization_id from Interakt webhooks; other orgs are ignored
 #   TEST_NUMBERS           comma-separated full numbers (e.g. 919999999999); only these get bot replies
 #   FIREBASE_PROJECT_ID    Firebase project id
 #   FIREBASE_CLIENT_EMAIL  service account client_email
 #   FIREBASE_PRIVATE_KEY   service account private_key (the -----BEGIN PRIVATE KEY----- block)
 #   SHEET_FORWARD_URL      optional; every webhook body is also POSTed here (old Google Sheet logger)
+#   DAILY_SUMMARY          optional; "off" disables the 10 AM pending-task summary
+#   DASHBOARD_USER         shared dashboard login ID
+#   DASHBOARD_PASSWORD     shared dashboard password (at least 12 characters)
+#   DASHBOARD_ORIGINS      comma-separated dashboard origins allowed to call /api (Cloudflare Pages URL)
+
+# Reminders every 5 minutes; daily summary at 04:30 UTC = 10:00 AM IST (DAILY_CRON in src/index.ts).
+[triggers]
+crons = ["*/5 * * * *", "30 4 * * *"]
+
+# Keeps console logs viewable in the dashboard (Worker -> Observability / Logs).
+[observability]
+enabled = true
