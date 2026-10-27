@@ -80,6 +80,15 @@ describe("Gemini request", () => {
     expect(f.mock.calls[1][0]).toContain("/models/gemini-flash-latest:generateContent");
   });
 
+  it("a busy model (503) pauses and falls back to the next model", async () => {
+    let n = 0;
+    const f = stub(() => (n++ === 0 ? new Response(JSON.stringify({ error: { status: "UNAVAILABLE" } }), { status: 503 }) : geminiReply({ transcript: "x", title: "t" })));
+    const r = await understandTranscript("x", ctx, { ...opts, timeoutMs: 5000 });
+    expect(r.ok).toBe(true);
+    expect(f).toHaveBeenCalledTimes(2);
+    expect(f.mock.calls[1][0]).toContain("/models/gemini-3.1-flash-lite:generateContent");
+  });
+
   it("every model 404 -> failed with the status", async () => {
     stub(() => new Response(JSON.stringify({ error: { status: "NOT_FOUND" } }), { status: 404 }));
     const r = await understandTranscript("x", ctx, opts);

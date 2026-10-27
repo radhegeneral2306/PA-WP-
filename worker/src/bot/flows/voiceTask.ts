@@ -26,6 +26,7 @@ export const VOICE_MSG = {
   tooLong: "Voice note bahut lamba hai. 1 minute ke andar bhejiye.",
   off: "Voice se task abhi band hai. Form ya 'Naya task' use kijiye.",
   notUnderstood: "Samajh nahi aaya. Dobara bhejiye ya form se task banaiye.",
+  busy: "Voice service abhi busy hai. 1-2 minute baad dobara bhejiye ya form se task banaiye.",
   adminsOnly: "Voice se task abhi sirf admin bana sakte hain. Menu ke liye *Hi* bhejiye.",
   twoPeople: "Is naam ke do log hain. Kisko dena hai?",
   notFound: "Ye naam staff list mein nahi mila. Kisko dena hai?",
@@ -96,7 +97,9 @@ export async function handleVoice(ctx: BotContext, mediaUrl: string): Promise<Ou
     if (HEALTH_FAILURES.has(result.reason)) {
       await recordProblems(ctx.store, ctx.now, { errors: 1, problem: `voice ${why}` });
     }
-    const msg = FAILURE_TEXT[result.reason] ?? VOICE_MSG.notUnderstood;
+    // A busy AI server (500/503) is not the user's fault: say so instead of "samajh nahi aaya".
+    const busy = result.reason === "failed" && /\b(500|503)\b|UNAVAILABLE|INTERNAL/.test(result.detail ?? "");
+    const msg = busy ? VOICE_MSG.busy : FAILURE_TEXT[result.reason] ?? VOICE_MSG.notUnderstood;
     // While voice is being tested, the super admin also sees the technical reason (no keys or numbers in it).
     const debug = user.name === SUPER_ADMIN_NAME ? `\n\n_Tech: ${why}_` : "";
     return [text(user.phone, msg + debug)];

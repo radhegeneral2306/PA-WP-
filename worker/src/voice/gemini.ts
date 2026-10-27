@@ -9,7 +9,9 @@ export const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta/mod
 // Google retires model names (the 2.5 family stopped on 16 Oct 2026 -> 404). The "-latest" alias follows
 // the current Flash model; if a name is gone (404) the next one is tried.
 export const DEFAULT_GEMINI_MODEL = "gemini-flash-latest";
-export const GEMINI_FALLBACK_MODELS = ["gemini-flash-latest", "gemini-3-flash-preview", "gemini-3.1-flash-lite", "gemini-flash-lite-latest"];
+const RETRY_NEXT = new Set([404, 500, 503]);
+const BUSY_PAUSE_MS = 700;
+export const GEMINI_FALLBACK_MODELS = ["gemini-flash-latest", "gemini-3.1-flash-lite", "gemini-flash-lite-latest", "gemini-3-flash-preview"];
 const MAX_TITLE_CHARS = 200;
 const MAX_TRANSCRIPT_CHARS = 2000;
 const REPEATS: readonly TaskRepeat[] = ["none", "every90", "monthly"];
@@ -127,9 +129,11 @@ export async function understandTranscript(
       const name = (e as { name?: string })?.name;
       return { ok: false, reason: "failed", detail: name === "TimeoutError" ? "gemini timeout" : "gemini network error" };
     }
-    if (res.status !== 404 || i === models.length - 1) break;
-    console.warn(`voice: gemini model ${model} not found, trying the next one`);
+    // 404 = name retired; 500/503 = model busy/overloaded (common on the free tier): try the next model.
+    if (!RETRY_NEXT.has(res.status) || i === models.length - 1) break;
+    console.warn(`voice: gemini model ${model} gave ${res.status}, trying the next one`);
     await res.body?.cancel().catch(() => {});
+    if (res.status !== 404) await new Promise((r) => setTimeout(r, BUSY_PAUSE_MS));
   }
   if (!res) return { ok: false, reason: "failed", detail: "gemini timeout" };
 

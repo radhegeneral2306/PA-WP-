@@ -95,6 +95,11 @@ describe("handleVoice failures", () => {
     expect((await t.store.getHealth())?.lastProblem).toBe("voice download: media 403 from media.interakt.ai/x.ogg");
   });
 
+  it("a busy AI server says 'busy', not 'samajh nahi aaya'", async () => {
+    const t = setup({ user: ADMIN2, result: { ok: false, reason: "failed", detail: "gemini 503 UNAVAILABLE" } });
+    expect(body((await t.send())[0])).toBe(VOICE_MSG.busy);
+  });
+
   it("exact brief wording", () => {
     expect(VOICE_MSG.tooLong).toBe("Voice note bahut lamba hai. 1 minute ke andar bhejiye.");
     expect(VOICE_MSG.off).toBe("Voice se task abhi band hai. Form ya 'Naya task' use kijiye.");
