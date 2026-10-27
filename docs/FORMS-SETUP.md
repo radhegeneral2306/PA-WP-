@@ -130,4 +130,4 @@ Nothing new to switch on: the bot already receives "incoming customer messages",
 - If any field key could not be set as above, say what the builder showed instead (a screenshot is fine).
 
 ## Later: when staff change
-Keep every option within 30 characters (use a short branch tag such as `(Hdw)` if needed; tell the build chat any new short tag). Ask the build chat for an updated Person list, build a new Admin form with it, and a new template `task_form_admin_v2` (then `_v3`...). The bot is told the new name; old names are never reused.
+Keep every option within 30 characters (use a short branch tag such as `(Hdw)` if needed; tell the build chat any new short tag). Ask the build chat for an updated Person list, build a new Admin form with it (no Branch field, like Naya Task Admin v3), and a new template `task_form_admin_v3` (then `_v4`...; `_v1` and `_v2` are already used). The bot is told the new name; old names are never reused.
