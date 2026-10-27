@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryStore } from "../../src/data/memoryStore";
 import type { Health, Task } from "../../src/domain/types";
-import { alertDueAt, recordProblems, runHealthCheck } from "../../src/scheduler/health";
+import { alertDueAt, alertRecipients, recordProblems, runHealthCheck, SUPER_ADMIN_NAME } from "../../src/scheduler/health";
 import { ADMIN, ADMIN2, INACTIVE, NOW, STAFF_DURG, USERS, task } from "../helpers/bot";
 
 // NOW = 2026-10-26 15:00 IST; the real cron runs at 10:00 IST.
@@ -144,20 +144,26 @@ describe("runHealthCheck", () => {
     expect(alerts(s)[0].title).toBe("Bot check: 3 message fail hue, 60 ghante se koi message nahi aaya. Interakt/Cloudflare check karein");
   });
 
-  it("creates one alert per active admin and none for staff or inactive admins", async () => {
+  it("alerts only the super admin (Bhaskar), not other admins or staff", async () => {
     const s = healthyStore();
     s.lastWebhookAt = null;
     const outs = await runHealthCheck(s, CHECK);
     const a = alerts(s);
-    expect(a.map((t) => t.assigneePhone).sort()).toEqual([ADMIN.phone, ADMIN2.phone].sort());
-    for (const t of a) {
-      expect(t).toMatchObject({ createdByName: "Bot", createdByPhone: "", repeat: "none", status: "pending", dueHasTime: true });
-      expect(t.dueAt).toBe("2026-10-27T05:30:00.000Z"); // 11:00 IST
-    }
-    expect(outs).toHaveLength(2);
-    expect(outs.every((o) => o.kind === "template" && o.template === "task_assigned_v1")).toBe(true);
-    expect(outs.map((o) => o.to)).not.toContain(INACTIVE_ADMIN.phone);
+    expect(ADMIN.name).toBe(SUPER_ADMIN_NAME);
+    expect(a.map((t) => t.assigneePhone)).toEqual([ADMIN.phone]);
+    expect(a[0]).toMatchObject({ createdByName: "Bot", createdByPhone: "", repeat: "none", status: "pending", dueHasTime: true });
+    expect(a[0].dueAt).toBe("2026-10-27T05:30:00.000Z"); // 11:00 IST
+    expect(outs).toHaveLength(1);
+    expect(outs[0]).toMatchObject({ to: ADMIN.phone, kind: "template", template: "task_assigned_v1" });
+    expect(outs.map((o) => o.to)).not.toContain(ADMIN2.phone);
     expect(outs.map((o) => o.to)).not.toContain(STAFF_DURG.phone);
+  });
+
+  it("falls back to every active admin when the super admin is missing or inactive", async () => {
+    expect(alertRecipients([ADMIN, ADMIN2, STAFF_DURG]).map((u) => u.phone)).toEqual([ADMIN.phone]);
+    const noOwner = alertRecipients([{ ...ADMIN, active: false }, ADMIN2, INACTIVE_ADMIN, STAFF_DURG]);
+    expect(noOwner.map((u) => u.phone)).toEqual([ADMIN2.phone]);
+    expect(alertRecipients([STAFF_DURG])).toEqual([]);
   });
 
   it("does not add another alert while a Bot check task is pending", async () => {
@@ -166,11 +172,10 @@ describe("runHealthCheck", () => {
     await runHealthCheck(s, CHECK);
     const next = new Date(CHECK.getTime() + 24 * HOUR);
     expect(await runHealthCheck(s, next)).toEqual([]);
-    expect(alerts(s)).toHaveLength(2);
+    expect(alerts(s)).toHaveLength(1);
 
-    // Once ADMIN closes theirs, the next day's check alerts ADMIN again (ADMIN2 still has one pending).
-    const mine = alerts(s).find((t) => t.assigneePhone === ADMIN.phone)!;
-    await s.updateTask(mine.id, { status: "done" });
+    // Once the alert is closed, the next day's check alerts again.
+    await s.updateTask(alerts(s)[0].id, { status: "done" });
     const outs = await runHealthCheck(s, new Date(next.getTime() + 24 * HOUR));
     expect(outs.map((o) => o.to)).toEqual([ADMIN.phone]);
   });

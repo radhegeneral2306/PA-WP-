@@ -3,7 +3,7 @@
 // recordProblems() bumps counters in system/health whenever a send or a handler fails.
 // runHealthCheck() runs from the daily 10:00 AM IST cron: it looks at those counters,
 // at when the last webhook arrived and at stuck reminders, and if anything is wrong it
-// creates one "Bot check: ..." task per active admin (the normal reminders then keep nagging).
+// creates one "Bot check: ..." task for the super admin (the normal reminders then keep nagging).
 //
 // Honest limitation: if Interakt itself is down or INTERAKT_API_KEY is invalid, the alert
 // cannot be delivered by WhatsApp (the task_assigned_v1 notice fails like everything else).
@@ -18,6 +18,19 @@ import { addDays, atIST, istDay } from "../domain/dates";
 import type { Health, User } from "../domain/types";
 
 export const ALERT_PREFIX = "Bot check: ";
+
+/**
+ * The owner who builds and maintains the bot (owner decision 27 Oct): only he gets health alerts.
+ * If no active admin has this name (renamed/removed), every active admin is alerted so a problem is never missed.
+ */
+export const SUPER_ADMIN_NAME = "Bhaskar";
+
+/** Who receives the alert task: the active super admin, else all active admins. */
+export function alertRecipients(users: User[]): User[] {
+  const admins = users.filter((u) => u.role === "admin" && u.active);
+  const owner = admins.filter((u) => u.name.trim().toLowerCase() === SUPER_ADMIN_NAME.toLowerCase());
+  return owner.length ? owner : admins;
+}
 const BOT_ACTOR: Actor = { phone: "", name: "Bot" };
 const HOUR_MS = 3_600_000;
 const MINUTE_MS = 60_000;
@@ -145,7 +158,7 @@ export async function runHealthCheck(store: Store, now: Date, opts: HealthCheckO
     const title = alertTitle(parts, h.sendFailures || h.templateFailures || h.errors ? h.lastProblem : null);
     console.warn("health: problems found", title);
     const due = { dueAt: alertDueAt(now), hasTime: true };
-    for (const admin of users.filter((u) => u.role === "admin" && u.active)) {
+    for (const admin of alertRecipients(users)) {
       try {
         const open = await store.listTasks({ assigneePhone: admin.phone, status: "pending" });
         if (open.some((t) => t.title.startsWith(ALERT_PREFIX.trim()))) {
