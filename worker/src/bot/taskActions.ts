@@ -3,13 +3,14 @@
 // Callers check permissions; these functions refuse closed (done/cancelled) tasks.
 
 import type { Store } from "../data/store";
-import { atIST, formatDateTime, formatDue, isValidDay, type ParsedDue } from "../domain/dates";
+import { atIST, formatDateTime, formatDue, istDay, isValidDay, type ParsedDue } from "../domain/dates";
 import { afterResponse, nextMonthlyTask } from "../domain/schedule";
-import type { DateRequest, Remark, Task, User } from "../domain/types";
+import type { DateRequest, Remark, Task, TaskRepeat, User } from "../domain/types";
 import type { Outgoing } from "./outgoing";
 import { clip } from "./ui";
 
 export const REMARK_MAX = 500;
+export const TITLE_MAX = 200;
 const UPDATE_CLIP = 200;
 
 export interface Actor {
@@ -294,6 +295,50 @@ export async function decideDateRequest(
   }
   const outs = [dateResultNotice(t, r, approved, approved ? newText : oldText)];
   return { ok: true, task: await reload(store, t.id), outs };
+}
+
+export interface NewTaskInput {
+  title: string;
+  assignee: User;
+  due: ParsedDue;
+  repeat: TaskRepeat;
+}
+
+/**
+ * New task (dashboard). Same record as the WhatsApp "Naya task" wizard: reminders start at the due time,
+ * monthly tasks repeat on the due day (IST). No 25-day limit (admins only). The assignee gets
+ * task_assigned_v1 unless they created it themselves.
+ */
+export async function createTaskFor(store: Store, actor: Actor, input: NewTaskInput, now: Date): Promise<ActionResult> {
+  const title = input.title.trim();
+  if (!title) return fail(400, "bad_request", "Task kya hai, likhiye");
+  if (title.length > TITLE_MAX) return fail(400, "bad_request", `Task ${TITLE_MAX} characters se chhota rakhiye`);
+  if (!input.assignee.active) return fail(400, "bad_request", "Ye user ab active nahi hai");
+  if (input.due.dueAt.getTime() < now.getTime()) return fail(400, "bad_request", "Ye date/time nikal chuka hai, aage ki date dijiye");
+  const at = now.toISOString();
+  const dueAt = input.due.dueAt.toISOString();
+  const task = await store.createTask({
+    title,
+    assigneePhone: input.assignee.phone,
+    assigneeName: input.assignee.name,
+    branch: input.assignee.branch ?? null,
+    createdByPhone: actor.phone,
+    createdByName: actor.name,
+    dueAt,
+    dueHasTime: input.due.hasTime,
+    status: "pending",
+    repeat: input.repeat,
+    nextReminderAt: dueAt,
+    repeatDay: input.repeat === "monthly" ? istDay(input.due.dueAt).day : null,
+    dateRequest: null,
+    lastReminderAt: null,
+    remarks: actor.viaDashboard ? [remarkBy(actor, "Dashboard se banaya", now)] : [],
+    createdAt: at,
+    updatedAt: at,
+    doneAt: null,
+  });
+  const outs = task.assigneePhone !== actor.phone ? [assignedNotice(task, actor.name, now)] : [];
+  return { ok: true, task, outs };
 }
 
 /** Dashboard date input ("YYYY-MM-DD", optional "HH:MM") → instant; no time means 10:00 AM IST. */

@@ -6,7 +6,7 @@ import type { Env } from "./env";
 import { checkAccess } from "./firebase/firestore";
 import { mask, testNumbers } from "./numbers";
 
-export const BUILD = "dash-p6";
+export const BUILD = "dash-new";
 
 export async function statusReport(env: Env) {
   const has = (v: string | undefined) => Boolean(v && v.trim());

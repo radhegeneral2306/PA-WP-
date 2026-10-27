@@ -160,4 +160,20 @@ describe("/api write routes through the real router", () => {
     expect((await post("/api/tasks/x/explode", named)).status).toBe(404);
     expect((await post("/api/tasks/missing/done", named)).status).toBe(404);
   });
+
+  it("POST /api/tasks creates a task (GET /api/tasks stays the list)", async () => {
+    const { addRoutes } = await import("../../src/dashboard/api");
+    const { createRoutes } = await import("../../src/dashboard/routes/create");
+    const { readRoutes } = await import("../../src/dashboard/routes/read");
+    addRoutes([...readRoutes, ...createRoutes]);
+    const store = new MemoryStore({ users: USERS });
+    const token = await issueToken(env, "Bhaskar", NOW);
+    const headers = { Authorization: `Bearer ${token}` };
+    const body = JSON.stringify({ title: "Naya kaam", assigneePhone: USERS[2].phone, date: "2026-10-28", time: null });
+    const res = await handleApi(new Request("https://w/api/tasks", { method: "POST", headers, body }), env, store, NOW, async () => undefined);
+    expect(res.status).toBe(201);
+    const list = await handleApi(new Request("https://w/api/tasks?view=pending", { headers }), env, store, NOW, async () => undefined);
+    expect(list.status).toBe(200);
+    expect(((await list.json()) as { tasks: { title: string }[] }).tasks.map((t) => t.title)).toEqual(["Naya kaam"]);
+  });
 });

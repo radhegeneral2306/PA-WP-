@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { ArrowClockwise, CaretDown, ClipboardText, MagnifyingGlass, X } from "@phosphor-icons/react";
+import { ArrowClockwise, CaretDown, ClipboardText, MagnifyingGlass, Plus, X } from "@phosphor-icons/react";
 import { ADMINS, ALL, applyFilters, applySummary, summaryCounts, type SummaryFilter } from "../lib/filters";
 import { formatClock } from "../lib/format";
 import { useIsDesktop, type Resource } from "../lib/hooks";
@@ -9,6 +9,7 @@ import { TaskRow } from "../components/TaskRow";
 import { TaskDetail } from "../components/TaskDetail";
 import { StaffPicker } from "../components/StaffPicker";
 import { DetailPlaceholder } from "../components/DetailPlaceholder";
+import { NewTaskSheet } from "../components/NewTaskSheet";
 
 interface Props {
   pending: Resource<TasksResponse>;
@@ -24,6 +25,7 @@ export function Tasks({ pending, users }: Props) {
   const [summary, setSummary] = useState<SummaryFilter>("all");
   const [pickerOpen, setPickerOpen] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
 
   const allTasks = pending.data?.tasks ?? [];
   const userList = users.data?.users ?? [];
@@ -96,6 +98,16 @@ export function Tasks({ pending, users }: Props) {
   const list = (
     <div className="min-w-0">
       <TopBar title="Tasks">
+        {isDesktop ? (
+          <button
+            type="button"
+            onClick={() => setCreating(true)}
+            className="press mr-1 flex h-10 items-center gap-1.5 rounded-lg bg-accent px-3 text-body font-medium text-on-accent"
+          >
+            <Plus size={18} weight="bold" aria-hidden="true" />
+            Naya task
+          </button>
+        ) : null}
         <IconButton label="Refresh karein" onClick={pending.reload} disabled={pending.loading}>
           <ArrowClockwise size={22} className={pending.loading ? "animate-spin" : ""} />
         </IconButton>
@@ -175,7 +187,7 @@ export function Tasks({ pending, users }: Props) {
         <EmptyState
           icon={<ClipboardText size={40} />}
           title="Koi pending task nahi"
-          hint={filtersActive ? "Filter ya search badal kar dekhein." : "Sab kaam ho gaye. Naye tasks WhatsApp se banenge."}
+          hint={filtersActive ? "Filter ya search badal kar dekhein." : "Sab kaam ho gaye. Naya task WhatsApp se ya \"Naya task\" button se banaiye."}
         >
           {filtersActive ? (
             <button type="button" onClick={clearFilters} className="press mt-4 min-h-11 rounded-lg border border-line px-4 font-medium text-accent">
@@ -185,7 +197,7 @@ export function Tasks({ pending, users }: Props) {
         </EmptyState>
       ) : null}
       {visible.length > 0 ? (
-        <ul className="divide-y divide-line border-t border-line pb-4" aria-label="Pending tasks">
+        <ul className="divide-y divide-line border-t border-line pb-24 lg:pb-4" aria-label="Pending tasks">
           {visible.map((t) => (
             <TaskRow key={t.id} task={t} branches={branches} selected={isDesktop && t.id === selectedId} onOpen={(x) => openTask(x.id)} mode="pending" />
           ))}
@@ -211,6 +223,29 @@ export function Tasks({ pending, users }: Props) {
           {detailProps ? <TaskDetail key={detailProps.task.id} {...detailProps} variant="sheet" /> : null}
         </>
       )}
+      {!isDesktop ? (
+        <button
+          type="button"
+          onClick={() => setCreating(true)}
+          className="press fixed right-4 bottom-[calc(80px+env(safe-area-inset-bottom))] z-20 flex h-14 items-center gap-2 rounded-full bg-accent pr-5 pl-4 text-title font-medium text-on-accent shadow-lg"
+        >
+          <Plus size={22} weight="bold" aria-hidden="true" />
+          Naya task
+        </button>
+      ) : null}
+      {creating ? (
+        <NewTaskSheet
+          users={userList}
+          branches={branches}
+          counts={perStaff}
+          initialAssignee={staffPhone}
+          onClose={() => setCreating(false)}
+          onCreated={() => {
+            setCreating(false);
+            pending.reload();
+          }}
+        />
+      ) : null}
       {pickerOpen ? (
         <StaffPicker users={userList} branches={branches} counts={perStaff} selected={staffPhone} onSelect={setStaffPhone} onClose={() => setPickerOpen(false)} />
       ) : null}

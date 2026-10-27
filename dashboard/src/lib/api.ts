@@ -1,5 +1,5 @@
 import { clearToken, getToken } from "./storage";
-import type { ActorResponse, LoginResponse, MeResponse, TaskActionResponse, TasksResponse, UsersResponse } from "./types";
+import type { ActorResponse, LoginResponse, MeResponse, TaskActionResponse, TaskRepeat, TasksResponse, UsersResponse } from "./types";
 
 export const API_BASE: string = (import.meta.env.VITE_API_BASE as string | undefined) ?? "https://pa-wp-bot.radhegeneral2306.workers.dev";
 
@@ -94,6 +94,9 @@ export const api = {
     }),
   assign: (id: string, phone: string) => request<TaskActionResponse>(`${taskPath(id)}/assign`, { method: "POST", body: { phone } }),
   cancel: (id: string) => request<TaskActionResponse>(`${taskPath(id)}/cancel`, { method: "POST", body: {} }),
+  /** "Naya task" from the dashboard. */
+  createTask: (body: { title: string; assigneePhone: string; date: string; time: string | null; repeat: TaskRepeat }) =>
+    request<TaskActionResponse>("/api/tasks", { method: "POST", body }),
   /** Staff date request (Phase 6). requestedAt makes the server refuse a request that was replaced meanwhile. */
   approveDate: (id: string, requestedAt: string) => request<TaskActionResponse>(`${taskPath(id)}/approve`, { method: "POST", body: { requestedAt } }),
   rejectDate: (id: string, requestedAt: string) => request<TaskActionResponse>(`${taskPath(id)}/reject`, { method: "POST", body: { requestedAt } }),

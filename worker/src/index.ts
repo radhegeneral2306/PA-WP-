@@ -12,9 +12,11 @@ import type { Outgoing } from "./bot/outgoing";
 import { deliverAll } from "./interakt/deliver";
 import { handleUsersEndpoint } from "./admin";
 import { addRoutes, handleApi } from "./dashboard/api";
+import { createRoutes } from "./dashboard/routes/create";
 import { readRoutes } from "./dashboard/routes/read";
 
 addRoutes(readRoutes);
+addRoutes(createRoutes);
 import { runReminders } from "./scheduler/reminders";
 import { runDailySummary } from "./scheduler/daily";
 

@@ -15,21 +15,21 @@ export type WriteAction = "done" | "remark" | "due" | "assign" | "cancel" | "reo
 /** Runs one action on a loaded task for a resolved actor. */
 type TaskAction = (ctx: ApiContext, body: Record<string, unknown>, task: Task, actor: Actor) => Promise<Response>;
 
-const bad = (error: string): Response => json({ error, code: "bad_request" }, 400);
+export const bad = (error: string): Response => json({ error, code: "bad_request" }, 400);
 
-function asObject(body: unknown): Record<string, unknown> {
+export function asObject(body: unknown): Record<string, unknown> {
   return body !== null && typeof body === "object" && !Array.isArray(body) ? (body as Record<string, unknown>) : {};
 }
 
 /** The session's picked name → the active admin behind it (phone used for "never notify the actor"). */
-async function resolveActor(ctx: ApiContext): Promise<Actor | null> {
+export async function resolveActor(ctx: ApiContext): Promise<Actor | null> {
   const name = ctx.session?.name;
   if (!name) return null;
   const admin = (await ctx.store.listUsers({ role: "admin" })).find((u) => u.name === name);
   return admin ? { phone: admin.phone, name: admin.name, viaDashboard: true } : null;
 }
 
-async function respond(ctx: ApiContext, action: WriteAction, actor: Actor, task: Task, result: ActionResult): Promise<Response> {
+export async function respond(ctx: ApiContext, action: WriteAction | "create", actor: Actor, task: Task, result: ActionResult): Promise<Response> {
   if (!result.ok) return json({ error: result.error, code: result.code }, result.status);
   console.log(`dashboard ${action}: task ${task.id} by ${mask(actor.phone)}, notices to ${result.outs.map((o) => mask(o.to)).join(",") || "none"}`);
   await ctx.deliver(result.outs);
@@ -45,7 +45,7 @@ const remark: TaskAction = async (ctx, body, task, actor) => {
 };
 
 /** Shared body check for date + optional remark (due, reopen). */
-function dateBody(body: Record<string, unknown>): { due: ParsedDue; note: string | null } | Response {
+export function dateBody(body: Record<string, unknown>): { due: ParsedDue; note: string | null } | Response {
   const parsed = dueFromInput(body.date, body.time);
   if (!parsed) return bad("Date ya time galat hai");
   const note = body.remark ?? null;

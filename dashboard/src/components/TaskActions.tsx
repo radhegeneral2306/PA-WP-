@@ -10,6 +10,7 @@ import { Sheet } from "./Sheet";
 import { StaffPicker } from "./StaffPicker";
 import { useToast } from "./Toast";
 import { inputClass } from "./ui";
+import { Counter, describedBy, FormError, SaveButton, textareaClass } from "./formParts";
 
 type Kind = "done" | "remark" | "due" | "assign" | "cancel";
 type Form = null | "remark" | "due" | "assign-pick";
@@ -263,46 +264,6 @@ export function TaskActions({ task, branches, users, counts, onSaved, onDone, on
       ) : null}
     </div>
   );
-}
-
-function Counter({ id, length }: { id: string; length: number }) {
-  return (
-    <span id={id} className={`tnum text-meta ${length >= REMARK_MAX ? "text-danger" : "text-muted"}`}>
-      {length}/{REMARK_MAX}
-    </span>
-  );
-}
-
-function SaveButton({ busy, disabled, label = "Save karo", busyLabel = "Save ho raha hai…" }: { busy: boolean; disabled: boolean; label?: string; busyLabel?: string }) {
-  return (
-    <button
-      type="submit"
-      disabled={disabled}
-      aria-busy={busy || undefined}
-      className="press flex h-12 w-full items-center justify-center gap-2 rounded-lg bg-accent px-4 text-title font-medium text-on-accent disabled:cursor-not-allowed disabled:opacity-60"
-    >
-      {busy ? <SpinnerGap size={20} className="animate-spin" aria-hidden="true" /> : null}
-      {busy ? busyLabel : label}
-    </button>
-  );
-}
-
-function FormError({ message }: { message: string | null }) {
-  if (!message) return null;
-  return (
-    <p role="alert" className="flex items-start gap-2 rounded-lg border border-danger/40 bg-danger-soft px-3 py-2 text-body break-words">
-      <WarningCircle size={20} className="mt-0.5 shrink-0 text-danger" aria-hidden="true" />
-      <span>{message}</span>
-    </p>
-  );
-}
-
-const textareaClass =
-  "block w-full resize-y rounded-lg border border-line bg-surface px-3 py-2.5 text-[16px] leading-6 text-text placeholder:text-muted focus:border-accent focus:outline-none focus-visible:outline-2 focus-visible:outline-accent aria-[invalid=true]:border-danger";
-
-function describedBy(...ids: (string | false | null | undefined)[]): string | undefined {
-  const list = ids.filter(Boolean) as string[];
-  return list.length ? list.join(" ") : undefined;
 }
 
 /** Returns null on success (the parent closes the sheet), or the server error to show inline. */
