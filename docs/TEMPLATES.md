@@ -391,6 +391,7 @@ Form templates: the button opens a WhatsApp Form built in Interakt (Automations 
 | Button | WhatsApp Flow/Form, text `Form kholo`, form **Naya Task Admin v2** | same, form **Naya Task Staff** |
 
 Code: zero body values; sent with `is_flow_template: true` and the flow token `task_form_admin` / `task_form_staff` (`interakt/templates.ts`). Sent only when the user taps "📝 Naya task (Form)" in the menu (inside the 24 h window). If the send fails, the fallback text points to the old "➕ Naya task".
+`task_form_admin_v2` (approved 27 Oct, Marketing) opens **Naya Task Admin v3** (no Branch) and is the one the bot sends now.
 Staff changes: a new Admin form needs a new template `task_form_admin_v2`, `_v3`... (published forms can't be edited).
 
 ## 5. Aage ke liye ideas (OPTIONAL, abhi code mein nahi hain)

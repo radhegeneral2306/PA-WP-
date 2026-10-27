@@ -29,7 +29,7 @@ const REPEAT_SUFFIX: Record<TaskRepeat, string> = {
  * Admin form template in use. v1 opens "Naya Task Admin v2" (with Branch); v2 opens "Naya Task Admin v3"
  * (no Branch). Switch to "task_form_admin_v2" once Meta approves it. Submissions from both forms work.
  */
-export const ADMIN_FORM_TEMPLATE: TemplateName = "task_form_admin_v1";
+export const ADMIN_FORM_TEMPLATE: TemplateName = "task_form_admin_v2";
 
 export const taskFormFlow: Flow = {
   id: ID,

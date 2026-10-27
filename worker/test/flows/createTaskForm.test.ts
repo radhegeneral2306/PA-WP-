@@ -33,7 +33,7 @@ describe("taskFormFlow.start", () => {
   it("admin gets the admin form template", async () => {
     const out = await taskFormFlow.start(makeCtx(ADMIN));
     expect(out).toHaveLength(1);
-    expect(out[0]).toMatchObject({ to: ADMIN.phone, kind: "template", template: "task_form_admin_v1", flowToken: "task_form_admin", bodyValues: [] });
+    expect(out[0]).toMatchObject({ to: ADMIN.phone, kind: "template", template: "task_form_admin_v2", flowToken: "task_form_admin", bodyValues: [] });
     expect(body(out[0])).toContain("➕ Naya task");
   });
 
