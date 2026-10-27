@@ -2,7 +2,7 @@
 
 *Snapshot: 26 Oct 2026 · Live build: `batch2.1` · 335 automatic tests passing*
 
-> **Hinglish summary:** Ye ek WhatsApp task-management bot hai, Radhe Tiles World ke 3 branches (Raipur, Jagdalpur, Durg) ke staff aur admins ke liye. Batch 0, 1 aur 2 poore ban gaye hain aur live chal rahe hain. Is file mein sab kuch hai: kya bana, kaise bana, security, kaun si file kya karti hai, kya pending hai, aur naye kaam ke rules. Naya chat **pehle ye poori file padhe**, phir kaam shuru kare.
+> **Hinglish summary:** Ye ek WhatsApp task-management bot hai, Radhe Tiles World ke branches (Raipur, Jagdalpur, Durg, Hardware, Office) ke staff aur admins ke liye. Batch 0, 1 aur 2 poore ban gaye hain aur live chal rahe hain. Is file mein sab kuch hai: kya bana, kaise bana, security, kaun si file kya karti hai, kya pending hai, aur naye kaam ke rules. Naya chat **pehle ye poori file padhe**, phir kaam shuru kare.
 
 ---
 
@@ -130,7 +130,7 @@ Cloudflare Cron ──► scheduled() ──► runCron()
 
 Defined in `worker/src/domain/types.ts`:
 
-- **User**: `phone, name, role ("admin"|"staff"), branch ("RAIPUR"|"JAGDALPUR"|"DURG"|null for admins), active, createdAt`
+- **User**: `phone, name, role ("admin"|"staff"), branch ("RAIPUR"|"JAGDALPUR"|"DURG"|"HARDWARE"|"OFFICE"|null for admins), active, createdAt`
 - **Task**: `title, assigneePhone/Name, branch, createdByPhone/Name, dueAt (ISO UTC), dueHasTime, status ("pending"|"done"), repeat ("none"|"every90"|"monthly"), nextReminderAt, repeatDay?, dateRequest?, lastReminderAt?, remarks[] {at, byPhone, byName, text}, createdAt, updatedAt, doneAt`
 - **DateRequest**: `dueAt, hasTime, remark, byPhone, byName, requestedAt`
 - **Session**: `phone, flow, step, data: Record<string,string>, updatedAt`

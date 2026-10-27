@@ -1,12 +1,14 @@
 // Shared data model. Every module codes against these shapes; change them only
 // in one place and update all users together.
 
-export type BranchId = "RAIPUR" | "JAGDALPUR" | "DURG";
+export type BranchId = "RAIPUR" | "JAGDALPUR" | "DURG" | "HARDWARE" | "OFFICE";
 
 export const BRANCHES: { id: BranchId; name: string }[] = [
   { id: "RAIPUR", name: "Raipur" },
   { id: "JAGDALPUR", name: "Jagdalpur" },
   { id: "DURG", name: "Durg" },
+  { id: "HARDWARE", name: "Hardware" },
+  { id: "OFFICE", name: "Office" },
 ];
 
 export function branchName(id: BranchId | null): string {

@@ -6,7 +6,7 @@ import type { Env } from "./env";
 import { checkAccess } from "./firebase/firestore";
 import { mask, testNumbers } from "./numbers";
 
-export const BUILD = "batch2.1";
+export const BUILD = "batch2.2";
 
 export async function statusReport(env: Env) {
   const has = (v: string | undefined) => Boolean(v && v.trim());

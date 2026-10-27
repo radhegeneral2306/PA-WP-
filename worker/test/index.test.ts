@@ -186,6 +186,25 @@ describe("users endpoint", () => {
     expect(store.users.size).toBe(0);
   });
 
+  it("accepts the Hardware and Office branches", async () => {
+    const { handleUsersEndpoint } = await import("../src/admin");
+    const store = new MemoryStore();
+    const res = await handleUsersEndpoint(
+      new Request("https://x/", {
+        method: "PUT",
+        body: JSON.stringify([
+          { phone: "0000000501", name: "Hw", role: "staff", branch: "hardware" },
+          { phone: "0000000502", name: "Of", role: "staff", branch: "OFFICE" },
+        ]),
+      }),
+      store,
+      new Date(),
+    );
+    expect(res.status).toBe(200);
+    expect((await store.getUser("910000000501"))?.branch).toBe("HARDWARE");
+    expect((await store.getUser("910000000502"))?.branch).toBe("OFFICE");
+  });
+
   it("upserts users and keeps createdAt", async () => {
     const { handleUsersEndpoint } = await import("../src/admin");
     const store = new MemoryStore();
