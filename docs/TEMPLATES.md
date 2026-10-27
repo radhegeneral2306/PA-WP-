@@ -346,7 +346,7 @@ Poori list dekhne ke liye neeche "Mere tasks" dabayein.
 
 ---
 
-### 4.9 `task_cancelled_v1` (Dashboard)
+### 4.9 `task_cancelled_v1` (Dashboard) · approved 27 Oct, used by the dashboard Cancel
 
 Kab jaata hai: jab dashboard se task cancel hota hai. Assignee aur creator dono ko jaata hai, par jisne cancel kiya usko nahi. Agar dono ek hi insaan hain, toh ek hi message jaata hai.
 

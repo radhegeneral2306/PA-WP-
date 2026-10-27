@@ -1,15 +1,15 @@
-// Phase 4 write routes: POST /api/tasks/:id/{done,remark,due,assign}.
+// Write routes: POST /api/tasks/:id/{done,remark,due,assign,cancel}.
 // Rules live in bot/taskActions (shared with WhatsApp); this module only resolves
 // the acting admin, validates the body and turns ActionResults into responses.
 // The router matches exact paths, so matchWriteRoute binds the :id into the handler.
 
-import { addRemark, changeDue, dueFromInput, markDone, reassign, REMARK_MAX, type ActionResult, type Actor } from "../../bot/taskActions";
+import { addRemark, cancelTask, changeDue, dueFromInput, markDone, reassign, REMARK_MAX, type ActionResult, type Actor } from "../../bot/taskActions";
 import type { Task } from "../../domain/types";
 import { mask } from "../../numbers";
 import { json, type ApiContext, type Route } from "../api";
 import { toTaskDTO } from "./read";
 
-export type WriteAction = "done" | "remark" | "due" | "assign";
+export type WriteAction = "done" | "remark" | "due" | "assign" | "cancel";
 
 /** Runs one action on a loaded task for a resolved actor. */
 type TaskAction = (ctx: ApiContext, body: Record<string, unknown>, task: Task, actor: Actor) => Promise<Response>;
@@ -60,7 +60,10 @@ const assign: TaskAction = async (ctx, body, task, actor) => {
   return respond(ctx, "assign", actor, task, await reassign(ctx.store, task, actor, to, ctx.now));
 };
 
-const ACTIONS: Record<WriteAction, TaskAction> = { done, remark, due, assign };
+const cancel: TaskAction = async (ctx, _body, task, actor) =>
+  respond(ctx, "cancel", actor, task, await cancelTask(ctx.store, task, actor, ctx.now));
+
+const ACTIONS: Record<WriteAction, TaskAction> = { done, remark, due, assign, cancel };
 
 /** Common prelude: actor (403), task (404), then the action. */
 async function runAction(ctx: ApiContext, body: unknown, id: string, action: WriteAction): Promise<Response> {
@@ -71,7 +74,7 @@ async function runAction(ctx: ApiContext, body: unknown, id: string, action: Wri
   return ACTIONS[action](ctx, asObject(body), task, actor);
 }
 
-const PATH_RE = /^\/api\/tasks\/([^/]+)\/(done|remark|due|assign)$/;
+const PATH_RE = /^\/api\/tasks\/([^/]+)\/(done|remark|due|assign|cancel)$/;
 
 function boundRoute(action: WriteAction, id: string, path: string): Route {
   return { method: "POST", path, auth: "named", handler: (ctx, body) => runAction(ctx, body, id, action) };

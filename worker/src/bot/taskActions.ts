@@ -172,6 +172,44 @@ export async function reassign(store: Store, t: Task, actor: Actor, to: User, no
   return { ok: true, task, outs };
 }
 
+/** cancelled_v1 for one recipient. */
+export function cancelledNotice(t: Task, to: { phone: string; name: string }, actorName: string): Outgoing {
+  return {
+    to: to.phone,
+    kind: "template",
+    template: "task_cancelled_v1",
+    bodyValues: [to.name, actorName, t.title, t.assigneeName],
+    fallbackText: `Namaste ${to.name} ji,\n${actorName} ne ek task cancel kar diya hai.\n\nTask: ${t.title}\nKiska task: ${t.assigneeName}\n\nIs task ka ab koi reminder nahi aayega.`,
+  };
+}
+
+/**
+ * Cancel: never deleted, just closed (archive). Reminders and date requests stop.
+ * Assignee and creator are told once each (never the actor, never inactive users).
+ */
+export async function cancelTask(store: Store, t: Task, actor: Actor, now: Date): Promise<ActionResult> {
+  const blocked = closed(t);
+  if (blocked) return blocked;
+  const at = now.toISOString();
+  const by = remarkBy(actor, "Cancel kiya", now);
+  await store.updateTask(t.id, {
+    status: "cancelled",
+    cancelledAt: at,
+    cancelledByName: by.byName,
+    nextReminderAt: null,
+    dateRequest: null,
+    remarks: [...t.remarks, by],
+    updatedAt: at,
+  });
+  const outs: Outgoing[] = [];
+  for (const phone of new Set([t.assigneePhone, t.createdByPhone])) {
+    if (phone === actor.phone) continue;
+    const user = await store.getUser(phone);
+    if (user?.active) outs.push(cancelledNotice(t, { phone, name: user.name }, actor.name));
+  }
+  return { ok: true, task: await reload(store, t.id), outs };
+}
+
 /** Dashboard date input ("YYYY-MM-DD", optional "HH:MM") → instant; no time means 10:00 AM IST. */
 export function dueFromInput(date: unknown, time: unknown): ParsedDue | null {
   if (typeof date !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;

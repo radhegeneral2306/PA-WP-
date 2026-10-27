@@ -106,9 +106,15 @@ The 25-day staff limit does not apply to the dashboard (admins only).
 
 ---
 
+## Phase 5 (cancel)
+
+### `POST /api/tasks/:id/cancel`  (auth: named)
+Body `{}`. Status → `cancelled`, `cancelledAt` = now, `cancelledByName` = "Name (dashboard)", reminders and any date request stop, remark "Cancel kiya". The task is never deleted; it shows in the archive (`closedAt` = `cancelledAt`).
+WhatsApp `task_cancelled_v1` to the assignee and the creator: once each, never the actor, skipped for inactive users.
+Response `{ task: TaskDTO, next: null }`. 409 `task_closed` if already done/cancelled. The PWA must ask "Pakka cancel karna hai?" first (no undo in v1).
+
 ## Later phases (planned, not built)
 
 | Phase | Route | Body |
 |---|---|---|
-| 5 | `POST /api/tasks/:id/cancel` | `{}` |
 | 6 | `GET /api/approvals`, `POST /api/approvals/:id` | `{ decision: "approve" \| "reject" }` |

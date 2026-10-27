@@ -37,7 +37,7 @@ const storeWith = (...tasks: Task[]) => new MemoryStore({ users: USERS, tasks: t
 
 describe("matchWriteRoute", () => {
   it("parses POST /api/tasks/<id>/<action>", () => {
-    for (const action of ["done", "remark", "due", "assign"]) {
+    for (const action of ["done", "remark", "due", "assign", "cancel"]) {
       const m = matchWriteRoute("POST", `/api/tasks/abc123/${action}`);
       expect(m?.id).toBe("abc123");
       expect(m?.route).toMatchObject({ method: "POST", auth: "named", path: `/api/tasks/abc123/${action}` });
@@ -48,7 +48,7 @@ describe("matchWriteRoute", () => {
   it("rejects wrong method, unknown actions and extra or missing segments", () => {
     expect(matchWriteRoute("GET", "/api/tasks/abc/done")).toBeNull();
     expect(matchWriteRoute("PATCH", "/api/tasks/abc/done")).toBeNull();
-    expect(matchWriteRoute("POST", "/api/tasks/abc/cancel")).toBeNull();
+    expect(matchWriteRoute("POST", "/api/tasks/abc/explode")).toBeNull();
     expect(matchWriteRoute("POST", "/api/tasks/abc/done/x")).toBeNull();
     expect(matchWriteRoute("POST", "/api/tasks/a/b/done")).toBeNull();
     expect(matchWriteRoute("POST", "/api/tasks//done")).toBeNull();
@@ -62,6 +62,7 @@ describe("matchWriteRoute", () => {
       ["POST", "/api/tasks/:id/remark", "named"],
       ["POST", "/api/tasks/:id/due", "named"],
       ["POST", "/api/tasks/:id/assign", "named"],
+      ["POST", "/api/tasks/:id/cancel", "named"],
     ]);
   });
 });
@@ -205,6 +206,43 @@ describe("POST /api/tasks/:id/assign", () => {
       expect(body.code).toBe("bad_request");
       expect(sent).toEqual([]);
       expect((await store.getTask("task1"))?.assigneePhone).toBe(STAFF_DURG.phone);
+    }
+  });
+});
+
+describe("cancel", () => {
+  it("cancels, keeps the task for the archive and tells assignee and creator", async () => {
+    const store = storeWith(task({ repeat: "every90", nextReminderAt: "2026-10-26T10:00:00.000Z" }));
+    const { res, body, sent } = await post(store, "/api/tasks/task1/cancel", {}, ADMIN2.name);
+    expect(res.status).toBe(200);
+    expect((body as { task: { status: string; closedAt: string; cancelledByName: string } }).task).toMatchObject({
+      status: "cancelled",
+      closedAt: NOW.toISOString(),
+      cancelledByName: "Partner Two (dashboard)",
+    });
+    const saved = await store.getTask("task1");
+    expect(saved).toMatchObject({ status: "cancelled", nextReminderAt: null, dateRequest: null });
+    expect(saved?.remarks.at(-1)?.text).toBe("Cancel kiya");
+    expect((sent as { to: string; template: string }[]).map((o) => [o.to, o.template]).sort()).toEqual(
+      [[ADMIN.phone, "task_cancelled_v1"], [STAFF_DURG.phone, "task_cancelled_v1"]].sort(),
+    );
+  });
+
+  it("never notifies the actor, sends one message when creator is the assignee, skips inactive users", async () => {
+    const self = storeWith(task({ assigneePhone: ADMIN.phone, assigneeName: ADMIN.name, createdByPhone: ADMIN.phone }));
+    expect((await post(self, "/api/tasks/task1/cancel", {}, ADMIN.name)).sent).toEqual([]);
+    const shared = storeWith(task({ assigneePhone: ADMIN.phone, assigneeName: ADMIN.name, createdByPhone: ADMIN.phone }));
+    expect((await post(shared, "/api/tasks/task1/cancel", {}, ADMIN2.name)).sent).toHaveLength(1);
+    const gone = storeWith(task({ assigneePhone: INACTIVE.phone, assigneeName: INACTIVE.name }));
+    const r = await post(gone, "/api/tasks/task1/cancel", {}, ADMIN.name);
+    expect(r.sent).toEqual([]);
+  });
+
+  it("refuses already closed tasks", async () => {
+    for (const status of ["done", "cancelled"] as const) {
+      const { res, sent } = await post(storeWith(task({ status })), "/api/tasks/task1/cancel", {}, ADMIN.name);
+      expect(res.status).toBe(409);
+      expect(sent).toEqual([]);
     }
   });
 });

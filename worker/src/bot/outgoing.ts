@@ -30,6 +30,7 @@ export const TEMPLATE_PARAMS = {
   date_approval_result_v1: ["staff name", "task", "result", "due"],
   daily_summary_v1: ["name", "pending count", "overdue count"],
   welcome_user_v1: ["name", "added by", "role"],
+  task_cancelled_v1: ["recipient name", "cancelled by", "task", "assigned to"],
 } as const;
 
 export type TemplateName = keyof typeof TEMPLATE_PARAMS;
