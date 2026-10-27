@@ -240,3 +240,15 @@ describe("router: form submissions", () => {
     expect(await store.listTasks({})).toHaveLength(1);
   });
 });
+
+describe("Interakt Person list short tags", () => {
+  it("'(Hdw)' means the Hardware branch (Interakt's 30-character option limit)", async () => {
+    const hw: User = { ...STAFF_DURG, phone: "919000000021", name: "Ofc Hardware - 66466", branch: "HARDWARE" };
+    const store = new MemoryStore({ users: [...USERS, hw] });
+    const ctx = makeCtx(ADMIN, store);
+    const out = await handleTaskForm(ctx, { ...ADMIN_FORM, branch: "Hardware", person: "Ofc Hardware - 66466 (Hdw)" });
+    const [saved] = await store.listTasks({});
+    expect(saved).toMatchObject({ assigneePhone: hw.phone, branch: "HARDWARE" });
+    expect(body(out[0])).toContain("✅ Task ban gaya!");
+  });
+});

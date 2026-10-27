@@ -156,12 +156,15 @@ function parseRepeat(raw: unknown): TaskRepeat | null {
 
 type BranchAnswer = { kind: "admins" } | { kind: "branch"; id: User["branch"] } | null;
 
+/** Short tags used in the Interakt Person list where the 30-character option limit bites ("... (Hdw)"). */
+const BRANCH_SHORT: Record<string, "HARDWARE"> = { hdw: "HARDWARE", hw: "HARDWARE" };
+
 function parseBranch(raw: string): BranchAnswer | "bad" {
   const s = squash(cleanOption(raw));
   if (!s) return null;
   if (s === "admins" || s === "admin") return { kind: "admins" };
   const ids = ["RAIPUR", "JAGDALPUR", "DURG", "HARDWARE", "OFFICE"] as const;
-  const id = ids.find((b) => squash(branchName(b)) === s || b.toLowerCase() === s);
+  const id = ids.find((b) => squash(branchName(b)) === s || b.toLowerCase() === s) ?? BRANCH_SHORT[s];
   return id ? { kind: "branch", id } : "bad";
 }
 

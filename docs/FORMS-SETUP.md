@@ -6,6 +6,20 @@ Copy names and options **exactly** (spelling, capital letters, spaces). The bot 
 
 ---
 
+## What was actually built (27 Oct 2026)
+
+| Form | Form ID (= Flow ID) | Template | Status |
+|---|---|---|---|
+| Naya Task Admin v2 | 2636999320105587 | `task_form_admin_v1` | template pending Meta approval |
+| Naya Task Staff | 1676969103936562 | `task_form_staff_v1` | template pending Meta approval |
+
+Differences from the plan below:
+- Interakt limits: field label max 20 characters, option max 30. So the Hardware person option is `Ofc Hardware - 66466 (Hdw)`; the bot reads `(Hdw)` as Hardware.
+- The date picker has no "no past dates" setting; the bot rejects past dates itself.
+- An older `Naya Task Admin` (ID 939478788999708) was published by mistake with a cut-off name. Not linked to any template; never use it.
+- "Save as Draft" published the form. After publishing, press Sync Data to check the status.
+- Form category in Interakt: Lead Generation (the templates are Utility).
+
 ## Step 1. Admin form (Interakt → Automations → WhatsApp Forms → Create)
 
 - **Form name:** `Naya Task Admin`
@@ -47,7 +61,7 @@ Prachi (Durg)
 Rinky (Durg)
 Sudha (Durg)
 Vani (Durg)
-Ofc Hardware - 66466 (Hardware)
+Ofc Hardware - 66466 (Hdw)
 Roshni (Hardware)
 Yash (Hardware)
 Bharti (Office)
@@ -115,4 +129,4 @@ Nothing new to switch on: the bot already receives "incoming customer messages",
 - If any field key could not be set as above, say what the builder showed instead (a screenshot is fine).
 
 ## Later: when staff change
-Ask the build chat for an updated Person list, build a new Admin form with it, and a new template `task_form_admin_v2` (then `_v3`...). The bot is told the new name; old names are never reused.
+Keep every option within 30 characters (use a short branch tag such as `(Hdw)` if needed; tell the build chat any new short tag). Ask the build chat for an updated Person list, build a new Admin form with it, and a new template `task_form_admin_v2` (then `_v3`...). The bot is told the new name; old names are never reused.
