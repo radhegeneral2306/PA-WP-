@@ -314,4 +314,26 @@ describe("cron", () => {
     await runCron(env, DAILY_CRON, new Date("2026-10-26T04:30:00Z"), { store });
     expect(interaktCalls().map((c) => c.body.template?.name)).toEqual(["daily_summary_v1"]);
   });
+
+  it("daily cron: summary first, then the health check alerts admins (and never blocks the summary)", async () => {
+    const admin = { phone: "917777777777", name: "Bhaskar", role: "admin" as const, branch: null, active: true, createdAt: "2026-10-01T00:00:00.000Z" };
+    const store = new MemoryStore({ users: [staff, admin] });
+    await store.createTask(due);
+    store.lastWebhookAt = null; // no incoming message on record -> "webhook silent" problem
+    await runCron(env, DAILY_CRON, new Date("2026-10-26T04:30:00Z"), { store });
+    const sent = interaktCalls().map((c) => c.body.template?.name);
+    expect(sent[0]).toBe("daily_summary_v1");
+    expect(sent).toContain("task_assigned_v1");
+    const alert = (await store.listTasks({ status: "pending" })).find((t) => t.title.startsWith("Bot check:"));
+    expect(alert).toMatchObject({ assigneePhone: admin.phone, createdByName: "Bot" });
+    expect((await store.getHealth())?.lastCheckAt).toBe("2026-10-26T04:30:00.000Z");
+  });
+
+  it("daily cron with a healthy bot creates no alert", async () => {
+    const admin = { phone: "917777777777", name: "Bhaskar", role: "admin" as const, branch: null, active: true, createdAt: "2026-10-01T00:00:00.000Z" };
+    const store = new MemoryStore({ users: [staff, admin] });
+    store.lastWebhookAt = new Date("2026-10-26T03:00:00Z");
+    await runCron(env, DAILY_CRON, new Date("2026-10-26T04:30:00Z"), { store });
+    expect((await store.listTasks({})).filter((t) => t.title.startsWith("Bot check:"))).toEqual([]);
+  });
 });

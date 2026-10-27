@@ -347,6 +347,14 @@ Run the `docs/TESTING-batch1.md` checklist sections A–G on real phones.
 - **Admin form v3 (no Branch):** form `Naya Task Admin v3` (ID 2211140249828307), template `task_form_admin_v2` (APPROVED 27 Oct, Marketing). **In use:** `ADMIN_FORM_TEMPLATE = "task_form_admin_v2"` in `flows/createTaskForm.ts`. Submissions with or without Branch both work. Guide: `docs/FORMS-ADMIN-V2.md`.
 - Tests: `test/flows/createTaskForm.test.ts`, `test/parse.test.ts`, `test/templates.test.ts`, `test/routerForm.test.ts`, `test/indexForm.test.ts`.
 
+## 13c. Safety pack (build `safety1`, 27 Oct)
+
+Runs inside the daily 10:00 IST cron, **after** the daily summary; each part catches its own errors, so the summary and the 5-minute reminders are never blocked.
+
+- **Health counters** (`src/scheduler/health.ts`, Firestore doc `system/health`): every `deliverAll` now returns `{sent, failed, templateFallbacks, lastProblem}`; `sendAndRecord` in `index.ts` bumps the counters on failures, and webhook/cron exceptions bump `errors`. `lastProblem` never contains phone numbers or message text.
+- **Daily health check** `runHealthCheck`: problem if (a) any failures/errors since the last check, (b) no incoming webhook for 48 h (`latestWebhookAt` on `webhook_log.loggedAt`; catches a broken Interakt webhook/secret), (c) pending tasks of active users with `nextReminderAt` > 60 min overdue (reminder cron stuck). Then each active admin gets ONE task "Bot check: ..." (creator "Bot", `task_assigned_v1` notice, normal reminders) unless they already have a pending "Bot check:" task. Counters reset after each check. Limitation: if Interakt itself is down / API key invalid, the WhatsApp alert can't go out; the task still shows in the dashboard. Long quiet periods (holidays) can trigger (b); just mark the task Done.
+- **Cleanup** (`src/scheduler/cleanup.ts`): deletes `webhook_log` docs older than 30 days and stale unlocked `login_guards` (never `global`), max 500 per collection per day, ≤ 4 Firestore requests per run. Nothing else is ever touched. Skipped in tests (memory store).
+
 ## 14. Quick troubleshooting
 
 | Symptom | Check |

@@ -180,6 +180,89 @@ describe("deliverAll", () => {
     expect(calls[2].phoneNumber).toBe("9888888888");
   });
 
+  it("summarises an all-ok batch", async () => {
+    const summary = await deliverAll(KEY, [{ to: PHONE, kind: "text", body: "one" }, assigned]);
+    expect(summary).toEqual({ sent: 2, failed: 0, templateFallbacks: 0, lastProblem: null });
+  });
+
+  it("returns an empty summary for no messages", async () => {
+    expect(await deliverAll(KEY, [])).toEqual({ sent: 0, failed: 0, templateFallbacks: 0, lastProblem: null });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("counts failed sends without leaking numbers or text", async () => {
+    respondWith(500, 200);
+    const summary = await deliverAll(KEY, [
+      { to: PHONE, kind: "text", body: "secret one" },
+      { to: PHONE, kind: "text", body: "two" },
+      { to: "123", kind: "text", body: "secret three" },
+    ]);
+    expect(summary).toMatchObject({ sent: 1, failed: 2, templateFallbacks: 0 });
+    expect(summary.lastProblem).toBe("text send error");
+    expect(summary.lastProblem).not.toMatch(/\d{4,}|secret/);
+  });
+
+  it("reports the HTTP status of a failed send", async () => {
+    respondWith(401);
+    expect(await deliverAll(KEY, [{ to: PHONE, kind: "text", body: "x" }])).toEqual({
+      sent: 0,
+      failed: 1,
+      templateFallbacks: 0,
+      lastProblem: "text send failed 401",
+    });
+  });
+
+  it("counts a template that fell back to text", async () => {
+    respondWith(400, 200, 200);
+    const summary = await deliverAll(KEY, [assigned, { to: PHONE, kind: "text", body: "after" }]);
+    expect(summary).toEqual({
+      sent: 2,
+      failed: 0,
+      templateFallbacks: 1,
+      lastProblem: "template task_assigned_v1 failed 400, fell back to text",
+    });
+    expect(sent().map((c) => c.type)).toEqual(["Template", "Text", "Text"]);
+  });
+
+  it("counts a template whose fallback also failed as failed", async () => {
+    respondWith(400, 500);
+    expect(await deliverAll(KEY, [assigned])).toEqual({
+      sent: 0,
+      failed: 1,
+      templateFallbacks: 1,
+      lastProblem: "template task_assigned_v1 failed 400, fallback text failed 500",
+    });
+  });
+
+  it("reports a template build error and a throwing fallback", async () => {
+    fetchMock.mockRejectedValueOnce(new Error("network down 919999999999"));
+    const bad = { ...assigned, bodyValues: ["only one"] } as Outgoing;
+    expect(await deliverAll(KEY, [bad])).toEqual({
+      sent: 0,
+      failed: 1,
+      templateFallbacks: 1,
+      lastProblem: "template task_assigned_v1 error, fallback text error",
+    });
+  });
+
+  it("keeps the order and the payloads unchanged with a mix of failures", async () => {
+    respondWith(200, 400, 200, 500, 200);
+    const summary = await deliverAll(KEY, [
+      { to: PHONE, kind: "text", body: "one" },
+      assigned,
+      { to: PHONE, kind: "text", body: "two" },
+      { to: "9888888888", kind: "text", body: "three" },
+    ]);
+    expect(sent()).toEqual([
+      { ...to, type: "Text", data: { message: "one" } },
+      { ...to, type: "Template", template: { name: "task_assigned_v1", languageCode: "en", bodyValues: (assigned as any).bodyValues } },
+      { ...to, type: "Text", data: { message: "Naya task: Stock check" } },
+      { ...to, type: "Text", data: { message: "two" } },
+      { countryCode: "+91", phoneNumber: "9888888888", type: "Text", data: { message: "three" } },
+    ]);
+    expect(summary).toEqual({ sent: 3, failed: 1, templateFallbacks: 1, lastProblem: "text send failed 500" });
+  });
+
   it("waits for each send before starting the next", async () => {
     const order: string[] = [];
     fetchMock.mockImplementation(async (_url: string, init: RequestInit) => {
