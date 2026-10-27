@@ -53,6 +53,7 @@ The owner explicitly wants **only the important things**, not a bloated dashboar
 | 14 | **Session length (27 Oct): 30 days.** Changing `DASHBOARD_PASSWORD` logs out every device. |
 | 15 | **Notifications from dashboard actions (27 Oct): YES, same as the bot.** Done → creator (`task_done_v1`); remark/date change by someone else → creator (`task_updated_v1`), and a date change also tells the assignee; reassign → new assignee (`task_assigned_v1`); cancel → assignee + creator (`task_cancelled_v1`). Never notify the actor. |
 | 16 | **Reopen cancelled tasks (27 Oct): YES, dashboard only.** Archive → cancelled task → "Wapas chalu karo" with a required new date (optional time, remark). Task goes back to pending, reminders restart from the new date, remark "Wapas chalu kiya" is added, assignee gets `task_assigned_v1` (no new template). Repeat setting is kept. Done tasks can never be reopened. |
+| 17 | **Create tasks from the dashboard (27 Oct): YES.** Same fields and rules as the WhatsApp wizard (title, assignee, due date + optional time, repeat), no 25-day limit, assignee gets `task_assigned_v1`. The WhatsApp "Naya task" flow stays unchanged. |
 | 12 | **No Undo/Restore in version 1.** Restoring cancelled tasks is saved for **version 2**. In version 1, pressing Cancel must show a **confirmation prompt** (for example "Pakka cancel karna hai?") to avoid accidental cancels. |
 
 ---

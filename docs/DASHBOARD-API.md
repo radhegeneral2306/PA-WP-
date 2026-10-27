@@ -132,6 +132,14 @@ Shared with WhatsApp "Approvals" via `decideDateRequest` in `src/bot/taskActions
 
 Errors: 409 `no_request` (already handled), 409 `request_changed` (request replaced), 409 `task_closed`, 404 `not_found`. The PWA closes its confirm dialog on any 409/404, shows the message and refreshes.
 
+## New task from the dashboard (owner request, 27 Oct)
+
+### `POST /api/tasks`  (auth: named)
+Body `{ "title": string, "assigneePhone": string, "date": "YYYY-MM-DD", "time": "HH:MM" | null, "repeat"?: "none" | "every90" | "monthly" }`.
+Rules (`createTaskFor` in `src/bot/taskActions.ts`, same record as the WhatsApp "Naya task" wizard): title trimmed, 1-200 chars; assignee any active user (staff of any branch or an admin, including yourself; branch copied from the user); due date required and in the future, no time = 10:00 AM IST; reminders start at the due time; monthly sets `repeatDay` = IST day of the due date; no 25-day limit (admins only). `createdBy` = the picked admin, first remark "Dashboard se banaya" by "Name (dashboard)".
+WhatsApp `task_assigned_v1` to the assignee unless they created it. Response **201** `{ task: TaskDTO, next: null }`. 400 `bad_request` on any invalid field. `GET /api/tasks` is unchanged (the list).
+PWA: "Naya task" button (floating on phone, top bar on desktop) opens a form: Task kya hai?, Kisko dena hai? (staff picker, pre-picked from the staff filter), Due date, Time (optional), Reminder (Ek baar / Har 90 min / Har mahine with a one-line explanation). Closing a filled form asks "Form band karein?".
+
 ## Later phases
 
 | Phase | What |
