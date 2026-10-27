@@ -6,7 +6,10 @@ import type { TaskRepeat } from "../domain/types";
 import type { VoiceDraft, VoicePerson } from "./types";
 
 export const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
-export const DEFAULT_GEMINI_MODEL = "gemini-2.5-flash";
+// Google retires model names (the 2.5 family stopped on 16 Oct 2026 -> 404). The "-latest" alias follows
+// the current Flash model; if a name is gone (404) the next one is tried.
+export const DEFAULT_GEMINI_MODEL = "gemini-flash-latest";
+export const GEMINI_FALLBACK_MODELS = ["gemini-flash-latest", "gemini-3-flash-preview", "gemini-3.1-flash-lite", "gemini-flash-lite-latest"];
 const MAX_TITLE_CHARS = 200;
 const MAX_TRANSCRIPT_CHARS = 2000;
 const REPEATS: readonly TaskRepeat[] = ["none", "every90", "monthly"];
@@ -107,18 +110,28 @@ export async function understandTranscript(
     },
   };
 
-  let res: Response;
-  try {
-    res = await fetch(geminiUrl(opts.model || DEFAULT_GEMINI_MODEL), {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "x-goog-api-key": opts.apiKey },
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(opts.timeoutMs),
-    });
-  } catch (e) {
-    const name = (e as { name?: string })?.name;
-    return { ok: false, reason: "failed", detail: name === "TimeoutError" ? "gemini timeout" : "gemini network error" };
+  const models = [...new Set([opts.model || DEFAULT_GEMINI_MODEL, ...GEMINI_FALLBACK_MODELS])];
+  const deadline = Date.now() + opts.timeoutMs;
+  let res: Response | null = null;
+  for (const [i, model] of models.entries()) {
+    const left = deadline - Date.now();
+    if (left < 300) break;
+    try {
+      res = await fetch(geminiUrl(model), {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-goog-api-key": opts.apiKey },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(left),
+      });
+    } catch (e) {
+      const name = (e as { name?: string })?.name;
+      return { ok: false, reason: "failed", detail: name === "TimeoutError" ? "gemini timeout" : "gemini network error" };
+    }
+    if (res.status !== 404 || i === models.length - 1) break;
+    console.warn(`voice: gemini model ${model} not found, trying the next one`);
+    await res.body?.cancel().catch(() => {});
   }
+  if (!res) return { ok: false, reason: "failed", detail: "gemini timeout" };
 
   let json: unknown = null;
   try {

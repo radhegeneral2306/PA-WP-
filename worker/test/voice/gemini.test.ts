@@ -37,7 +37,7 @@ describe("Gemini request", () => {
     );
     await understandTranscript("Chiku ko bolo PC format", ctx, opts);
     const [url, init] = f.mock.calls[0];
-    expect(url).toBe("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent");
+    expect(url).toBe("https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent");
     expect(url).not.toContain("key=");
     const h = new Headers(init.headers);
     expect(h.get("x-goog-api-key")).toBe("test-key");
@@ -68,6 +68,22 @@ describe("Gemini request", () => {
     const f = stub(() => geminiReply({ transcript: "x", title: "t" }));
     await understandTranscript("x", ctx, { ...opts, model: "gemini-2.5-flash-lite" });
     expect(f.mock.calls[0][0]).toContain("/models/gemini-2.5-flash-lite:generateContent");
+  });
+
+  it("a retired model name (404) falls back to the next model", async () => {
+    let n = 0;
+    const f = stub(() => (n++ === 0 ? new Response(JSON.stringify({ error: { status: "NOT_FOUND" } }), { status: 404 }) : geminiReply({ transcript: "x", title: "t" })));
+    const r = await understandTranscript("x", ctx, { ...opts, model: "gemini-2.5-flash" });
+    expect(r.ok).toBe(true);
+    expect(f).toHaveBeenCalledTimes(2);
+    expect(f.mock.calls[0][0]).toContain("/models/gemini-2.5-flash:generateContent");
+    expect(f.mock.calls[1][0]).toContain("/models/gemini-flash-latest:generateContent");
+  });
+
+  it("every model 404 -> failed with the status", async () => {
+    stub(() => new Response(JSON.stringify({ error: { status: "NOT_FOUND" } }), { status: 404 }));
+    const r = await understandTranscript("x", ctx, opts);
+    expect(r).toMatchObject({ ok: false, reason: "failed", detail: "gemini 404 NOT_FOUND" });
   });
 
   it("keeps the transcript as data: delimiter tags inside it are stripped", async () => {
