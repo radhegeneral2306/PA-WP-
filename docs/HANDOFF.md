@@ -229,7 +229,8 @@ Defined in `bot/outgoing.ts` (`TEMPLATE_PARAMS`), wording in `docs/TEMPLATES.md`
 | `src/index.ts` | fetch (webhook, `/status`, `/users`), `processWebhook`, `scheduled`/`runCron`, outgoing TEST_NUMBERS filter |
 | `src/env.ts` | Env type + `cleanEnv` |
 | `src/status.ts` | `/status` report, `BUILD` label (bump on each release) |
-| `src/admin.ts` | `/users` GET (list all) / PUT (upsert JSON array `{phone,name,role,branch}`) |
+| `src/admin.ts` | `/users` GET (list all) / PUT (upsert JSON array `{phone,name,role,branch,active?}`; `active:false` removes; renames sync to tasks) · `POST /users/welcome` `{phones, addedBy}` sends `welcome_user_v1` to active users |
+| `src/bot/userChanges.ts` | shared by Staff manage and `/users`: `roleLabel`, `welcomeMessage`, `syncUserTasks` |
 | `src/numbers.ts` | `testNumbers`, `mask`, `normalizePhone` |
 | `src/interakt/parse.ts` | webhook → `IncomingMessage` |
 | `src/interakt/send.ts` | payload builders + `send()` |

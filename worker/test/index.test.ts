@@ -205,6 +205,61 @@ describe("users endpoint", () => {
     expect((await store.getUser("910000000502"))?.branch).toBe("OFFICE");
   });
 
+  it("can deactivate users and carries renames over to their tasks", async () => {
+    const { handleUsersEndpoint } = await import("../src/admin");
+    const created = "2026-10-01T00:00:00.000Z";
+    const store = new MemoryStore({
+      users: [
+        { phone: "919000000011", name: "Hardware", role: "staff", branch: "DURG", active: true, createdAt: created },
+        { phone: "910000000201", name: "Dummy", role: "staff", branch: "DURG", active: true, createdAt: created },
+      ],
+    });
+    const t = await store.createTask({
+      title: "x", assigneePhone: "919000000011", assigneeName: "Hardware", branch: "DURG", createdByPhone: "919000000001",
+      createdByName: "Bhaskar", dueAt: created, dueHasTime: false, status: "pending", repeat: "none", nextReminderAt: null,
+      remarks: [], createdAt: created, updatedAt: created, doneAt: null,
+    });
+    const res = await handleUsersEndpoint(
+      new Request("https://x/", {
+        method: "PUT",
+        body: JSON.stringify([
+          { phone: "9000000011", name: "Ofc Hardware", role: "staff", branch: "DURG" },
+          { phone: "0000000201", name: "Dummy", role: "staff", branch: "DURG", active: false },
+        ]),
+      }),
+      store,
+      new Date(),
+    );
+    expect(await res.json()).toEqual({ saved: 2, tasksUpdated: 1 });
+    expect((await store.getUser("910000000201"))?.active).toBe(false);
+    expect((await store.getTask(t.id))?.assigneeName).toBe("Ofc Hardware");
+    expect((await store.getUser("919000000011"))?.createdAt).toBe(created);
+  });
+
+  it("sends welcome templates to active users only", async () => {
+    const { handleUsersEndpoint } = await import("../src/admin");
+    const created = "2026-10-01T00:00:00.000Z";
+    const store = new MemoryStore({
+      users: [
+        { phone: "919000000011", name: "Roshni", role: "staff", branch: "HARDWARE", active: true, createdAt: created },
+        { phone: "919000000012", name: "Gone", role: "staff", branch: "DURG", active: false, createdAt: created },
+      ],
+    });
+    const sent: any[] = [];
+    const post = (body: unknown) =>
+      handleUsersEndpoint(
+        new Request("https://x/", { method: "POST", body: JSON.stringify(body) }),
+        store,
+        new Date(),
+        async (outs) => void sent.push(...outs),
+        true,
+      );
+    expect((await post({ phones: ["9000000011"] })).status).toBe(400);
+    const res = await post({ phones: ["9000000011", "9000000012", "9000000099"], addedBy: "Bhaskar" });
+    expect(await res.json()).toEqual({ sent: 1, skipped: ["0012", "0099"] });
+    expect(sent).toEqual([expect.objectContaining({ to: "919000000011", template: "welcome_user_v1", bodyValues: ["Roshni", "Bhaskar", "Staff (Hardware)"] })]);
+  });
+
   it("upserts users and keeps createdAt", async () => {
     const { handleUsersEndpoint } = await import("../src/admin");
     const store = new MemoryStore();

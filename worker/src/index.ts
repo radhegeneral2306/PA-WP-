@@ -25,7 +25,7 @@ export default {
     if (request.method === "GET" && url.pathname === "/") {
       return new Response("pa-wp-bot ok");
     }
-    const match = url.pathname.match(/^\/webhook\/([^/]+)(\/status|\/users)?$/);
+    const match = url.pathname.match(/^\/webhook\/([^/]+)(\/status|\/users|\/users\/welcome)?$/);
     if (!match || !env.WEBHOOK_SECRET || !safeEqual(match[1], env.WEBHOOK_SECRET)) {
       console.warn("Rejected request: unknown path or wrong webhook secret", request.method, url.pathname.slice(0, 12));
       return new Response("Not found", { status: 404 });
@@ -34,7 +34,10 @@ export default {
       if (request.method !== "GET") return new Response("Not found", { status: 404 });
       return Response.json(await statusReport(env), { headers: { "Cache-Control": "no-store" } });
     }
-    if (match[2] === "/users") return handleUsersEndpoint(request, storeFor(env), new Date());
+    if (match[2] === "/users" || match[2] === "/users/welcome") {
+      const deliver = (outs: Outgoing[]) => deliverAll(env.INTERAKT_API_KEY, onlyAllowed(outs, testNumbers(env)));
+      return handleUsersEndpoint(request, storeFor(env), new Date(), deliver, match[2] === "/users/welcome");
+    }
     if (request.method !== "POST") return new Response("Not found", { status: 404 });
 
     const rawBody = await request.text();

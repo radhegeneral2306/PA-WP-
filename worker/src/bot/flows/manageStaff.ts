@@ -6,6 +6,7 @@ import { endFlow, replyValue, setStep, type BotContext, type Flow, type Inbound 
 import type { Outgoing } from "../outgoing";
 import { branchList, buttons, confirmButtons, list, text, userList } from "../ui";
 import { normalizePhone } from "../../numbers";
+import { roleLabel, syncUserTasks, welcomeMessage } from "../userChanges";
 
 const ID = "manage_staff";
 const ADMINS = "ADMINS";
@@ -104,8 +105,8 @@ function roleButtons(to: string, body: string): Outgoing {
   ]);
 }
 
-function roleLabel(role: string, branch: string | undefined): string {
-  return role === "admin" ? "Admin" : `Staff (${branchName((branch || null) as BranchId | null)})`;
+function draftRoleLabel(role: string, branch: string | undefined): string {
+  return roleLabel({ role: role as Role, branch: (branch || null) as BranchId | null });
 }
 
 function lastFour(phone: string): string {
@@ -183,7 +184,7 @@ async function addBranch(ctx: BotContext, data: Data, input: Inbound): Promise<O
 }
 
 function addSummary(data: Data): string {
-  return [`👤 Naam: *${data.name}*`, `📱 Number: *+${data.phone}*`, `🏷️ Role: *${roleLabel(data.role, data.branch)}*`].join("\n");
+  return [`👤 Naam: *${data.name}*`, `📱 Number: *+${data.phone}*`, `🏷️ Role: *${draftRoleLabel(data.role, data.branch)}*`].join("\n");
 }
 
 async function toAddConfirm(ctx: BotContext, data: Data): Promise<Outgoing[]> {
@@ -204,31 +205,20 @@ async function addConfirm(ctx: BotContext, data: Data, input: Inbound): Promise<
   if (answer !== "yes") return [confirmButtons(user.phone, ID, withHint(TAP_HINT, `${addSummary(data)}\n\nAdd kar du?`))];
 
   const role = data.role as Role;
-  await ctx.store.saveUser({
+  const added: User = {
     phone: data.phone,
     name: data.name,
     role,
     branch: role === "admin" ? null : (data.branch as BranchId),
     active: true,
     createdAt: now.toISOString(),
-  });
+  };
+  await ctx.store.saveUser(added);
   await endFlow(ctx);
 
-  const label = roleLabel(role, data.branch);
   return [
-    text(user.phone, `✅ *${data.name}* add ho gaya (${label}).\nUnko WhatsApp pe welcome message bhej diya hai.`),
-    {
-      to: data.phone,
-      kind: "template",
-      template: "welcome_user_v1",
-      bodyValues: [data.name, user.name, label],
-      fallbackText: [
-        `Namaste ${data.name} ji,`,
-        `${user.name} ne aapko Radhe Task Bot par *${label}* ke roop mein add kiya hai.`,
-        "",
-        "Ab aap WhatsApp par hi apne tasks dekh aur update kar sakte hain. Shuru karne ke liye *Hi* bhejiye.",
-      ].join("\n"),
-    },
+    text(user.phone, `✅ *${data.name}* add ho gaya (${roleLabel(added)}).\nUnko WhatsApp pe welcome message bhej diya hai.`),
+    welcomeMessage(added, user.name),
   ];
 }
 
@@ -326,7 +316,7 @@ function fieldButtons(to: string, body: string): Outgoing {
 }
 
 function fieldPrompt(u: User): string {
-  return `*${u.name}* (${roleLabel(u.role, u.branch ?? "")}): kya badalna hai?`;
+  return `*${u.name}* (${roleLabel(u)}): kya badalna hai?`;
 }
 
 async function editTarget(ctx: BotContext, data: Data): Promise<User | null> {
@@ -445,7 +435,7 @@ function editSummary(before: User, after: User): string {
   const lines = [`✏️ *${before.name}* ki details badlengi:`];
   if (before.name !== after.name) lines.push(`👤 Naam: ${before.name} → *${after.name}*`);
   if (before.role !== after.role) {
-    lines.push(`🏷️ Role: ${roleLabel(before.role, before.branch ?? "")} → *${roleLabel(after.role, after.branch ?? "")}*`);
+    lines.push(`🏷️ Role: ${roleLabel(before)} → *${roleLabel(after)}*`);
   } else if (before.branch !== after.branch) {
     lines.push(`🏢 Branch: ${branchName(before.branch)} → *${branchName(after.branch)}*`);
   }
@@ -480,33 +470,10 @@ async function editConfirm(ctx: BotContext, data: Data, input: Inbound): Promise
     }
   }
   await ctx.store.saveUser(after);
-  const moved = await syncTasks(ctx, target, after);
+  const moved = await syncUserTasks(ctx.store, target, after);
   await endFlow(ctx);
   const tasksLine = moved ? `\n\n📋 ${moved} task(s) bhi update ho gaye.` : "";
   return [text(to, `✅ Update ho gaya\n\n${editSummary(target, after).split("\n").slice(1).join("\n")}${tasksLine}`)];
-}
-
-/** Carries a name or branch change over to the user's existing tasks (assigned and created). */
-async function syncTasks(ctx: BotContext, before: User, after: User): Promise<number> {
-  const { store } = ctx;
-  let count = 0;
-  if (before.name !== after.name || before.branch !== after.branch) {
-    for (const t of await store.listTasks({ assigneePhone: after.phone })) {
-      await store.updateTask(t.id, { assigneeName: after.name, branch: after.branch });
-      count++;
-    }
-  }
-  if (before.name !== after.name) {
-    for (const t of await store.listTasks({ createdByPhone: after.phone })) {
-      if (t.assigneePhone === after.phone) continue; // already counted above
-      await store.updateTask(t.id, { createdByName: after.name });
-      count++;
-    }
-    for (const t of await store.listTasks({ assigneePhone: after.phone })) {
-      if (t.createdByPhone === after.phone) await store.updateTask(t.id, { createdByName: after.name });
-    }
-  }
-  return count;
 }
 
 // ---- list ----
