@@ -11,7 +11,10 @@ import { text } from "./bot/ui";
 import type { Outgoing } from "./bot/outgoing";
 import { deliverAll } from "./interakt/deliver";
 import { handleUsersEndpoint } from "./admin";
-import { handleApi } from "./dashboard/api";
+import { addRoutes, handleApi } from "./dashboard/api";
+import { readRoutes } from "./dashboard/routes/read";
+
+addRoutes(readRoutes);
 import { runReminders } from "./scheduler/reminders";
 import { runDailySummary } from "./scheduler/daily";
 

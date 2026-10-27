@@ -55,6 +55,9 @@ Response
 - `pending`: all tasks with status `pending`, sorted by `dueAt` ascending (so overdue come first).
 - `archive`: tasks with status `done` or `cancelled`, sorted newest first by `closedAt`, at most `limit` (default 200, max 500).
 - Unknown `view` → 400.
+- `limit`: missing/non-numeric → 200; otherwise truncated and clamped to 1..500. Archive ties on `closedAt` break by `updatedAt` descending.
+- A task due earlier today is both `overdue` and `dueToday`; the PWA should show "Overdue" in that case.
+- `/api/users` lists active users only; names of removed assignees still appear on each task as `assigneeName`.
 
 `TaskDTO` = the stored `Task` (see `worker/src/domain/types.ts`) with every optional field present (missing → `null`) plus computed fields:
 
