@@ -49,6 +49,9 @@ The owner explicitly wants **only the important things**, not a bloated dashboar
 | 9 | **Archive shows the date and time** each task was cancelled/completed (in IST). Because the login is shared, the actor name for dashboard actions shows as **"Dashboard (admin)"**, not a specific person. |
 | 10 | **All dashboard users are equal.** No special owner-only powers in this version (the shared login cannot tell users apart). Per-person permissions would need separate logins and are out of scope. |
 | 11 | **Hosting = Cloudflare Pages (separate from the bot Worker).** Reason: the bot is the critical daily system and the dashboard is secondary, so a dashboard bug or failed build must never affect the bot. The dashboard calls the Worker's API routes over HTTPS. |
+| 13 | **Actor name (27 Oct):** after login the dashboard asks "Aap kaun ho?" (active admins list). The picked name is put in the session token and used in remarks/notifications ("Done from dashboard by Bhaskar"). Honor system. |
+| 14 | **Session length (27 Oct): 30 days.** Changing `DASHBOARD_PASSWORD` logs out every device. |
+| 15 | **Notifications from dashboard actions (27 Oct): YES, same as the bot.** Done → creator (`task_done_v1`); remark/date change by someone else → creator (`task_updated_v1`), and a date change also tells the assignee; reassign → new assignee (`task_assigned_v1`); cancel → assignee + creator (`task_cancelled_v1`). Never notify the actor. |
 | 12 | **No Undo/Restore in version 1.** Restoring cancelled tasks is saved for **version 2**. In version 1, pressing Cancel must show a **confirmation prompt** (for example "Pakka cancel karna hai?") to avoid accidental cancels. |
 
 ---
@@ -199,7 +202,7 @@ Each phase should be tested and deployed on its own. Do not start the next until
 | Phase | What | Difficulty |
 |---|---|---|
 | 1 | Add `cancelled` status in the bot + stop reminders/summary for it + tests. Deploy and verify. | Easy-Medium · ✅ **Done 27 Oct (build `dash-p1`)** |
-| 2 | Shared admin ID + password login, brute-force lockout, and API skeleton in the Worker (session token verified server-side). | Medium |
+| 2 | Shared admin ID + password login, brute-force lockout, and API skeleton in the Worker (session token verified server-side). | Medium · ✅ **Done 27 Oct (build `dash-p2`)** |
 | 3 | Cloudflare Pages project + read-only dashboard: pending list, overdue highlighting, filters, search. PWA shell (installable, mobile-first). CORS set up on the Worker. | Medium |
 | 4 | Write actions: Done, remark, change date, change assignee (new assignee notified with `task_assigned_v1`). | Medium |
 | 5 | Cancel (with confirmation prompt) + Archive tab, including the `task_cancelled_v1` template (owner submits it in Interakt first). | Easy-Medium |

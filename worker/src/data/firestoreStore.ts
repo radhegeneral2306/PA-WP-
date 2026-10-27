@@ -3,7 +3,7 @@
 // indexes are needed; remaining filters and sorting happen in memory,
 // matching MemoryStore exactly.
 
-import type { NewTask, Session, Task, User } from "../domain/types";
+import type { LoginGuard, NewTask, Session, Task, User } from "../domain/types";
 import {
   createDoc,
   deleteDoc,
@@ -21,6 +21,7 @@ import type { Store, TaskFilter, UserFilter } from "./store";
 const USERS = "users";
 const TASKS = "tasks";
 const SESSIONS = "sessions";
+const LOGIN_GUARDS = "login_guards";
 
 type Fields = { [k: string]: Plain };
 
@@ -115,5 +116,14 @@ export class FirestoreStore implements Store {
 
   async clearSession(phone: string): Promise<void> {
     await deleteDoc(this.cfg, SESSIONS, phone);
+  }
+
+  async getLoginGuard(key: string): Promise<LoginGuard | null> {
+    const doc = await getDoc(this.cfg, LOGIN_GUARDS, key);
+    return doc ? (doc.data as unknown as LoginGuard) : null;
+  }
+
+  async saveLoginGuard(guard: LoginGuard): Promise<void> {
+    await setDoc(this.cfg, LOGIN_GUARDS, guard.key, plain(guard));
   }
 }

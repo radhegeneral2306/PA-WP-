@@ -1,12 +1,13 @@
 // In-memory Store for tests and local experiments.
 
-import type { NewTask, Session, Task, User } from "../domain/types";
+import type { LoginGuard, NewTask, Session, Task, User } from "../domain/types";
 import type { Store, TaskFilter, UserFilter } from "./store";
 
 export class MemoryStore implements Store {
   users = new Map<string, User>();
   tasks = new Map<string, Task>();
   sessions = new Map<string, Session>();
+  guards = new Map<string, LoginGuard>();
   private seq = 0;
 
   constructor(seed: { users?: User[]; tasks?: Task[] } = {}) {
@@ -72,5 +73,14 @@ export class MemoryStore implements Store {
 
   async clearSession(phone: string) {
     this.sessions.delete(phone);
+  }
+
+  async getLoginGuard(key: string) {
+    const g = this.guards.get(key);
+    return g ? structuredClone(g) : null;
+  }
+
+  async saveLoginGuard(guard: LoginGuard) {
+    this.guards.set(guard.key, structuredClone(guard));
   }
 }

@@ -11,6 +11,7 @@ import { text } from "./bot/ui";
 import type { Outgoing } from "./bot/outgoing";
 import { deliverAll } from "./interakt/deliver";
 import { handleUsersEndpoint } from "./admin";
+import { handleApi } from "./dashboard/api";
 import { runReminders } from "./scheduler/reminders";
 import { runDailySummary } from "./scheduler/daily";
 
@@ -24,6 +25,10 @@ export default {
 
     if (request.method === "GET" && url.pathname === "/") {
       return new Response("pa-wp-bot ok");
+    }
+    if (url.pathname.startsWith("/api/")) {
+      const deliver = (outs: Outgoing[]) => deliverAll(env.INTERAKT_API_KEY, onlyAllowed(outs, testNumbers(env)));
+      return handleApi(request, env, storeFor(env), new Date(), deliver);
     }
     const match = url.pathname.match(/^\/webhook\/([^/]+)(\/status|\/users|\/users\/welcome)?$/);
     if (!match || !env.WEBHOOK_SECRET || !safeEqual(match[1], env.WEBHOOK_SECRET)) {

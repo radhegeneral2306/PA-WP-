@@ -103,3 +103,13 @@ export interface Session {
 }
 
 export const SESSION_TTL_MINUTES = 30;
+
+/** Failed dashboard logins, per client (hashed IP) and one "global" record. */
+export interface LoginGuard {
+  key: string;
+  fails: number;
+  /** Start of the current counting window (ISO UTC). */
+  windowStart: string;
+  /** Logins from this key are refused until then (ISO UTC). */
+  lockedUntil: string | null;
+}

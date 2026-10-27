@@ -1,7 +1,7 @@
 // Storage contract. FirestoreStore (production) and MemoryStore (tests)
 // both implement it; bot code only ever sees this interface.
 
-import type { BranchId, NewTask, Role, Session, Task, TaskStatus, User } from "../domain/types";
+import type { BranchId, LoginGuard, NewTask, Role, Session, Task, TaskStatus, User } from "../domain/types";
 
 export interface UserFilter {
   branch?: BranchId;
@@ -34,4 +34,7 @@ export interface Store {
   getSession(phone: string): Promise<Session | null>;
   saveSession(session: Session): Promise<void>;
   clearSession(phone: string): Promise<void>;
+
+  getLoginGuard(key: string): Promise<LoginGuard | null>;
+  saveLoginGuard(guard: LoginGuard): Promise<void>;
 }

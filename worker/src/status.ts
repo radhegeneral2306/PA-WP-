@@ -6,7 +6,7 @@ import type { Env } from "./env";
 import { checkAccess } from "./firebase/firestore";
 import { mask, testNumbers } from "./numbers";
 
-export const BUILD = "dash-p1";
+export const BUILD = "dash-p2";
 
 export async function statusReport(env: Env) {
   const has = (v: string | undefined) => Boolean(v && v.trim());
@@ -22,6 +22,10 @@ export async function statusReport(env: Env) {
       FIREBASE_CLIENT_EMAIL: has(env.FIREBASE_CLIENT_EMAIL),
       FIREBASE_PRIVATE_KEY: has(env.FIREBASE_PRIVATE_KEY),
       SHEET_FORWARD_URL: has(env.SHEET_FORWARD_URL),
+      DASHBOARD_USER: has(env.DASHBOARD_USER),
+      DASHBOARD_PASSWORD: has(env.DASHBOARD_PASSWORD),
+      DASHBOARD_PASSWORD_LONG_ENOUGH: (env.DASHBOARD_PASSWORD ?? "").length >= 12,
+      DASHBOARD_ORIGINS: has(env.DASHBOARD_ORIGINS),
     },
     testNumbers: [...testNumbers(env)].map((n) => ({ number: mask(n), digits: n.length })),
     interaktApiKey: interaktKeyShape(env.INTERAKT_API_KEY),

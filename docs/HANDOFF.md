@@ -315,6 +315,18 @@ Run the `docs/TESTING-batch1.md` checklist sections A–G on real phones.
 
 ---
 
+## 13b. Dashboard API (in progress, see `docs/DASHBOARD-BRIEF.md`)
+
+- **Phase 1 done:** `cancelled` status (Section 6).
+- **Phase 2 done:** `/api/*` on the same Worker (`src/dashboard/`).
+  - `POST /api/login {user, password}` → `{token, admins, sessionDays}`; `GET /api/me`; `POST /api/actor {name}` (pick "Aap kaun ho?" name, re-issues token)
+  - Shared login from secrets `DASHBOARD_USER` + `DASHBOARD_PASSWORD` (≥12 chars, else login disabled with 503). Constant-time digest compare.
+  - Lockout: 5 wrong tries per client (hashed IP) → 15 min; 30 wrong tries from all clients in 15 min → everyone locked 15 min. Stored in Firestore `login_guards`.
+  - Token: `base64url(JSON{name,iat,exp}).HMAC`, key derived from `WEBHOOK_SECRET` + dashboard credentials; 30 days; password change logs everyone out. Sent as `Authorization: Bearer`.
+  - Route auth levels: `none` (login), `session`, `named` (data-changing routes need a picked admin name).
+  - CORS only for `DASHBOARD_ORIGINS` (comma list, never `*`); a browser request from any other origin gets 403.
+- Next: Phase 3 (Pages app + read routes), 4 (write actions), 5 (cancel + archive), 6 (approvals), 7 (extras).
+
 ## 14. Quick troubleshooting
 
 | Symptom | Check |

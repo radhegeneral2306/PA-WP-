@@ -17,6 +17,9 @@ keep_vars = true
 #   FIREBASE_PRIVATE_KEY   service account private_key (the -----BEGIN PRIVATE KEY----- block)
 #   SHEET_FORWARD_URL      optional; every webhook body is also POSTed here (old Google Sheet logger)
 #   DAILY_SUMMARY          optional; "off" disables the 10 AM pending-task summary
+#   DASHBOARD_USER         shared dashboard login ID
+#   DASHBOARD_PASSWORD     shared dashboard password (at least 12 characters)
+#   DASHBOARD_ORIGINS      comma-separated dashboard origins allowed to call /api (Cloudflare Pages URL)
 
 # Reminders every 5 minutes; daily summary at 04:30 UTC = 10:00 AM IST (DAILY_CRON in src/index.ts).
 [triggers]

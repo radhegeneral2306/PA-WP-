@@ -96,6 +96,17 @@ describe("fetch handler", () => {
     expect((await worker.fetch(new Request("https://x/webhook/nope/status"), env, ctx)).status).toBe(404);
   });
 
+  it("routes /api to the dashboard API without touching the webhook", async () => {
+    const res = await worker.fetch(new Request("https://x/api/me"), env, ctx);
+    expect(res.status).toBe(401);
+    const login = await worker.fetch(
+      new Request("https://x/api/login", { method: "POST", body: JSON.stringify({ user: "a", password: "b" }) }),
+      env,
+      ctx,
+    );
+    expect(login.status).toBe(503); // dashboard login not configured in this env
+  });
+
   it("answers health checks", async () => {
     const res = await worker.fetch(new Request("https://x/"), env, ctx);
     expect(await res.text()).toBe("pa-wp-bot ok");
