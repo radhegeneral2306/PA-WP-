@@ -10,8 +10,8 @@ Copy names and options **exactly** (spelling, capital letters, spaces). The bot 
 
 | Form | Form ID (= Flow ID) | Template | Status |
 |---|---|---|---|
-| Naya Task Admin v2 | 2636999320105587 | `task_form_admin_v1` | template pending Meta approval |
-| Naya Task Staff | 1676969103936562 | `task_form_staff_v1` | template pending Meta approval |
+| Naya Task Admin v2 | 2636999320105587 | `task_form_admin_v1` | approved (Utility) |
+| Naya Task Staff | 1676969103936562 | `task_form_staff_v1` | approved (Meta made it Marketing) |
 
 Differences from the plan below:
 - Interakt limits: field label max 20 characters, option max 30. So the Hardware person option is `Ofc Hardware - 66466 (Hdw)`; the bot reads `(Hdw)` as Hardware.

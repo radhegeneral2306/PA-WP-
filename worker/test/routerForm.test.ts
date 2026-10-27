@@ -7,10 +7,10 @@ vi.mock("../src/bot/flows/createTaskForm", () => ({
   handleTaskForm: vi.fn(async (ctx: any) => [{ to: ctx.user.phone, kind: "text", body: "FORM_HANDLED" }]),
 }));
 
-import { FORMS_LIVE, handleMessage } from "../src/bot/router";
+import { FORM_TESTERS, FORMS_LIVE, handleMessage } from "../src/bot/router";
 import { handleTaskForm } from "../src/bot/flows/createTaskForm";
 import { MemoryStore } from "../src/data/memoryStore";
-import { ADMIN, STAFF_DURG, USERS, makeCtx, tap } from "./helpers/bot";
+import { ADMIN, ADMIN2, STAFF_DURG, USERS, makeCtx, tap } from "./helpers/bot";
 
 const answers = { flow_token: "tok-1", title: "Stock check" };
 const formInput = (form: Record<string, unknown> = answers) => ({ text: "", reply: null, form });
@@ -62,14 +62,24 @@ describe("router: form menu entry while FORMS_LIVE is false", () => {
     expect(FORMS_LIVE).toBe(false);
   });
 
-  it.each([ADMIN, STAFF_DURG])("menu for %s has no 'Naya task (Form)'", async (user) => {
+  it.each([ADMIN2, STAFF_DURG])("menu for a non-tester (%s) has no 'Naya task (Form)'", async (user) => {
     const [menu] = await handleMessage(makeCtx(user), { text: "Hi", reply: null });
     expect(rowIds(menu)).not.toContain("MENU:create_task_form");
     expect(JSON.stringify(menu)).not.toContain("Naya task (Form)");
   });
 
   it("refuses a stale MENU:create_task_form tap", async () => {
-    const [out] = await handleMessage(makeCtx(ADMIN), tap("MENU:create_task_form"));
+    const [out] = await handleMessage(makeCtx(ADMIN2), tap("MENU:create_task_form"));
     expect(JSON.stringify(out)).toContain("available nahi");
+  });
+
+  it("named testers get the form entry and the tap starts the form flow", async () => {
+    const hw = { ...STAFF_DURG, name: "Ofc Hardware - 66466", branch: "HARDWARE" as const };
+    expect(FORM_TESTERS.has(ADMIN.name) && FORM_TESTERS.has(hw.name)).toBe(true);
+    const [menu] = await handleMessage(makeCtx(hw), { text: "Hi", reply: null });
+    expect(rowIds(menu)).toContain("MENU:create_task_form");
+    const { taskFormFlow } = await import("../src/bot/flows/createTaskForm");
+    await handleMessage(makeCtx(ADMIN), tap("MENU:create_task_form"));
+    expect(taskFormFlow.start).toHaveBeenCalled();
   });
 });

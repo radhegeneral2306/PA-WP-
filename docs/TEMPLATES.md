@@ -380,7 +380,7 @@ Is task ka ab koi reminder nahi aayega. Baaki tasks ke liye neeche "Mere tasks" 
 
 ---
 
-### 4.10 `task_form_admin_v1` and `task_form_staff_v1` (Batch 3 forms) · submitted 27 Oct, pending approval
+### 4.10 `task_form_admin_v1` and `task_form_staff_v1` (Batch 3 forms) · APPROVED 27 Oct (Meta categorised `task_form_staff_v1` as MARKETING, admin one as UTILITY)
 
 Form templates: the button opens a WhatsApp Form built in Interakt (Automations → WhatsApp Forms). Full steps and the exact form fields: `docs/FORMS-SETUP.md`.
 

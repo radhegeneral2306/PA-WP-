@@ -1,7 +1,7 @@
 // Decides which flow handles a message: greetings and menu taps reset to the
 // main menu, an active session goes to its flow, anything else gets the menu.
 
-import { SESSION_TTL_MINUTES, type Role } from "../domain/types";
+import { SESSION_TTL_MINUTES, type Role, type User } from "../domain/types";
 import type { BotContext, Flow, Inbound } from "./flow";
 import type { Outgoing } from "./outgoing";
 import { list, text } from "./ui";
@@ -20,8 +20,10 @@ interface MenuEntry {
   arg?: string;
 }
 
-/** Batch 3: switch on once task_form_admin_v1 and task_form_staff_v1 are approved in Interakt. */
+/** Batch 3: switch on for everyone once a real form submission has been checked. */
 export const FORMS_LIVE = false;
+/** Until then the form option shows only for these users (by name; templates approved 27 Oct). */
+export const FORM_TESTERS: ReadonlySet<string> = new Set(["Bhaskar", "Ofc Hardware - 66466"]);
 
 const FORM_ENTRY: MenuEntry = {
   key: "create_task_form",
@@ -35,7 +37,7 @@ export const MENU: MenuEntry[] = [
   { key: "my_tasks", title: "📋 Mere tasks", description: "Apne pending tasks dekho", roles: ["admin", "staff"], flow: tasksFlow, arg: "mine" },
   { key: "staff_tasks", title: "👥 Staff ke tasks", description: "Branch aur staff chun ke tasks dekho", roles: ["admin"], flow: tasksFlow, arg: "staff" },
   { key: "create_task", title: "➕ Naya task", description: "Task banao aur assign karo", roles: ["admin", "staff"], flow: createTaskFlow },
-  ...(FORMS_LIVE ? [FORM_ENTRY] : []),
+  FORM_ENTRY,
   { key: "approvals", title: "⏳ Approvals", description: "Staff ki date badalne ki requests", roles: ["admin"], flow: approvalsFlow },
   { key: "manage_staff", title: "⚙️ Staff manage", description: "Staff add / edit / remove / list", roles: ["admin"], flow: manageStaffFlow },
 ];
@@ -45,9 +47,14 @@ const FLOWS: Flow[] = [tasksFlow, createTaskFlow, manageStaffFlow, approvalsFlow
 const GREETINGS = new Set(["hi", "hii", "hiii", "hello", "helo", "hey", "menu", "namaste", "start"]);
 const CANCEL_WORDS = new Set(["cancel", "band", "band karo", "ruko", "stop", "exit"]);
 
+function available(m: MenuEntry, user: User): boolean {
+  if (!m.roles.includes(user.role)) return false;
+  return m !== FORM_ENTRY || FORMS_LIVE || FORM_TESTERS.has(user.name);
+}
+
 export function mainMenu(ctx: BotContext, intro?: string): Outgoing {
   const { user } = ctx;
-  const rows = MENU.filter((m) => m.roles.includes(user.role)).map((m) => ({
+  const rows = MENU.filter((m) => available(m, user)).map((m) => ({
     id: `MENU:${m.key}`,
     title: m.title,
     description: m.description,
@@ -101,7 +108,7 @@ export async function handleMessage(ctx: BotContext, input: Inbound): Promise<Ou
 }
 
 async function startEntry(ctx: BotContext, key: string): Promise<Outgoing[]> {
-  const entry = MENU.find((m) => m.key === key && m.roles.includes(ctx.user.role));
+  const entry = MENU.find((m) => m.key === key && available(m, ctx.user));
   await ctx.store.clearSession(ctx.user.phone);
   if (!entry) return [mainMenu(ctx, "Ye option aapke liye available nahi hai.")];
   return entry.flow.start(ctx, entry.arg);
