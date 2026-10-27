@@ -254,7 +254,7 @@ function detailBody(t: Task, now: Date): string {
     `Reminder: ${REPEAT_LABEL[t.repeat] ?? REPEAT_LABEL.none}`,
   ];
   if (t.dateRequest) lines.push(`⏳ Date request: ${formatDue(t.dateRequest.dueAt, t.dateRequest.hasTime, now)} (approval pending)`);
-  lines.push(`Status: ${t.status === "done" ? "Done ✅" : "Pending"}`);
+  lines.push(`Status: ${STATUS_LABEL[t.status] ?? STATUS_LABEL.pending}`);
   const last = t.remarks[t.remarks.length - 1];
   if (last) lines.push(`Last remark: ${last.text} (${formatDateTime(last.at, now)})`);
   return lines.join("\n");
@@ -268,6 +268,8 @@ function detailMessage(ctx: BotContext, t: Task): Outgoing {
   ]);
 }
 
+const STATUS_LABEL: Record<Task["status"], string> = { pending: "Pending", done: "Done ✅", cancelled: "Cancelled ❌" };
+
 /** Loads the task and checks the actor may touch it; returns a reply on failure. */
 async function loadOwned(ctx: BotContext, taskId: string | undefined): Promise<Task | Outgoing[]> {
   const t = taskId ? await ctx.store.getTask(taskId) : null;
@@ -276,10 +278,19 @@ async function loadOwned(ctx: BotContext, taskId: string | undefined): Promise<T
   return t;
 }
 
+/** Like loadOwned, but done or cancelled tasks can't be changed any more. */
+async function loadOpen(ctx: BotContext, taskId: string | undefined): Promise<Task | Outgoing[]> {
+  const t = await loadOwned(ctx, taskId);
+  if (Array.isArray(t)) return t;
+  if (t.status === "done") return finish(ctx, `*${t.title}* pehle hi done ho chuka hai ✅`);
+  if (t.status === "cancelled") return finish(ctx, `*${t.title}* cancel ho chuka hai ❌`);
+  return t;
+}
+
 async function openDetail(ctx: BotContext, data: Data, taskId: string): Promise<Outgoing[]> {
   const t = await loadOwned(ctx, taskId);
   if (Array.isArray(t)) return t;
-  if (t.status === "done") {
+  if (t.status !== "pending") {
     await setStep(ctx, ID, "list", viewData(data));
     return [say(ctx, detailBody(t, ctx.now))];
   }
@@ -295,15 +306,14 @@ async function onDetail(ctx: BotContext, data: Data, input: Inbound): Promise<Ou
   // The task list is still on screen; let the user jump to another row.
   if (replyValue(input, ID, "task") !== null || replyValue(input, ID, "page") !== null) return onList(ctx, data, input);
 
-  const t = await loadOwned(ctx, data.taskId);
+  const t = await loadOpen(ctx, data.taskId);
   if (Array.isArray(t)) return t;
   return [say(ctx, MSG.useButtons), detailMessage(ctx, t)];
 }
 
 async function goto(ctx: BotContext, data: Data, step: string, prompt: Outgoing): Promise<Outgoing[]> {
-  const t = await loadOwned(ctx, data.taskId);
+  const t = await loadOpen(ctx, data.taskId);
   if (Array.isArray(t)) return t;
-  if (t.status === "done") return finish(ctx, `*${t.title}* pehle hi done ho chuka hai ✅`);
   await setStep(ctx, ID, step, data);
   return [prompt];
 }
@@ -311,9 +321,8 @@ async function goto(ctx: BotContext, data: Data, step: string, prompt: Outgoing)
 // ---------- done ----------
 
 async function markDone(ctx: BotContext, data: Data): Promise<Outgoing[]> {
-  const t = await loadOwned(ctx, data.taskId);
+  const t = await loadOpen(ctx, data.taskId);
   if (Array.isArray(t)) return t;
-  if (t.status === "done") return finish(ctx, `*${t.title}* pehle hi done ho chuka hai ✅`);
 
   const at = ctx.now.toISOString();
   await ctx.store.updateTask(t.id, { status: "done", doneAt: at, updatedAt: at, nextReminderAt: null, dateRequest: null });
@@ -373,7 +382,7 @@ function remarkOf(ctx: BotContext, body: string): Remark {
 async function onRemark(ctx: BotContext, data: Data, input: Inbound): Promise<Outgoing[]> {
   const remark = readRemark(ctx, input, MSG.askRemark);
   if (typeof remark !== "string") return remark;
-  const t = await loadOwned(ctx, data.taskId);
+  const t = await loadOpen(ctx, data.taskId);
   if (Array.isArray(t)) return t;
   await ctx.store.updateTask(t.id, {
     remarks: [...t.remarks, remarkOf(ctx, remark)],
@@ -418,7 +427,7 @@ async function onCustomDue(ctx: BotContext, data: Data, input: Inbound): Promise
 }
 
 async function applyNewDue(ctx: BotContext, data: Data, due: ParsedDue): Promise<Outgoing[]> {
-  const t = await loadOwned(ctx, data.taskId);
+  const t = await loadOpen(ctx, data.taskId);
   if (Array.isArray(t)) return t;
   if (due.dueAt.getTime() <= ctx.now.getTime()) {
     await setStep(ctx, ID, "ask_due", data);
@@ -438,7 +447,7 @@ async function onDateRemark(ctx: BotContext, data: Data, input: Inbound): Promis
   const remark = readRemark(ctx, input, MSG.askDateRemark);
   if (typeof remark !== "string") return remark;
   if (!data.newDue || Number.isNaN(Date.parse(data.newDue))) return oops(ctx);
-  const t = await loadOwned(ctx, data.taskId);
+  const t = await loadOpen(ctx, data.taskId);
   if (Array.isArray(t)) return t;
 
   const hasTime = data.newHasTime === "true";

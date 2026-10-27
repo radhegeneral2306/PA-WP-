@@ -198,7 +198,7 @@ Each phase should be tested and deployed on its own. Do not start the next until
 
 | Phase | What | Difficulty |
 |---|---|---|
-| 1 | Add `cancelled` status in the bot + stop reminders/summary for it + tests. Deploy and verify. | Easy-Medium |
+| 1 | Add `cancelled` status in the bot + stop reminders/summary for it + tests. Deploy and verify. | Easy-Medium · ✅ **Done 27 Oct (build `dash-p1`)** |
 | 2 | Shared admin ID + password login, brute-force lockout, and API skeleton in the Worker (session token verified server-side). | Medium |
 | 3 | Cloudflare Pages project + read-only dashboard: pending list, overdue highlighting, filters, search. PWA shell (installable, mobile-first). CORS set up on the Worker. | Medium |
 | 4 | Write actions: Done, remark, change date, change assignee (new assignee notified with `task_assigned_v1`). | Medium |

@@ -28,7 +28,8 @@ export interface User {
   createdAt: string; // ISO UTC
 }
 
-export type TaskStatus = "pending" | "done";
+/** cancelled: stopped from the dashboard; never reminded, never listed as pending (kept in the archive). */
+export type TaskStatus = "pending" | "done" | "cancelled";
 
 /**
  * none: reminder at the due time, then daily at 11 AM IST while still pending.
@@ -82,6 +83,9 @@ export interface Task {
   createdAt: string;
   updatedAt: string;
   doneAt: string | null;
+  /** Set when status becomes "cancelled". Older tasks lack these fields. */
+  cancelledAt?: string | null;
+  cancelledByName?: string | null;
 }
 
 export type NewTask = Omit<Task, "id">;

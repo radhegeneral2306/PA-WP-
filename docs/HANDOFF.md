@@ -131,7 +131,7 @@ Cloudflare Cron ──► scheduled() ──► runCron()
 Defined in `worker/src/domain/types.ts`:
 
 - **User**: `phone, name, role ("admin"|"staff"), branch ("RAIPUR"|"JAGDALPUR"|"DURG"|"HARDWARE"|"OFFICE"|null for admins), active, createdAt`
-- **Task**: `title, assigneePhone/Name, branch, createdByPhone/Name, dueAt (ISO UTC), dueHasTime, status ("pending"|"done"), repeat ("none"|"every90"|"monthly"), nextReminderAt, repeatDay?, dateRequest?, lastReminderAt?, remarks[] {at, byPhone, byName, text}, createdAt, updatedAt, doneAt`
+- **Task**: `title, assigneePhone/Name, branch, createdByPhone/Name, dueAt (ISO UTC), dueHasTime, status ("pending"|"done"|"cancelled"; cancelled = dashboard cancel, never reminded or listed, has cancelledAt/cancelledByName), repeat ("none"|"every90"|"monthly"), nextReminderAt, repeatDay?, dateRequest?, lastReminderAt?, remarks[] {at, byPhone, byName, text}, createdAt, updatedAt, doneAt`
 - **DateRequest**: `dueAt, hasTime, remark, byPhone, byName, requestedAt`
 - **Session**: `phone, flow, step, data: Record<string,string>, updatedAt`
 
