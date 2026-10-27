@@ -10,6 +10,8 @@ export const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta/mod
 // the current Flash model; if a name is gone (404) the next one is tried.
 export const DEFAULT_GEMINI_MODEL = "gemini-flash-latest";
 const RETRY_NEXT = new Set([404, 500, 503]);
+/** One model may not eat the whole budget: a slow/hung model leaves time for the next one. */
+const PER_MODEL_MS = 9_000;
 const BUSY_PAUSE_MS = 700;
 export const GEMINI_FALLBACK_MODELS = ["gemini-flash-latest", "gemini-3.1-flash-lite", "gemini-flash-lite-latest", "gemini-3-flash-preview"];
 const MAX_TITLE_CHARS = 200;
@@ -109,25 +111,42 @@ export async function understandTranscript(
       temperature: 0,
       responseMimeType: "application/json",
       responseSchema: responseSchema(ctx.people),
+      // Gemini 3 "thinks" before answering by default (10-20 s). Pulling a few fields out of one
+      // sentence needs none; models that reject this setting are retried without it (see below).
+      thinkingConfig: { thinkingBudget: 0 },
     },
   };
+  const plainBody = { ...body, generationConfig: { ...body.generationConfig, thinkingConfig: undefined } };
 
   const models = [...new Set([opts.model || DEFAULT_GEMINI_MODEL, ...GEMINI_FALLBACK_MODELS])];
   const deadline = Date.now() + opts.timeoutMs;
   let res: Response | null = null;
+  let timedOut = false;
   for (const [i, model] of models.entries()) {
     const left = deadline - Date.now();
     if (left < 300) break;
-    try {
-      res = await fetch(geminiUrl(model), {
+    const call = (payload: unknown) =>
+      fetch(geminiUrl(model), {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-goog-api-key": opts.apiKey },
-        body: JSON.stringify(body),
-        signal: AbortSignal.timeout(left),
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(Math.min(left, PER_MODEL_MS)),
       });
+    try {
+      res = await call(body);
+      // Some models refuse thinkingBudget 0 with a 400: ask the same model again without it.
+      if (res.status === 400) {
+        await res.body?.cancel().catch(() => {});
+        res = await call(plainBody);
+      }
+      timedOut = false;
     } catch (e) {
       const name = (e as { name?: string })?.name;
-      return { ok: false, reason: "failed", detail: name === "TimeoutError" ? "gemini timeout" : "gemini network error" };
+      if (name !== "TimeoutError") return { ok: false, reason: "failed", detail: "gemini network error" };
+      console.warn(`voice: gemini model ${model} timed out, trying the next one`);
+      timedOut = true;
+      res = null;
+      continue;
     }
     // 404 = name retired; 500/503 = model busy/overloaded (common on the free tier): try the next model.
     if (!RETRY_NEXT.has(res.status) || i === models.length - 1) break;
@@ -135,7 +154,7 @@ export async function understandTranscript(
     await res.body?.cancel().catch(() => {});
     if (res.status !== 404) await new Promise((r) => setTimeout(r, BUSY_PAUSE_MS));
   }
-  if (!res) return { ok: false, reason: "failed", detail: "gemini timeout" };
+  if (!res) return { ok: false, reason: "failed", detail: timedOut ? "gemini timeout" : "gemini no answer" };
 
   let json: unknown = null;
   try {

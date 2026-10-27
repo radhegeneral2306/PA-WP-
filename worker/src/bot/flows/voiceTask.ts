@@ -98,7 +98,7 @@ export async function handleVoice(ctx: BotContext, mediaUrl: string): Promise<Ou
       await recordProblems(ctx.store, ctx.now, { errors: 1, problem: `voice ${why}` });
     }
     // A busy AI server (500/503) is not the user's fault: say so instead of "samajh nahi aaya".
-    const busy = result.reason === "failed" && /\b(500|503)\b|UNAVAILABLE|INTERNAL/.test(result.detail ?? "");
+    const busy = result.reason === "failed" && /\b(500|503)\b|UNAVAILABLE|INTERNAL|timeout/.test(result.detail ?? "");
     const msg = busy ? VOICE_MSG.busy : FAILURE_TEXT[result.reason] ?? VOICE_MSG.notUnderstood;
     // While voice is being tested, the super admin also sees the technical reason (no keys or numbers in it).
     const debug = user.name === SUPER_ADMIN_NAME ? `\n\n_Tech: ${why}_` : "";

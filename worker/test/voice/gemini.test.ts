@@ -89,6 +89,29 @@ describe("Gemini request", () => {
     expect(f.mock.calls[1][0]).toContain("/models/gemini-3.1-flash-lite:generateContent");
   });
 
+  it("asks without thinking first; a 400 retries the same model without that setting", async () => {
+    let n = 0;
+    const f = stub(() => (n++ === 0 ? new Response(JSON.stringify({ error: { status: "INVALID_ARGUMENT" } }), { status: 400 }) : geminiReply({ transcript: "x", title: "t" })));
+    const r = await understandTranscript("x", ctx, { ...opts, timeoutMs: 5000 });
+    expect(r.ok).toBe(true);
+    const first = JSON.parse((f.mock.calls[0][1] as RequestInit).body as string);
+    const second = JSON.parse((f.mock.calls[1][1] as RequestInit).body as string);
+    expect(first.generationConfig.thinkingConfig).toEqual({ thinkingBudget: 0 });
+    expect(second.generationConfig.thinkingConfig).toBeUndefined();
+    expect(f.mock.calls[1][0]).toBe(f.mock.calls[0][0]);
+  });
+
+  it("a model that times out gives way to the next one", async () => {
+    let n = 0;
+    const f = stub(() => {
+      if (n++ === 0) throw Object.assign(new Error("t"), { name: "TimeoutError" });
+      return geminiReply({ transcript: "x", title: "t" });
+    });
+    const r = await understandTranscript("x", ctx, { ...opts, timeoutMs: 5000 });
+    expect(r.ok).toBe(true);
+    expect(f).toHaveBeenCalledTimes(2);
+  });
+
   it("every model 404 -> failed with the status", async () => {
     stub(() => new Response(JSON.stringify({ error: { status: "NOT_FOUND" } }), { status: 404 }));
     const r = await understandTranscript("x", ctx, opts);

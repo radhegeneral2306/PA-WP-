@@ -8,7 +8,7 @@ import type { VoicePerson, VoiceResult, VoiceService } from "./types";
 
 /** Whole pipeline budget, and the most any one step may take of what is left. */
 export const VOICE_BUDGET_MS = 25_000;
-export const STEP_MAX_MS = { download: 8_000, groq: 12_000, gemini: 12_000 } as const;
+export const STEP_MAX_MS = { download: 8_000, groq: 12_000, gemini: 20_000 } as const;
 /** Below this there is no point starting another network call. */
 const MIN_STEP_MS = 1_000;
 
