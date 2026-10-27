@@ -125,3 +125,39 @@ describe("/api", () => {
     expect((await call(store, "/api/login", { method: "POST", body: "{" })).status).toBe(400);
   });
 });
+
+describe("/api write routes through the real router", () => {
+  it("marks a task done end to end and sends the creator notice", async () => {
+    const { task: makeTask } = await import("../helpers/bot");
+    const store = new MemoryStore({ users: USERS, tasks: [makeTask({ id: "t9" })] });
+    const sent: unknown[] = [];
+    const token = await issueToken(env, "Partner Two", NOW);
+    const res = await handleApi(
+      new Request("https://w/api/tasks/t9/done", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, Origin: "https://dash.example.pages.dev", "Content-Type": "application/json" },
+        body: "{}",
+      }),
+      env,
+      store,
+      NOW,
+      async (outs) => void sent.push(...outs),
+    );
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Access-Control-Allow-Origin")).toBe("https://dash.example.pages.dev");
+    const body = (await res.json()) as { task: { status: string } };
+    expect(body.task.status).toBe("done");
+    expect(sent).toEqual([expect.objectContaining({ template: "task_done_v1", to: ADMIN.phone })]);
+  });
+
+  it("needs a picked name and refuses unknown actions", async () => {
+    const store = new MemoryStore({ users: USERS });
+    const unnamed = await issueToken(env, null, NOW);
+    const post = (path: string, token: string) =>
+      handleApi(new Request(`https://w${path}`, { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: "{}" }), env, store, NOW, async () => undefined);
+    expect((await post("/api/tasks/x/done", unnamed)).status).toBe(403);
+    const named = await issueToken(env, "Bhaskar", NOW);
+    expect((await post("/api/tasks/x/explode", named)).status).toBe(404);
+    expect((await post("/api/tasks/missing/done", named)).status).toBe(404);
+  });
+});
