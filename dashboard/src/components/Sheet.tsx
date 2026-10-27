@@ -33,8 +33,9 @@ export function Sheet({ title, onClose, children, footer, initialFocus, subtitle
   function onPointerUp() {
     if (startY.current === null) return;
     startY.current = null;
+    // Always snap back: onClose may not close (a dirty form asks "Form band karein?" first).
     if (drag > 110) onClose();
-    else setDrag(0);
+    setDrag(0);
   }
 
   return createPortal(

@@ -67,3 +67,27 @@ export function validateRemark(text: string): string | null {
   if (t.length > REMARK_MAX) return `Remark ${REMARK_MAX} akshar se lamba nahi ho sakta`;
   return null;
 }
+
+/** Same limit as the WhatsApp "Naya task" wizard. */
+export const TITLE_MAX = 200;
+
+export interface NewTaskErrors {
+  title?: string;
+  assignee?: string;
+  due?: DueError;
+}
+
+/** Client-side guard for "Naya task". All fields are checked at once so every error shows together. */
+export function validateNewTask(
+  input: { title: string; assignee: string | null; date: string; time: string },
+  now: Date = new Date(),
+): NewTaskErrors {
+  const errors: NewTaskErrors = {};
+  const t = input.title.trim();
+  if (!t) errors.title = "Task kya hai, likhiye";
+  else if (t.length > TITLE_MAX) errors.title = `${TITLE_MAX} akshar tak likhiye`;
+  if (!input.assignee) errors.assignee = "Kisko dena hai, chuniye";
+  const due = validateDue(input.date, input.time || null, now);
+  if (due) errors.due = due.field === "date" && !input.date ? { field: "date", message: "Date chuniye" } : due;
+  return errors;
+}

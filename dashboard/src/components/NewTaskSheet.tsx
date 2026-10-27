@@ -1,7 +1,7 @@
 import { useId, useRef, useState } from "react";
 import { CaretRight } from "@phosphor-icons/react";
 import { api, errorText } from "../lib/api";
-import { todayIst, validateDue, type DueError } from "../lib/due";
+import { TITLE_MAX, todayIst, validateNewTask, type NewTaskErrors } from "../lib/due";
 import { branchLabel } from "../lib/filters";
 import { useOnline } from "../lib/hooks";
 import type { Branch, TaskDTO, TaskRepeat, UserDTO } from "../lib/types";
@@ -11,9 +11,6 @@ import { Sheet } from "./Sheet";
 import { StaffPicker } from "./StaffPicker";
 import { useToast } from "./Toast";
 import { inputClass } from "./ui";
-
-/** Same limit as the WhatsApp "Naya task" wizard. */
-export const TITLE_MAX = 200;
 
 const REPEATS: { key: TaskRepeat; label: string; hint: (day: number | null) => string }[] = [
   { key: "none", label: "Ek baar", hint: () => "Due time pe reminder. Done na ho toh roz subah 11 baje yaad dilayega." },
@@ -25,7 +22,7 @@ const REPEATS: { key: TaskRepeat; label: string; hint: (day: number | null) => s
   },
 ];
 
-type FieldErrors = Partial<Record<"title" | "assignee", string>> & { due?: DueError };
+type FieldErrors = NewTaskErrors;
 
 interface Props {
   users: UserDTO[];
@@ -71,13 +68,8 @@ export function NewTaskSheet({ users, branches, counts, initialAssignee, onClose
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (busy || inFlight.current) return;
-    const next: FieldErrors = {};
     const t = title.trim();
-    if (!t) next.title = "Task kya hai, likhiye";
-    else if (t.length > TITLE_MAX) next.title = `${TITLE_MAX} akshar tak likhiye`;
-    if (!person) next.assignee = "Kisko dena hai, chuniye";
-    const dueErr = validateDue(date, time || null);
-    if (dueErr) next.due = dueErr.field === "date" && !date ? { field: "date", message: "Date chuniye" } : dueErr;
+    const next = validateNewTask({ title, assignee: person?.phone ?? null, date, time });
     setErrors(next);
     setServerError(null);
     if (next.title) return titleRef.current?.focus();

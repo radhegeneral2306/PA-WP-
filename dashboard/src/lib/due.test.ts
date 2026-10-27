@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { istInstant, isValidDate, isValidTime, todayIst, validateDue, validateRemark } from "./due";
+import { istInstant, isValidDate, isValidTime, TITLE_MAX, todayIst, validateDue, validateNewTask, validateRemark } from "./due";
 
 // 27 Oct 2026, 9:00 AM IST = 03:30 UTC
 const morning = new Date("2026-10-27T03:30:00Z");
@@ -82,5 +82,30 @@ describe("validateRemark", () => {
   it("caps at 500 characters", () => {
     expect(validateRemark("a".repeat(500))).toBeNull();
     expect(validateRemark("a".repeat(501))).toMatch(/500/);
+  });
+});
+
+describe("validateNewTask", () => {
+  const ok = { title: "GST return", assignee: "919100000002", date: "2026-10-28", time: "" };
+  it("accepts a complete form", () => {
+    expect(validateNewTask(ok, morning)).toEqual({});
+  });
+  it("reports every empty field at once", () => {
+    const e = validateNewTask({ title: "   ", assignee: null, date: "", time: "" }, morning);
+    expect(e.title).toBe("Task kya hai, likhiye");
+    expect(e.assignee).toBe("Kisko dena hai, chuniye");
+    expect(e.due).toEqual({ field: "date", message: "Date chuniye" });
+  });
+  it("limits the title to TITLE_MAX after trimming", () => {
+    expect(validateNewTask({ ...ok, title: "x".repeat(TITLE_MAX) }, morning).title).toBeUndefined();
+    expect(validateNewTask({ ...ok, title: `  ${"x".repeat(TITLE_MAX)}  ` }, morning).title).toBeUndefined();
+    expect(validateNewTask({ ...ok, title: "x".repeat(TITLE_MAX + 1) }, morning).title).toBe(`${TITLE_MAX} akshar tak likhiye`);
+  });
+  it("rejects a time that already passed today", () => {
+    expect(validateNewTask({ ...ok, date: "2026-10-27", time: "08:30" }, morning).due?.field).toBe("time");
+    expect(validateNewTask({ ...ok, date: "2026-10-27", time: "09:30" }, morning).due).toBeUndefined();
+  });
+  it("keeps the past-date message", () => {
+    expect(validateNewTask({ ...ok, date: "2026-10-26" }, morning).due?.message).toMatch(/Purani date/);
   });
 });

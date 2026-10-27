@@ -1,4 +1,4 @@
-import { useEffect, type RefObject } from "react";
+import { useEffect, useRef, type RefObject } from "react";
 
 const FOCUSABLE =
   'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
@@ -17,6 +17,10 @@ export function useFocusTrap(
   onEscape: () => void,
   initialFocus?: RefObject<HTMLElement | null>,
 ): void {
+  // The effect runs once per activation, so read the latest onEscape through a ref. A captured
+  // first-render callback made Esc skip "Form band karein?" on a dirty form and close a busy one.
+  const escapeRef = useRef(onEscape);
+  escapeRef.current = onEscape;
   useEffect(() => {
     if (!active) return;
     const token = {};
@@ -30,7 +34,7 @@ export function useFocusTrap(
       if (stack[stack.length - 1] !== token) return;
       if (e.key === "Escape") {
         e.stopPropagation();
-        onEscape();
+        escapeRef.current();
         return;
       }
       if (e.key !== "Tab" || !node) return;

@@ -7,7 +7,7 @@ export function useToast(): ShowToast {
   return useContext(ToastContext);
 }
 
-/** One toast at a time, bottom of the screen, 3 seconds. For success messages only. */
+/** One toast at a time, bottom of the screen (above the phone "Naya task" button), 3 seconds. For success messages only. */
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [message, setMessage] = useState<string | null>(null);
   const [key, setKey] = useState(0);
@@ -28,7 +28,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   return (
     <ToastContext.Provider value={show}>
       {children}
-      <div aria-live="polite" role="status" className="pointer-events-none fixed inset-x-0 bottom-[calc(80px+env(safe-area-inset-bottom))] z-50 flex justify-center px-4 lg:bottom-6">
+      <div aria-live="polite" role="status" className="pointer-events-none fixed inset-x-0 bottom-[calc(148px+env(safe-area-inset-bottom))] z-50 flex justify-center px-4 lg:bottom-6">
         {message ? (
           <div key={key} className="anim-pop rounded-lg bg-text px-4 py-3 text-body font-medium text-bg shadow-[var(--shadow)]">
             {message}

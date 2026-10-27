@@ -102,7 +102,7 @@ export function Tasks({ pending, users }: Props) {
           <button
             type="button"
             onClick={() => setCreating(true)}
-            className="press mr-1 flex h-10 items-center gap-1.5 rounded-lg bg-accent px-3 text-body font-medium text-on-accent"
+            className="press mr-1 flex h-11 items-center gap-1.5 rounded-lg bg-accent px-3 text-body font-medium text-on-accent"
           >
             <Plus size={18} weight="bold" aria-hidden="true" />
             Naya task
