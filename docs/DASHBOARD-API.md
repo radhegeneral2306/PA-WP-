@@ -87,15 +87,28 @@ Filtering (branch, staff, search text) is done **in the PWA** on this list. At t
 
 ---
 
+## Phase 4 (write actions)
+
+All four routes are `named` (the token must carry a picked admin name). The Worker resolves that name to the active admin's phone; if the name is no longer an active admin → 403 `need_name`. Shared rules live in `worker/src/bot/taskActions.ts` (same code the WhatsApp bot uses).
+
+| Route | Body | Effect | WhatsApp notices (never to the actor) |
+|---|---|---|---|
+| `POST /api/tasks/:id/done` | `{}` | status done, reminders stop, date request cleared, remark "Done kiya" by "Name (dashboard)"; monthly → next month's task created | creator: `task_done_v1` |
+| `POST /api/tasks/:id/remark` | `{ "text": string }` (1-500 chars) | remark added; every90 reminders pause till next 10 AM | creator: `task_updated_v1` |
+| `POST /api/tasks/:id/due` | `{ "date": "YYYY-MM-DD", "time": "HH:MM" \| null, "remark"?: string }` | new due (no time = 10:00 AM IST), reminder reset to new due, date request cleared, remark "Date badli: old → new. …" | creator and assignee: `task_updated_v1` |
+| `POST /api/tasks/:id/assign` | `{ "phone": "91…" }` (active user) | assignee name/phone/branch changed, remark "Assign badla: A → B" | new assignee: `task_assigned_v1` |
+
+Response (all four): `{ "task": TaskDTO, "next": TaskDTO | null }` (`next` only for monthly Done).
+
+Errors: 400 `bad_request` (validation, past date, same assignee, inactive user), 404 `not_found` (unknown task id), 409 `task_closed` (task already done or cancelled). The PWA should refresh the list after any success and show the `error` text on failure.
+
+The 25-day staff limit does not apply to the dashboard (admins only).
+
+---
+
 ## Later phases (planned, not built)
 
 | Phase | Route | Body |
 |---|---|---|
-| 4 | `POST /api/tasks/:id/done` | `{}` |
-| 4 | `POST /api/tasks/:id/remark` | `{ text }` |
-| 4 | `POST /api/tasks/:id/due` | `{ date: "YYYY-MM-DD", time: "HH:MM" \| null }` |
-| 4 | `POST /api/tasks/:id/assign` | `{ phone }` |
 | 5 | `POST /api/tasks/:id/cancel` | `{}` |
 | 6 | `GET /api/approvals`, `POST /api/approvals/:id` | `{ decision: "approve" \| "reject" }` |
-
-All Phase 4+ routes are `named` (need the picked admin name) and return `{ task: TaskDTO }`.
