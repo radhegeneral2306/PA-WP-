@@ -109,13 +109,13 @@ Tell the owner each step in simple Hinglish, one at a time:
 
 ## 8. Definition of done
 
-- [ ] Admin form creates a task for the chosen person with the right branch, due date/time, and repeat
-- [ ] Staff form creates a self task
-- [ ] Default time is 10:00 AM IST when time is empty; past dates are rejected with a clear message
+- [x] Admin form creates a task for the chosen person with the right branch, due date/time, and repeat
+- [x] Staff form creates a self task
+- [x] Default time is 10:00 AM IST when time is empty; past dates are rejected with a clear message
 - [ ] Server re-validates person, branch, and role; invalid submissions get a clear Hinglish error
 - [ ] Same notifications as the chat flow (creator confirmation, assignee template for non-self tasks)
 - [ ] Duplicate form submissions do not create duplicate tasks
-- [ ] New menu option appears for admin and staff; the old "Naya task" flow still works unchanged
+- [x] New menu option appears for admin and staff; the old "Naya task" flow still works unchanged
 - [ ] Fallback message works if the form template cannot be sent
 - [ ] `npx tsc --noEmit` and `npx vitest run` pass (335 baseline plus the new tests)
 - [ ] `BUILD` bumped, `HANDOFF.md` updated, no secrets leaked

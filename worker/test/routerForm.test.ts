@@ -57,29 +57,21 @@ describe("router: submitted forms", () => {
   });
 });
 
-describe("router: form menu entry while FORMS_LIVE is false", () => {
-  it("is switched off", () => {
-    expect(FORMS_LIVE).toBe(false);
+describe("router: form menu entry (FORMS_LIVE, everyone since 27 Oct)", () => {
+  it("is switched on", () => {
+    expect(FORMS_LIVE).toBe(true);
   });
 
-  it.each([ADMIN2, STAFF_DURG])("menu for a non-tester (%s) has no 'Naya task (Form)'", async (user) => {
+  it.each([ADMIN, ADMIN2, STAFF_DURG])("menu for %s has 'Naya task (Form)'", async (user) => {
     const [menu] = await handleMessage(makeCtx(user), { text: "Hi", reply: null });
-    expect(rowIds(menu)).not.toContain("MENU:create_task_form");
-    expect(JSON.stringify(menu)).not.toContain("Naya task (Form)");
-  });
-
-  it("refuses a stale MENU:create_task_form tap", async () => {
-    const [out] = await handleMessage(makeCtx(ADMIN2), tap("MENU:create_task_form"));
-    expect(JSON.stringify(out)).toContain("available nahi");
-  });
-
-  it("named testers get the form entry and the tap starts the form flow", async () => {
-    const hw = { ...STAFF_DURG, name: "Ofc Hardware - 66466", branch: "HARDWARE" as const };
-    expect(FORM_TESTERS.has(ADMIN.name) && FORM_TESTERS.has(hw.name)).toBe(true);
-    const [menu] = await handleMessage(makeCtx(hw), { text: "Hi", reply: null });
     expect(rowIds(menu)).toContain("MENU:create_task_form");
+    expect(JSON.stringify(menu)).toContain("Naya task (Form)");
+  });
+
+  it("a tap starts the form flow for any user", async () => {
     const { taskFormFlow } = await import("../src/bot/flows/createTaskForm");
-    await handleMessage(makeCtx(ADMIN), tap("MENU:create_task_form"));
+    await handleMessage(makeCtx(STAFF_DURG), tap("MENU:create_task_form"));
     expect(taskFormFlow.start).toHaveBeenCalled();
+    expect(FORM_TESTERS.size).toBeGreaterThan(0);
   });
 });
