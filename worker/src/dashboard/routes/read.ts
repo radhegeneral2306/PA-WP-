@@ -25,6 +25,8 @@ export interface TaskDTO {
   nextReminderAt: string | null;
   lastReminderAt: string | null;
   dateRequest: DateRequest | null;
+  /** "voice" when the bot made this task from a WhatsApp voice note. */
+  source: "voice" | null;
   remarks: Remark[];
   createdAt: string;
   updatedAt: string;
@@ -64,6 +66,7 @@ export function toTaskDTO(task: Task, now: Date): TaskDTO {
     nextReminderAt: task.nextReminderAt ?? null,
     lastReminderAt: task.lastReminderAt ?? null,
     dateRequest: task.dateRequest ?? null,
+    source: task.source === "voice" ? "voice" : null,
     remarks,
     createdAt: task.createdAt,
     updatedAt: task.updatedAt,

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ADMINS, ALL, applyFilters, applySummary, approvalCount, filterArchive, groupUsers, summaryCounts } from "./filters";
+import { ADMINS, ALL, applyFilters, applySummary, approvalCount, isVoiceTask, filterArchive, groupUsers, summaryCounts } from "./filters";
 import type { Branch, TaskDTO, UserDTO } from "./types";
 
 const branches: Branch[] = [
@@ -65,5 +65,13 @@ describe("filters", () => {
   it("groups users by branch with admins last", () => {
     expect(groupUsers(users, branches, "").map((g) => g.label)).toEqual(["Raipur", "Durg", "Admins"]);
     expect(groupUsers(users, branches, "bha").map((g) => g.label)).toEqual(["Admins"]);
+  });
+});
+
+describe("isVoiceTask", () => {
+  it("is true only for source voice; missing or null is false", () => {
+    expect(isVoiceTask({ source: "voice" })).toBe(true);
+    expect(isVoiceTask({ source: null })).toBe(false);
+    expect(isVoiceTask({})).toBe(false);
   });
 });

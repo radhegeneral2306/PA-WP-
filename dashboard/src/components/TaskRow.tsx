@@ -1,12 +1,20 @@
-import { ArrowsClockwise, CalendarDots, Repeat } from "@phosphor-icons/react";
+import { ArrowsClockwise, CalendarDots, Microphone, Repeat } from "@phosphor-icons/react";
 import { formatDateTime, formatDue } from "../lib/format";
-import { branchLabel } from "../lib/filters";
+import { branchLabel, isVoiceTask } from "../lib/filters";
 import type { Branch, TaskDTO } from "../lib/types";
 
 export function RepeatIcon({ repeat, size = 16 }: { repeat: TaskDTO["repeat"]; size?: number }) {
   if (repeat === "monthly") return <Repeat size={size} role="img" aria-label="Har mahine repeat" className="shrink-0 text-muted" />;
   if (repeat === "every90") return <ArrowsClockwise size={size} role="img" aria-label="Har 90 min reminder" className="shrink-0 text-muted" />;
   return null;
+}
+
+export function VoiceIcon({ size = 16 }: { size?: number }) {
+  return (
+    <span title="Voice se bana" className="inline-flex shrink-0">
+      <Microphone size={size} role="img" aria-label="Voice se bana" className="text-muted" />
+    </span>
+  );
 }
 
 export function repeatText(t: TaskDTO): string {
@@ -54,6 +62,7 @@ export function TaskRow({ task: t, branches, selected, onOpen, mode }: Props) {
           <div className="flex items-center gap-1.5">
             <p className="min-w-0 truncate text-title font-medium">{t.title}</p>
             <RepeatIcon repeat={t.repeat} />
+            {isVoiceTask(t) ? <VoiceIcon /> : null}
             {mode === "pending" && t.dateRequest ? (
               <CalendarDots size={16} role="img" aria-label="Date request pending" className="shrink-0 text-accent" />
             ) : null}

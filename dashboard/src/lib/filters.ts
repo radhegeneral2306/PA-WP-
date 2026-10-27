@@ -11,6 +11,11 @@ export interface TaskFilters {
   query: string;
 }
 
+/** True when the bot made this task from a WhatsApp voice note. */
+export function isVoiceTask(t: Pick<TaskDTO, "source">): boolean {
+  return t.source === "voice";
+}
+
 export function normalize(s: string): string {
   return s.toLocaleLowerCase("en-IN").trim();
 }

@@ -1,7 +1,7 @@
-import { CalendarDots, X } from "@phosphor-icons/react";
+import { CalendarDots, Microphone, X } from "@phosphor-icons/react";
 import { useEffect } from "react";
 import { formatDateTime, formatDue } from "../lib/format";
-import { branchLabel } from "../lib/filters";
+import { branchLabel, isVoiceTask } from "../lib/filters";
 import type { Branch, TaskDTO, UserDTO } from "../lib/types";
 import { repeatText } from "./TaskRow";
 import { Sheet } from "./Sheet";
@@ -39,6 +39,12 @@ function DetailBody({ t, branches }: { t: TaskDTO; branches: Branch[] }) {
         <Row label="Repeat">{repeatText(t)}</Row>
         <Row label="Kisne banaya">
           {t.createdByName}, {formatDateTime(t.createdAt)}
+          {isVoiceTask(t) ? (
+            <span className="mt-0.5 flex items-center gap-1 text-meta text-muted">
+              <Microphone size={14} aria-hidden="true" className="shrink-0" />
+              Voice note se bana
+            </span>
+          ) : null}
         </Row>
         {t.status === "pending" && t.lastReminderAt ? <Row label="Last reminder">{formatDateTime(t.lastReminderAt)}</Row> : null}
         {t.status === "pending" && t.nextReminderAt ? <Row label="Next reminder">{formatDateTime(t.nextReminderAt)}</Row> : null}
