@@ -1,5 +1,6 @@
-import { useId, useRef } from "react";
+import { useEffect, useId, useRef } from "react";
 import { createPortal } from "react-dom";
+import { SpinnerGap } from "@phosphor-icons/react";
 import { useFocusTrap } from "./useFocusTrap";
 
 interface Props {
@@ -10,19 +11,34 @@ interface Props {
   danger?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
+  /** While the request runs: both buttons disabled, confirm shows busyLabel. */
+  busy?: boolean;
+  busyLabel?: string;
+  /** Inline error under the body (e.g. the server said no). */
+  error?: string | null;
 }
 
-/** Built for Phase 5 (Cancel). "Nahi" gets the default focus so a stray Enter does nothing harmful. */
-export function ConfirmDialog({ title, body, confirmLabel, cancelLabel = "Nahi", danger = false, onConfirm, onCancel }: Props) {
+/** Used by Assign badlo (Phase 4) and Cancel (Phase 5). "Nahi" gets the default focus so a stray Enter does nothing harmful. */
+export function ConfirmDialog({ title, body, confirmLabel, cancelLabel = "Nahi", danger = false, onConfirm, onCancel, busy = false, busyLabel, error }: Props) {
   const ref = useRef<HTMLDivElement>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
   const titleId = useId();
   const bodyId = useId();
-  useFocusTrap(ref, true, onCancel, cancelRef);
+  const busyRef = useRef(busy);
+  busyRef.current = busy;
+  const cancelFn = useRef(onCancel);
+  cancelFn.current = onCancel;
+  useFocusTrap(ref, true, () => {
+    if (!busyRef.current) cancelFn.current();
+  }, cancelRef);
+  // Disabled buttons drop focus; bring it back into the dialog when the request ends.
+  useEffect(() => {
+    if (!busy && ref.current && !ref.current.contains(document.activeElement)) cancelRef.current?.focus({ preventScroll: true });
+  }, [busy]);
 
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
-      <div className="anim-fade absolute inset-0 bg-black/50" onClick={onCancel} aria-hidden="true" />
+      <div className="anim-fade absolute inset-0 bg-black/50" onClick={busy ? undefined : onCancel} aria-hidden="true" />
       <div
         ref={ref}
         role="alertdialog"
@@ -37,16 +53,24 @@ export function ConfirmDialog({ title, body, confirmLabel, cancelLabel = "Nahi",
         <p id={bodyId} className="mt-2 text-body text-muted break-words">
           {body}
         </p>
+        {error ? (
+          <p role="alert" className="mt-3 rounded-lg border border-danger/40 bg-danger-soft px-3 py-2 text-body text-danger break-words">
+            {error}
+          </p>
+        ) : null}
         <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-          <button ref={cancelRef} type="button" onClick={onCancel} className="press h-11 rounded-lg border border-line px-4 text-title font-medium">
+          <button ref={cancelRef} type="button" onClick={onCancel} disabled={busy} className="press h-11 rounded-lg border border-line px-4 text-title font-medium disabled:opacity-60">
             {cancelLabel}
           </button>
           <button
             type="button"
             onClick={onConfirm}
-            className={`press h-11 rounded-lg px-4 text-title font-medium ${danger ? "bg-danger text-on-accent" : "bg-accent text-on-accent"}`}
+            disabled={busy}
+            aria-busy={busy || undefined}
+            className={`press inline-flex h-11 items-center justify-center gap-2 rounded-lg px-4 text-title font-medium disabled:opacity-70 ${danger ? "bg-danger text-on-accent" : "bg-accent text-on-accent"}`}
           >
-            {confirmLabel}
+            {busy ? <SpinnerGap size={20} className="animate-spin" aria-hidden="true" /> : null}
+            {busy ? busyLabel ?? confirmLabel : confirmLabel}
           </button>
         </div>
       </div>

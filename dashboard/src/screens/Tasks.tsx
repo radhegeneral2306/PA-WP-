@@ -3,7 +3,7 @@ import { ArrowClockwise, CaretDown, ClipboardText, MagnifyingGlass, X } from "@p
 import { ADMINS, ALL, applyFilters, applySummary, summaryCounts, type SummaryFilter } from "../lib/filters";
 import { formatClock } from "../lib/format";
 import { useIsDesktop, type Resource } from "../lib/hooks";
-import type { TasksResponse, UsersResponse } from "../lib/types";
+import type { TaskDTO, TasksResponse, UsersResponse } from "../lib/types";
 import { Chip, ChipRow, EmptyState, ErrorBanner, IconButton, SkeletonRows, TopBar, inputClass } from "../components/ui";
 import { TaskRow } from "../components/TaskRow";
 import { TaskDetail } from "../components/TaskDetail";
@@ -38,7 +38,44 @@ export function Tasks({ pending, users }: Props) {
     return m;
   }, [allTasks]);
 
-  const selected = selectedId ? allTasks.find((t) => t.id === selectedId) ?? null : null;
+  // After a write we show the task the API returned until the refreshed list catches up
+  // (whichever copy has the newer updatedAt wins). After a 409/404 the copy is pinned so the
+  // detail stays open with the error even when the refreshed list no longer has the task.
+  const [local, setLocal] = useState<{ task: TaskDTO; pinned: boolean } | null>(null);
+  const listTask = selectedId ? allTasks.find((t) => t.id === selectedId) ?? null : null;
+  const localTask = local && local.task.id === selectedId ? local : null;
+  let selected: TaskDTO | null = listTask;
+  if (localTask) {
+    if (localTask.pinned) selected = localTask.task;
+    else if (!listTask || Date.parse(localTask.task.updatedAt) >= Date.parse(listTask.updatedAt)) selected = localTask.task;
+  }
+
+  function openTask(id: string | null) {
+    setSelectedId(id);
+    setLocal(null);
+  }
+  const detailProps = selected
+    ? {
+        task: selected,
+        branches,
+        users: userList,
+        counts: perStaff,
+        onClose: () => openTask(null),
+        onSaved: (t: TaskDTO) => {
+          setLocal({ task: t, pinned: false });
+          pending.reload();
+        },
+        onDone: () => {
+          openTask(null);
+          pending.reload();
+        },
+        onStale: () => {
+          const current = selected;
+          if (current) setLocal({ task: current, pinned: true });
+          pending.reload();
+        },
+      }
+    : null;
   const staffName = staffPhone ? userList.find((u) => u.phone === staffPhone)?.name ?? allTasks.find((t) => t.assigneePhone === staffPhone)?.assigneeName ?? "Staff" : null;
   const filtersActive = branch !== ALL || staffPhone !== null || query.trim() !== "" || summary !== "all";
 
@@ -150,7 +187,7 @@ export function Tasks({ pending, users }: Props) {
       {visible.length > 0 ? (
         <ul className="divide-y divide-line border-t border-line pb-4" aria-label="Pending tasks">
           {visible.map((t) => (
-            <TaskRow key={t.id} task={t} branches={branches} selected={isDesktop && t.id === selectedId} onOpen={(x) => setSelectedId(x.id)} mode="pending" />
+            <TaskRow key={t.id} task={t} branches={branches} selected={isDesktop && t.id === selectedId} onOpen={(x) => openTask(x.id)} mode="pending" />
           ))}
         </ul>
       ) : null}
@@ -162,8 +199,8 @@ export function Tasks({ pending, users }: Props) {
       {isDesktop ? (
         <div className="grid grid-cols-[minmax(0,480px)_minmax(0,1fr)]">
           {list}
-          {selected ? (
-            <TaskDetail task={selected} branches={branches} onClose={() => setSelectedId(null)} variant="panel" />
+          {detailProps ? (
+            <TaskDetail key={detailProps.task.id} {...detailProps} variant="panel" />
           ) : (
             <DetailPlaceholder />
           )}
@@ -171,7 +208,7 @@ export function Tasks({ pending, users }: Props) {
       ) : (
         <>
           {list}
-          {selected ? <TaskDetail task={selected} branches={branches} onClose={() => setSelectedId(null)} variant="sheet" /> : null}
+          {detailProps ? <TaskDetail key={detailProps.task.id} {...detailProps} variant="sheet" /> : null}
         </>
       )}
       {pickerOpen ? (

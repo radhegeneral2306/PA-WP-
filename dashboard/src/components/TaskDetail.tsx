@@ -1,10 +1,11 @@
-import { CalendarDots, CheckCircle, ChatText, UserSwitch, XCircle, X } from "@phosphor-icons/react";
+import { CalendarDots, X } from "@phosphor-icons/react";
 import { useEffect } from "react";
 import { formatDateTime, formatDue } from "../lib/format";
 import { branchLabel } from "../lib/filters";
-import type { Branch, TaskDTO } from "../lib/types";
+import type { Branch, TaskDTO, UserDTO } from "../lib/types";
 import { repeatText } from "./TaskRow";
 import { Sheet } from "./Sheet";
+import { TaskActions } from "./TaskActions";
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -89,47 +90,28 @@ function DetailBody({ t, branches }: { t: TaskDTO; branches: Branch[] }) {
   );
 }
 
-/** Phase 3: actions are shown but disabled so the layout is final. Phase 4 wires them. */
-function Actions() {
-  const btn = "flex min-h-14 flex-col items-center justify-center gap-0.5 rounded-lg border border-line bg-surface px-1 py-1.5 text-meta font-medium whitespace-nowrap text-muted disabled:cursor-not-allowed";
-  return (
-    <div className="pb-3">
-      <button type="button" disabled className="flex h-12 w-full items-center justify-center gap-2 rounded-lg bg-accent text-title font-medium text-on-accent opacity-50 disabled:cursor-not-allowed">
-        <CheckCircle size={20} aria-hidden="true" />
-        Done karo
-      </button>
-      <div className="mt-2 grid grid-cols-3 gap-2">
-        <button type="button" disabled className={btn}>
-          <ChatText size={18} aria-hidden="true" />
-          Remark
-        </button>
-        <button type="button" disabled className={btn}>
-          <CalendarDots size={18} aria-hidden="true" />
-          Date badlo
-        </button>
-        <button type="button" disabled className={btn}>
-          <UserSwitch size={18} aria-hidden="true" />
-          Assign badlo
-        </button>
-      </div>
-      <button type="button" disabled className="mt-2 flex min-h-11 w-full items-center justify-center gap-2 rounded-lg border border-danger/40 text-body font-medium text-danger opacity-60 disabled:cursor-not-allowed">
-        <XCircle size={18} aria-hidden="true" />
-        Cancel
-      </button>
-      <p className="mt-2 text-center text-meta text-muted">Jaldi aa raha hai. Abhi ye kaam WhatsApp se karein.</p>
-    </div>
-  );
-}
-
 interface Props {
   task: TaskDTO;
   branches: Branch[];
+  /** The write props below are only passed from the Tasks screen (Archive is read-only). */
+  users?: UserDTO[];
+  /** Pending count per assignee phone (shown in the Assign picker). */
+  counts?: Map<string, number>;
   onClose: () => void;
   variant: "sheet" | "panel";
+  /** A write succeeded and the task is still pending: show this version and refresh the list. */
+  onSaved?: (task: TaskDTO) => void;
+  /** Done succeeded: close the detail and refresh the list. */
+  onDone?: () => void;
+  /** 409/404: the task is no longer open; keep showing it and refresh the list. */
+  onStale?: () => void;
 }
 
-export function TaskDetail({ task, branches, onClose, variant }: Props) {
-  const footer = task.status === "pending" ? <Actions /> : null;
+export function TaskDetail({ task, branches, users, counts, onClose, variant, onSaved, onDone, onStale }: Props) {
+  const footer =
+    task.status === "pending" && onSaved && onDone && onStale ? (
+      <TaskActions task={task} branches={branches} users={users ?? []} counts={counts ?? new Map()} onSaved={onSaved} onDone={onDone} onStale={onStale} />
+    ) : null;
   if (variant === "sheet") {
     return (
       <Sheet title={task.title} onClose={onClose} footer={footer}>
@@ -141,7 +123,8 @@ export function TaskDetail({ task, branches, onClose, variant }: Props) {
 }
 
 function Panel({ task, branches, onClose, footer }: { task: TaskDTO; branches: Branch[]; onClose: () => void; footer: React.ReactNode }) {
-  // Not modal on desktop (the list stays usable), so no focus trap. Esc still closes.
+  // Not modal on desktop (the list stays usable), so no focus trap. Esc still closes
+  // (an open form or dialog on top stops the Esc first, see useFocusTrap).
   useEffect(() => {
     const fn = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();

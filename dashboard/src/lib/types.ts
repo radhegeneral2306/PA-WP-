@@ -84,3 +84,9 @@ export interface MeResponse {
   expiresAt: string;
   admins: string[];
 }
+
+export interface TaskActionResponse {
+  task: TaskDTO;
+  /** Only for Done on a monthly task: the newly created next-month task. */
+  next: TaskDTO | null;
+}
