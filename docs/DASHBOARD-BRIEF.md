@@ -209,7 +209,7 @@ Each phase should be tested and deployed on its own. Do not start the next until
 | 4 | Write actions: Done, remark, change date, change assignee (new assignee notified with `task_assigned_v1`). | Medium · ✅ **Done 27 Oct (API build `dash-p4a`, PWA in `dashboard/`)** |
 | 5 | Cancel (with confirmation prompt) + Archive tab, including the `task_cancelled_v1` template (owner submits it in Interakt first). | Easy-Medium · ✅ **Done 27 Oct (API build `dash-p5a`, template approved, PWA Cancel button with confirm)** |
 | 6 | Date-request approvals screen. | Medium · ✅ **Done 27 Oct (build `dash-p6`)** |
-| 7 | Nice-to-haves: summary cards, history view, per-staff counts. | Easy-Medium |
+| 7 | Nice-to-haves: summary cards, history view, per-staff counts. | Easy-Medium · **Owner (27 Oct): do this LAST, after Batch 3 and Batch 4** |
 
 **Overall difficulty: Medium-Hard.** Realistically this is multiple sessions of work, not one. State this honestly to the owner.
 

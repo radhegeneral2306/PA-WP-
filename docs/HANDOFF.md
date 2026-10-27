@@ -335,7 +335,7 @@ Run the `docs/TESTING-batch1.md` checklist sections A–G on real phones.
 - **Reopen done (build `dash-p5b`):** `POST /api/tasks/:id/reopen` → `reopenTask` in `taskActions.ts` (cancelled only, new future date required, assignee gets `task_assigned_v1`). PWA: "Wapas chalu karo" on cancelled tasks in the Archive.
 - **Phase 6 done (build `dash-p6`):** `POST /api/tasks/:id/{approve,reject}` → `decideDateRequest` in `taskActions.ts`, now also used by the WhatsApp Approvals flow (one set of rules). PWA Approvals tab lists pending requests (from the pending list), confirm dialog for both choices; requester gets `date_approval_result_v1`.
 - **Naya task from the dashboard (build `dash-new`):** `POST /api/tasks` (`src/dashboard/routes/create.ts` → `createTaskFor`). PWA form `dashboard/src/components/NewTaskSheet.tsx`; shared form pieces in `components/formParts.tsx`.
-- Next: 7 (extras), then Batch 3 Forms, Batch 4 voice notes.
+- Next (owner order, 27 Oct): Batch 3 Forms, Batch 4 voice notes. Dashboard Phase 7 (extras) is deliberately LAST.
 
 ## 14. Quick troubleshooting
 
