@@ -10,6 +10,8 @@ export interface Inbound {
   /** Trimmed text; for list/button taps this is the option title. */
   text: string;
   reply: Reply | null;
+  /** A submitted WhatsApp Form: answers keyed by field name (see interakt/parse extractForm). */
+  form?: Record<string, unknown> | null;
 }
 
 export interface BotContext {

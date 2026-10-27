@@ -134,7 +134,7 @@ export async function processWebhook(env: Env, body: unknown, rawBody: string, d
 
   const ctx = { store, user, now: deps.now ?? new Date() };
   try {
-    const outs = await handleMessage(ctx, { text: msg.text, reply: msg.reply });
+    const outs = await handleMessage(ctx, { text: msg.text, reply: msg.reply, form: msg.form });
     await deliverAll(env.INTERAKT_API_KEY, onlyAllowed(outs, allow));
   } catch (err) {
     console.error("Bot failed", err);

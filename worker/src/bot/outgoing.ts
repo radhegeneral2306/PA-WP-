@@ -15,6 +15,8 @@ export type Outgoing =
       bodyValues: string[];
       /** Sent as a plain session message if the template send fails (e.g. not approved yet). */
       fallbackText: string;
+      /** Form (WhatsApp Flow) templates only: comes back with the answers, tells which form it was. */
+      flowToken?: string;
     };
 
 /**
@@ -31,6 +33,12 @@ export const TEMPLATE_PARAMS = {
   daily_summary_v1: ["name", "pending count", "overdue count"],
   welcome_user_v1: ["name", "added by", "role"],
   task_cancelled_v1: ["recipient name", "cancelled by", "task", "assigned to"],
+  // Batch 3 form templates: no body placeholders, one "Form kholo" button that opens the form.
+  task_form_admin_v1: [],
+  task_form_staff_v1: [],
 } as const;
+
+/** Templates whose button opens a WhatsApp Form; sent with is_flow_template. */
+export const FLOW_TEMPLATES: ReadonlySet<TemplateName> = new Set<TemplateName>(["task_form_admin_v1", "task_form_staff_v1"]);
 
 export type TemplateName = keyof typeof TEMPLATE_PARAMS;

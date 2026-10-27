@@ -41,7 +41,7 @@ async function deliverTemplate(
   out: Extract<Outgoing, { kind: "template" }>,
 ): Promise<boolean> {
   try {
-    const res = await send(apiKey, templatePayload(to, out.template, out.bodyValues));
+    const res = await send(apiKey, templatePayload(to, out.template, out.bodyValues, out.flowToken));
     if (res.ok) return true;
     console.error("Template send failed, using fallback text", out.template, res.status);
   } catch (err) {

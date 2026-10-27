@@ -9,6 +9,7 @@ import { createTaskFlow } from "./flows/createTask";
 import { manageStaffFlow } from "./flows/manageStaff";
 import { tasksFlow } from "./flows/tasks";
 import { approvalsFlow } from "./flows/approvals";
+import { handleTaskForm, taskFormFlow } from "./flows/createTaskForm";
 
 interface MenuEntry {
   key: string;
@@ -19,10 +20,22 @@ interface MenuEntry {
   arg?: string;
 }
 
+/** Batch 3: switch on once task_form_admin_v1 and task_form_staff_v1 are approved in Interakt. */
+export const FORMS_LIVE = false;
+
+const FORM_ENTRY: MenuEntry = {
+  key: "create_task_form",
+  title: "📝 Naya task (Form)",
+  description: "Ek hi screen pe form bhar ke task banao",
+  roles: ["admin", "staff"],
+  flow: taskFormFlow,
+};
+
 export const MENU: MenuEntry[] = [
   { key: "my_tasks", title: "📋 Mere tasks", description: "Apne pending tasks dekho", roles: ["admin", "staff"], flow: tasksFlow, arg: "mine" },
   { key: "staff_tasks", title: "👥 Staff ke tasks", description: "Branch aur staff chun ke tasks dekho", roles: ["admin"], flow: tasksFlow, arg: "staff" },
   { key: "create_task", title: "➕ Naya task", description: "Task banao aur assign karo", roles: ["admin", "staff"], flow: createTaskFlow },
+  ...(FORMS_LIVE ? [FORM_ENTRY] : []),
   { key: "approvals", title: "⏳ Approvals", description: "Staff ki date badalne ki requests", roles: ["admin"], flow: approvalsFlow },
   { key: "manage_staff", title: "⚙️ Staff manage", description: "Staff add / edit / remove / list", roles: ["admin"], flow: manageStaffFlow },
 ];
@@ -50,6 +63,11 @@ export async function handleMessage(ctx: BotContext, input: Inbound): Promise<Ou
   // Template quick replies carry only the button text (as plain text or as the reply id).
   const quick = (input.reply && !replyId.includes(":") ? replyId : input.text).toLowerCase();
 
+  // A submitted form stands on its own (whatever session was open).
+  if (input.form) {
+    await store.clearSession(user.phone);
+    return handleTaskForm(ctx, input.form);
+  }
   if (GREETINGS.has(lower) || quick === "menu") {
     await store.clearSession(user.phone);
     return [mainMenu(ctx)];
