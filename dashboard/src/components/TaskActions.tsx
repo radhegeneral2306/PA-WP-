@@ -11,7 +11,7 @@ import { StaffPicker } from "./StaffPicker";
 import { useToast } from "./Toast";
 import { inputClass } from "./ui";
 
-type Kind = "done" | "remark" | "due" | "assign";
+type Kind = "done" | "remark" | "due" | "assign" | "cancel";
 type Form = null | "remark" | "due" | "assign-pick";
 
 type RunResult = { ok: true; res: TaskActionResponse } | { ok: false; error: string; stale: boolean };
@@ -26,7 +26,7 @@ interface Props {
   onStale: () => void;
 }
 
-/** Done, Remark, Date badlo, Assign badlo (Phase 4). Cancel stays disabled until Phase 5. */
+/** Done, Remark, Date badlo, Assign badlo (Phase 4) and Cancel (Phase 5). */
 export function TaskActions({ task, branches, users, counts, onSaved, onDone, onStale }: Props) {
   const online = useOnline();
   const toast = useToast();
@@ -36,6 +36,8 @@ export function TaskActions({ task, branches, users, counts, onSaved, onDone, on
   const [staleNotice, setStaleNotice] = useState<string | null>(null);
   const [assignTo, setAssignTo] = useState<UserDTO | null>(null);
   const [assignError, setAssignError] = useState<string | null>(null);
+  const [cancelAsk, setCancelAsk] = useState(false);
+  const [cancelError, setCancelError] = useState<string | null>(null);
   // Guards against a double tap before React re-renders the disabled button.
   const inFlight = useRef(false);
 
@@ -53,6 +55,7 @@ export function TaskActions({ task, branches, users, counts, onSaved, onDone, on
       if (stale) {
         setForm(null);
         setAssignTo(null);
+        setCancelAsk(false);
         setStaleNotice(error || "Ye task ab khula nahi hai.");
         onStale();
       }
@@ -85,6 +88,18 @@ export function TaskActions({ task, branches, users, counts, onSaved, onDone, on
       onSaved(r.res.task);
     } else if (!r.stale && r.error) {
       setAssignError(r.error);
+    }
+  }
+
+  async function confirmCancel() {
+    setCancelError(null);
+    const r = await run("cancel", () => api.cancel(task.id));
+    if (r.ok) {
+      toast("Task cancel ho gaya");
+      setCancelAsk(false);
+      onDone();
+    } else if (!r.stale && r.error) {
+      setCancelError(r.error);
     }
   }
 
@@ -147,16 +162,16 @@ export function TaskActions({ task, branches, users, counts, onSaved, onDone, on
 
       <button
         type="button"
-        disabled
-        aria-describedby="cancel-soon"
-        className="mt-2 flex min-h-11 w-full items-center justify-center gap-2 rounded-lg border border-danger/40 text-body font-medium text-danger opacity-60 disabled:cursor-not-allowed"
+        disabled={disabled}
+        onClick={() => {
+          setCancelError(null);
+          setCancelAsk(true);
+        }}
+        className="press mt-2 flex min-h-11 w-full items-center justify-center gap-2 rounded-lg border border-danger/40 text-body font-medium text-danger hover:bg-danger-soft disabled:cursor-not-allowed disabled:opacity-60"
       >
         <XCircle size={18} aria-hidden="true" />
         Cancel
       </button>
-      <p id="cancel-soon" className="mt-2 text-center text-meta text-muted">
-        Cancel jaldi aa raha hai
-      </p>
 
       {form === "remark" ? (
         <RemarkSheet
@@ -224,6 +239,25 @@ export function TaskActions({ task, branches, users, counts, onSaved, onDone, on
           onCancel={() => {
             setAssignTo(null);
             setAssignError(null);
+          }}
+        />
+      ) : null}
+
+      {cancelAsk ? (
+        <ConfirmDialog
+          title="Pakka cancel karna hai?"
+          body={`"${task.title}" archive mein chala jayega aur iske reminders band ho jayenge.`}
+          confirmLabel="Haan, cancel karo"
+          busyLabel="Cancel ho raha hai…"
+          danger
+          busy={busy === "cancel"}
+          error={cancelError ?? (!online ? "Internet nahi hai" : null)}
+          onConfirm={() => {
+            if (online) void confirmCancel();
+          }}
+          onCancel={() => {
+            setCancelAsk(false);
+            setCancelError(null);
           }}
         />
       ) : null}

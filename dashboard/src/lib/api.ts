@@ -93,6 +93,7 @@ export const api = {
       body: remark && remark.trim() ? { date, time, remark: remark.trim() } : { date, time },
     }),
   assign: (id: string, phone: string) => request<TaskActionResponse>(`${taskPath(id)}/assign`, { method: "POST", body: { phone } }),
+  cancel: (id: string) => request<TaskActionResponse>(`${taskPath(id)}/cancel`, { method: "POST", body: {} }),
 };
 
 function taskPath(id: string): string {

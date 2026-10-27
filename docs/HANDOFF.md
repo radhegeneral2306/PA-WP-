@@ -326,8 +326,10 @@ Run the `docs/TESTING-batch1.md` checklist sections A–G on real phones.
   - Route auth levels: `none` (login), `session`, `named` (data-changing routes need a picked admin name).
   - CORS only for `DASHBOARD_ORIGINS` (comma list, never `*`); a browser request from any other origin gets 403.
 - **Phase 3 done (code):** read routes `GET /api/users`, `GET /api/tasks?view=pending|archive` (`src/dashboard/routes/read.ts`, `toTaskDTO`). Errors carry a machine `code` (see `docs/DASHBOARD-API.md`).
-- **PWA:** `dashboard/` (Vite + React 18 + TS + Tailwind v4 + Phosphor + vite-plugin-pwa, Geist font). Deployed separately on Cloudflare Pages (root `dashboard`, build `npm run build`, output `dist`). Design rules: `docs/DASHBOARD-DESIGN.md`. API contract: `docs/DASHBOARD-API.md`. Action buttons are disabled until Phase 4.
-- Next: 4 (write actions), 5 (cancel + archive actions), 6 (approvals), 7 (extras).
+- **PWA:** `dashboard/` (Vite + React 18 + TS + Tailwind v4 + Phosphor + vite-plugin-pwa, Geist font). Deployed separately on Cloudflare Pages (root `dashboard`, build `npm run build`, output `dist`). Design rules: `docs/DASHBOARD-DESIGN.md`. API contract: `docs/DASHBOARD-API.md`. Live as a Cloudflare Worker static site `radhe-tasks` (https://radhe-tasks.radhegeneral2306.workers.dev).
+- **Phase 4 done:** `POST /api/tasks/:id/{done,remark,due,assign}` (`src/dashboard/routes/write.ts`), rules shared with WhatsApp in `src/bot/taskActions.ts`. PWA buttons: Done karo, Remark, Date badlo, Assign badlo (confirm dialog).
+- **Phase 5 done:** `POST /api/tasks/:id/cancel` → `cancelTask` (sends `task_cancelled_v1` to assignee + creator, never the actor). PWA Cancel button asks "Pakka cancel karna hai?" ("Nahi" has default focus); cancelled tasks show in Archive with time and who cancelled.
+- Next: 6 (date-request approvals screen), 7 (extras).
 
 ## 14. Quick troubleshooting
 
