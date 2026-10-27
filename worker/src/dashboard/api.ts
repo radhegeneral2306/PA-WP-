@@ -41,23 +41,23 @@ export function addRoutes(routes: Route[]): void {
 export async function handleApi(request: Request, env: Env, store: Store, now: Date, deliver: Deliver): Promise<Response> {
   const origin = request.headers.get("Origin");
   const cors = corsHeaders(env, origin);
-  if (origin && !cors) return new Response("Origin not allowed", { status: 403 });
+  if (origin && !cors) return json({ error: "Ye website allowed nahi hai", code: "origin_not_allowed" }, 403);
   if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors ?? {} });
 
   const path = new URL(request.url).pathname.replace(/\/+$/, "");
   const route = ROUTES.find((r) => r.path === path && r.method === request.method);
-  if (!route) return json({ error: "Not found" }, 404, cors);
+  if (!route) return json({ error: "Nahi mila", code: "not_found" }, 404, cors);
 
   const session = await verifyToken(env, request.headers.get("Authorization"), now);
-  if (route.auth !== "none" && !session) return json({ error: "Login zaroori hai" }, 401, cors);
-  if (route.auth === "named" && !session?.name) return json({ error: "Pehle apna naam chuniye" }, 403, cors);
+  if (route.auth !== "none" && !session) return json({ error: "Login zaroori hai", code: "login_required" }, 401, cors);
+  if (route.auth === "named" && !session?.name) return json({ error: "Pehle apna naam chuniye", code: "need_name" }, 403, cors);
 
   let body: unknown = null;
   if (request.method !== "GET") {
     try {
       body = await request.json();
     } catch {
-      return json({ error: "Bad JSON" }, 400, cors);
+      return json({ error: "Request samajh nahi aayi", code: "bad_request" }, 400, cors);
     }
   }
   try {
@@ -66,7 +66,7 @@ export async function handleApi(request: Request, env: Env, store: Store, now: D
     return res;
   } catch (err) {
     console.error("API error", route.path, err);
-    return json({ error: "Server error" }, 500, cors);
+    return json({ error: "Server mein dikkat aayi. Dobara try karein.", code: "server_error" }, 500, cors);
   }
 }
 
@@ -100,7 +100,7 @@ async function postLogin(ctx: ApiContext, body: unknown): Promise<Response> {
   if (typeof user !== "string" || typeof password !== "string") return json({ error: "ID aur password dono chahiye" }, 400);
   const ip = ctx.request.headers.get("CF-Connecting-IP") ?? "unknown";
   const result = await login(ctx.env, ctx.store, ip, user, password, ctx.now);
-  if (!result.ok) return json({ error: result.error }, result.status);
+  if (!result.ok) return json({ error: result.error, code: result.code }, result.status);
   return json({ token: result.token, admins: await activeAdminNames(ctx.store), sessionDays: SESSION_DAYS });
 }
 

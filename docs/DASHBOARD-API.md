@@ -4,7 +4,7 @@
 
 **Base URL (not secret):** `https://pa-wp-bot.radhegeneral2306.workers.dev` (PWA reads `import.meta.env.VITE_API_BASE`, falling back to this).
 
-**All requests:** JSON bodies, `Authorization: Bearer <token>` (except login). Errors always come back as `{ "error": "<Hinglish message for the user>" }` with a meaningful HTTP status. The PWA shows `error` text as-is.
+**All requests:** JSON bodies, `Authorization: Bearer <token>` (except login). Errors always come back as `{ "error": "<Hinglish message for the user>", "code"?: string }` with a meaningful HTTP status. The PWA shows `error` text as-is and branches on `code`, never on the text. Codes: `login_required` (401, session missing/expired), `bad_login` (401, wrong ID/password), `locked` (429), `not_configured` (503), `need_name` (403), `origin_not_allowed` (403), `not_found` (404), `bad_request` (400), `server_error` (500).
 
 | Status | Meaning in the PWA |
 |---|---|

@@ -24,7 +24,7 @@ export interface DashSession {
   exp: number;
 }
 
-export type LoginResult = { ok: true; token: string } | { ok: false; status: number; error: string };
+export type LoginResult = { ok: true; token: string } | { ok: false; status: number; error: string; code: string };
 
 const enc = new TextEncoder();
 
@@ -34,13 +34,13 @@ export function dashboardConfigured(env: Env): boolean {
 
 export async function login(env: Env, store: Store, clientIp: string, user: string, password: string, now: Date): Promise<LoginResult> {
   if (!dashboardConfigured(env)) {
-    return { ok: false, status: 503, error: "Dashboard login set nahi hai (DASHBOARD_USER / DASHBOARD_PASSWORD, kam se kam 12 characters)." };
+    return { ok: false, status: 503, code: "not_configured", error: "Dashboard login set nahi hai (DASHBOARD_USER / DASHBOARD_PASSWORD, kam se kam 12 characters)." };
   }
   const ipKey = `ip-${(await sha256Hex(clientIp)).slice(0, 32)}`;
   for (const key of [ipKey, "global"]) {
     const g = await store.getLoginGuard(key);
     if (g?.lockedUntil && Date.parse(g.lockedUntil) > now.getTime()) {
-      return { ok: false, status: 429, error: "Bahut baar galat password. Thodi der baad try karein." };
+      return { ok: false, status: 429, code: "locked", error: "Bahut baar galat password. Thodi der baad try karein." };
     }
   }
 
@@ -50,7 +50,7 @@ export async function login(env: Env, store: Store, clientIp: string, user: stri
     await recordFailure(store, ipKey, MAX_FAILS, now);
     await recordFailure(store, "global", GLOBAL_MAX_FAILS, now);
     console.warn("Dashboard login failed", ipKey.slice(0, 11));
-    return { ok: false, status: 401, error: "ID ya password galat hai." };
+    return { ok: false, status: 401, code: "bad_login", error: "ID ya password galat hai." };
   }
   await store.saveLoginGuard({ key: ipKey, fails: 0, windowStart: now.toISOString(), lockedUntil: null });
   return { ok: true, token: await issueToken(env, null, now) };

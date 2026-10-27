@@ -325,7 +325,9 @@ Run the `docs/TESTING-batch1.md` checklist sections A–G on real phones.
   - Token: `base64url(JSON{name,iat,exp}).HMAC`, key derived from `WEBHOOK_SECRET` + dashboard credentials; 30 days; password change logs everyone out. Sent as `Authorization: Bearer`.
   - Route auth levels: `none` (login), `session`, `named` (data-changing routes need a picked admin name).
   - CORS only for `DASHBOARD_ORIGINS` (comma list, never `*`); a browser request from any other origin gets 403.
-- Next: Phase 3 (Pages app + read routes), 4 (write actions), 5 (cancel + archive), 6 (approvals), 7 (extras).
+- **Phase 3 done (code):** read routes `GET /api/users`, `GET /api/tasks?view=pending|archive` (`src/dashboard/routes/read.ts`, `toTaskDTO`). Errors carry a machine `code` (see `docs/DASHBOARD-API.md`).
+- **PWA:** `dashboard/` (Vite + React 18 + TS + Tailwind v4 + Phosphor + vite-plugin-pwa, Geist font). Deployed separately on Cloudflare Pages (root `dashboard`, build `npm run build`, output `dist`). Design rules: `docs/DASHBOARD-DESIGN.md`. API contract: `docs/DASHBOARD-API.md`. Action buttons are disabled until Phase 4.
+- Next: 4 (write actions), 5 (cancel + archive actions), 6 (approvals), 7 (extras).
 
 ## 14. Quick troubleshooting
 
