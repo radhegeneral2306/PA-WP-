@@ -170,6 +170,56 @@ export async function latestDoc(cfg: FirestoreConfig, collection: string, field:
 }
 
 /**
+ * Documents whose `field` is strictly less than `before` (Date -> timestamp
+ * comparison, string -> lexicographic, e.g. ISO dates), at most `limit`.
+ * One range filter and no orderBy: only the automatic single-field index.
+ * `select` limits the returned fields (["__name__"] = ids only, which keeps
+ * the response small for collections holding large payloads).
+ */
+export async function queryBefore(
+  cfg: FirestoreConfig,
+  collection: string,
+  field: string,
+  before: Date | string,
+  limit: number,
+  select?: string[],
+): Promise<Doc[]> {
+  const structuredQuery: Record<string, unknown> = {
+    from: [{ collectionId: collection }],
+    where: {
+      fieldFilter: {
+        field: { fieldPath: field },
+        op: "LESS_THAN",
+        value: before instanceof Date ? { timestampValue: before.toISOString() } : { stringValue: before },
+      },
+    },
+    limit,
+  };
+  if (select) structuredQuery.select = { fields: select.map((fieldPath) => ({ fieldPath })) };
+  const res = await call(cfg, "POST", `${docsUrl(cfg)}:runQuery`, { structuredQuery });
+  if (!res.ok) return fail(`query ${collection} ${field} < ${String(before instanceof Date ? before.toISOString() : before)}`, res);
+  const rows = (await res.json()) as { document?: RawDoc }[];
+  return rows.filter((r) => r.document).map((r) => decodeDoc(r.document as RawDoc));
+}
+
+/** Max writes Firestore accepts in one commit. */
+export const MAX_COMMIT_WRITES = 500;
+
+/**
+ * Deletes `collection/<id>` for every id with one `documents:commit` per
+ * 500 ids (atomic per chunk). Deleting a missing document is not an error.
+ */
+export async function deleteMany(cfg: FirestoreConfig, collection: string, ids: string[]): Promise<void> {
+  const base = `projects/${cfg.projectId}/databases/(default)/documents/${collection}`;
+  for (let i = 0; i < ids.length; i += MAX_COMMIT_WRITES) {
+    const chunk = ids.slice(i, i + MAX_COMMIT_WRITES);
+    const writes = chunk.map((id) => ({ delete: `${base}/${id}` }));
+    const res = await call(cfg, "POST", `${docsUrl(cfg)}:commit`, { writes });
+    if (!res.ok) await fail(`delete ${chunk.length} docs in ${collection}`, res);
+  }
+}
+
+/**
  * Creates `collection/docId` only if it does not exist yet.
  * Returns false when the document already exists, which doubles as
  * duplicate-webhook detection when docId is the Interakt message id.
