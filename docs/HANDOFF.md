@@ -137,7 +137,7 @@ Defined in `worker/src/domain/types.ts`:
 
 **Rules:** all times are stored as ISO UTC strings and shown in IST (UTC+5:30, fixed offset). No time given → **10:00 AM IST**. Tasks from before Batch 2 lack the optional fields, so treat missing as `null`. Queries use **at most one equality filter and no orderBy** (no composite indexes needed); the rest is filtered and sorted in memory.
 
-**Current users:** Bhaskar (admin, real), Hardware (staff Durg, real), Chikku (staff Raipur, real), "Durg Office" (staff Durg, real, added via WhatsApp), plus 7 dummy users (names end in "(dummy)", numbers start `910000000`). Real numbers live only in Firestore and Cloudflare.
+**Current users (27 Oct 2026):** admins Bhaskar and Nayan; 22 real staff imported from the owner's Excel on 27 Oct (Raipur 1, Jagdalpur 8, Durg 7, Hardware 2, Office 4) plus earlier real staff Hardware (Durg), Chikku (Raipur) and "Durg Office"; and 7 dummy test users (names end in "(dummy)", numbers start `910000000`). Bulk imports go through `PUT /webhook/<secret>/users` and do NOT send welcome messages. Real numbers live only in Firestore and Cloudflare.
 
 ---
 
