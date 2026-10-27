@@ -333,6 +333,10 @@ export interface NewTaskInput {
   assignee: User;
   due: ParsedDue;
   repeat: TaskRepeat;
+  /** Batch 4: "voice" marks a voice-note task (dashboard shows a mic). */
+  source?: "voice";
+  /** First remark by the creator, e.g. the voice transcript (clipped to REMARK_MAX). */
+  note?: string;
 }
 
 /**
@@ -363,7 +367,11 @@ export async function createTaskFor(store: Store, actor: Actor, input: NewTaskIn
     repeatDay: input.repeat === "monthly" ? istDay(input.due.dueAt).day : null,
     dateRequest: null,
     lastReminderAt: null,
-    remarks: actor.viaDashboard ? [remarkBy(actor, "Dashboard se banaya", now)] : [],
+    remarks: [
+      ...(actor.viaDashboard ? [remarkBy(actor, "Dashboard se banaya", now)] : []),
+      ...(input.note?.trim() ? [remarkBy(actor, clip(input.note.trim(), REMARK_MAX), now)] : []),
+    ],
+    ...(input.source ? { source: input.source } : {}),
     createdAt: at,
     updatedAt: at,
     doneAt: null,

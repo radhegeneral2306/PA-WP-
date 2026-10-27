@@ -104,6 +104,13 @@ export function extractReply(content: unknown): Reply | null {
   return null;
 }
 
+/** Voice note / audio message (Batch 4): an audio content type, or a media URL that looks like audio. */
+export function isAudioMessage(msg: Pick<IncomingMessage, "contentType" | "mediaUrl">): boolean {
+  if (!msg.mediaUrl) return false;
+  if (/audio|voice|ptt/i.test(msg.contentType)) return true;
+  return /\.(ogg|opus|oga|mp3|m4a|aac|amr|wav)(\?|$)/i.test(msg.mediaUrl);
+}
+
 /**
  * WhatsApp Form answers. Meta sends them as `interactive.nfm_reply.response_json` (a JSON string);
  * Interakt may pass that object as is, as a string, or as a bare `flow_response`. Accept all of them.

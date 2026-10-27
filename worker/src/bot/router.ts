@@ -10,6 +10,7 @@ import { manageStaffFlow } from "./flows/manageStaff";
 import { tasksFlow } from "./flows/tasks";
 import { approvalsFlow } from "./flows/approvals";
 import { handleTaskForm, taskFormFlow } from "./flows/createTaskForm";
+import { handleVoice, voiceTaskFlow } from "./flows/voiceTask";
 
 interface MenuEntry {
   key: string;
@@ -24,6 +25,16 @@ interface MenuEntry {
 export const FORMS_LIVE = true;
 /** Until then the form option shows only for these users (by name; templates approved 27 Oct). */
 export const FORM_TESTERS: ReadonlySet<string> = new Set(["Bhaskar", "Ofc Hardware - 66466", "Chikku"]);
+
+/** Batch 4 (VOICE-BRIEF): admins only. While VOICE_LIVE is false, only these admins (by name). */
+export const VOICE_LIVE = false;
+export const VOICE_TESTERS: ReadonlySet<string> = new Set(["Bhaskar"]);
+
+export function canUseVoice(user: User): boolean {
+  return user.role === "admin" && (VOICE_LIVE || VOICE_TESTERS.has(user.name));
+}
+
+const BUSY_FOR_VOICE = "Pehle chal raha kaam pura ya cancel kijiye, phir voice note bhejiye.";
 
 const FORM_ENTRY: MenuEntry = {
   key: "create_task_form",
@@ -42,7 +53,7 @@ export const MENU: MenuEntry[] = [
   { key: "manage_staff", title: "⚙️ Staff manage", description: "Staff add / edit / remove / list", roles: ["admin"], flow: manageStaffFlow },
 ];
 
-const FLOWS: Flow[] = [tasksFlow, createTaskFlow, manageStaffFlow, approvalsFlow, taskFormFlow];
+const FLOWS: Flow[] = [tasksFlow, createTaskFlow, manageStaffFlow, approvalsFlow, taskFormFlow, voiceTaskFlow];
 
 const GREETINGS = new Set(["hi", "hii", "hiii", "hello", "helo", "hey", "menu", "namaste", "start"]);
 const CANCEL_WORDS = new Set(["cancel", "band", "band karo", "ruko", "stop", "exit"]);
@@ -74,6 +85,15 @@ export async function handleMessage(ctx: BotContext, input: Inbound): Promise<Ou
   if (input.form) {
     await store.clearSession(user.phone);
     return handleTaskForm(ctx, input.form);
+  }
+  // Voice note from an allowed admin: a task attempt, unless another flow is open (brief decision 21).
+  // Anyone else's voice note falls through to the old behaviour (menu).
+  if (input.voice && canUseVoice(user)) {
+    const open = await store.getSession(user.phone);
+    const busy = open && open.flow !== voiceTaskFlow.id && ctx.now.getTime() - Date.parse(open.updatedAt) < SESSION_TTL_MINUTES * 60_000;
+    if (busy) return [text(user.phone, BUSY_FOR_VOICE)];
+    await store.clearSession(user.phone);
+    return handleVoice(ctx, input.voice.mediaUrl);
   }
   if (GREETINGS.has(lower) || quick === "menu") {
     await store.clearSession(user.phone);

@@ -86,6 +86,8 @@ export interface Task {
   /** Set when status becomes "cancelled". Older tasks lack these fields. */
   cancelledAt?: string | null;
   cancelledByName?: string | null;
+  /** How the task was created, when not the usual way. "voice" = Batch 4 voice note. */
+  source?: "voice" | null;
 }
 
 export type NewTask = Omit<Task, "id">;

@@ -5,6 +5,7 @@ import type { Store } from "../data/store";
 import type { Session, User } from "../domain/types";
 import type { Reply } from "../interakt/parse";
 import type { Outgoing } from "./outgoing";
+import type { VoiceService } from "../voice/types";
 
 export interface Inbound {
   /** Trimmed text; for list/button taps this is the option title. */
@@ -12,6 +13,8 @@ export interface Inbound {
   reply: Reply | null;
   /** A submitted WhatsApp Form: answers keyed by field name (see interakt/parse extractForm). */
   form?: Record<string, unknown> | null;
+  /** A WhatsApp voice note / audio message (Batch 4). */
+  voice?: { mediaUrl: string } | null;
 }
 
 export interface BotContext {
@@ -19,6 +22,8 @@ export interface BotContext {
   /** The registered, active sender. */
   user: User;
   now: Date;
+  /** Batch 4: transcription + understanding. Absent when not configured (and in most tests). */
+  voice?: VoiceService;
 }
 
 export interface Flow {
