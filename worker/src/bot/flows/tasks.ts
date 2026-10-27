@@ -1,7 +1,7 @@
 // "Mere tasks" / "Staff ke tasks": browse pending tasks, open one, and act on
 // it (Done / Update remark / Date badlo).
 
-import type { BranchId, DateRequest, Remark, Task, TaskRepeat, User } from "../../domain/types";
+import type { BranchId, DateRequest, Task, TaskRepeat, User } from "../../domain/types";
 import { BRANCHES, branchName } from "../../domain/types";
 import {
   addDays,
@@ -15,16 +15,14 @@ import {
   type ISTDay,
   type ParsedDue,
 } from "../../domain/dates";
-import { afterResponse, nextMonthlyTask } from "../../domain/schedule";
 import { endFlow, isReply, replyValue, setStep, type BotContext, type Flow, type Inbound } from "../flow";
 import type { Outgoing } from "../outgoing";
-import { branchList, buttons, clip, dueDateButtons, taskList, text, timeButtons, userList } from "../ui";
+import { addRemark, changeDue, markDone as markTaskDone, REMARK_MAX, type ActionResult, type Actor } from "../taskActions";
+import { branchList, buttons, dueDateButtons, taskList, text, timeButtons, userList } from "../ui";
 
 const ID = "tasks";
 const ADMINS = "ADMINS";
 const MAX_STAFF_DAYS = 25;
-const REMARK_MAX = 500;
-const UPDATE_CLIP = 200;
 
 const REPEAT_LABEL: Record<TaskRepeat, string> = { none: "Ek baar", every90: "Har 90 min", monthly: "Har mahine" };
 
@@ -94,6 +92,15 @@ async function finish(ctx: BotContext, body: string): Promise<Outgoing[]> {
 }
 
 const oops = (ctx: BotContext) => finish(ctx, MSG.oops);
+
+function actorOf(ctx: BotContext): Actor {
+  return { phone: ctx.user.phone, name: ctx.user.name };
+}
+
+/** A closed-task race the loadOpen check missed: reply with the action's error and end the flow. */
+function failed(ctx: BotContext, r: Extract<ActionResult, { ok: false }>): Promise<Outgoing[]> {
+  return finish(ctx, r.error);
+}
 
 function isTyped(input: Inbound): boolean {
   return input.reply === null && input.text.trim().length > 0;
@@ -324,45 +331,11 @@ async function markDone(ctx: BotContext, data: Data): Promise<Outgoing[]> {
   const t = await loadOpen(ctx, data.taskId);
   if (Array.isArray(t)) return t;
 
-  const at = ctx.now.toISOString();
-  await ctx.store.updateTask(t.id, { status: "done", doneAt: at, updatedAt: at, nextReminderAt: null, dateRequest: null });
-  await endFlow(ctx);
+  const r = await markTaskDone(ctx.store, t, actorOf(ctx), ctx.now);
+  if (!r.ok) return failed(ctx, r);
   let body = `✅ *${t.title}* done mark ho gaya. Shabash! 👏`;
-  if (t.repeat === "monthly") {
-    const next = await ctx.store.createTask(nextMonthlyTask(t, ctx.now));
-    body += `\n🔁 Agla task: *${formatDue(next.dueAt, next.dueHasTime, ctx.now)}*`;
-  }
-  const out = [say(ctx, body)];
-  if (t.createdByPhone !== ctx.user.phone) out.push(doneNotice(ctx, t));
-  return out;
-}
-
-/** task_updated_v1 to the creator, unless the creator made the change. */
-function updateNotice(ctx: BotContext, t: Task, update: string): Outgoing[] {
-  if (t.createdByPhone === ctx.user.phone) return [];
-  const actor = ctx.user.name;
-  const body = clip(update, UPDATE_CLIP);
-  return [
-    {
-      to: t.createdByPhone,
-      kind: "template",
-      template: "task_updated_v1",
-      bodyValues: [t.createdByName, actor, t.title, body],
-      fallbackText: `Namaste ${t.createdByName} ji,\n${actor} ne ek task par update diya hai.\n\nTask: ${t.title}\nUpdate: ${body}`,
-    },
-  ];
-}
-
-function doneNotice(ctx: BotContext, t: Task): Outgoing {
-  const when = formatDateTime(ctx.now, ctx.now);
-  const actor = ctx.user.name;
-  return {
-    to: t.createdByPhone,
-    kind: "template",
-    template: "task_done_v1",
-    bodyValues: [t.createdByName, actor, t.title, when],
-    fallbackText: `Namaste ${t.createdByName} ji,\n${actor} ne ek task complete kar diya hai ✅\n\nTask: ${t.title}\nComplete hua: ${when}`,
-  };
+  if (r.next) body += `\n🔁 Agla task: *${formatDue(r.next.dueAt, r.next.dueHasTime, ctx.now)}*`;
+  return [...(await finish(ctx, body)), ...r.outs];
 }
 
 // ---------- remarks ----------
@@ -375,21 +348,14 @@ function readRemark(ctx: BotContext, input: Inbound, prompt: string): string | O
   return remark;
 }
 
-function remarkOf(ctx: BotContext, body: string): Remark {
-  return { at: ctx.now.toISOString(), byPhone: ctx.user.phone, byName: ctx.user.name, text: body };
-}
-
 async function onRemark(ctx: BotContext, data: Data, input: Inbound): Promise<Outgoing[]> {
   const remark = readRemark(ctx, input, MSG.askRemark);
   if (typeof remark !== "string") return remark;
   const t = await loadOpen(ctx, data.taskId);
   if (Array.isArray(t)) return t;
-  await ctx.store.updateTask(t.id, {
-    remarks: [...t.remarks, remarkOf(ctx, remark)],
-    nextReminderAt: afterResponse(t, ctx.now),
-    updatedAt: ctx.now.toISOString(),
-  });
-  return [...(await finish(ctx, "📝 Remark save ho gaya.")), ...updateNotice(ctx, t, remark)];
+  const r = await addRemark(ctx.store, t, actorOf(ctx), remark, ctx.now);
+  if (!r.ok) return failed(ctx, r);
+  return [...(await finish(ctx, "📝 Remark save ho gaya.")), ...r.outs];
 }
 
 // ---------- date change ----------
@@ -452,18 +418,12 @@ async function onDateRemark(ctx: BotContext, data: Data, input: Inbound): Promis
 
   const hasTime = data.newHasTime === "true";
   if (needsApproval(ctx, data.newDue)) return requestApproval(ctx, t, { dueAt: data.newDue, hasTime, remark });
-  const oldText = formatDue(t.dueAt, t.dueHasTime, ctx.now);
-  const newText = formatDue(data.newDue, hasTime, ctx.now);
-  const update = `Date badli: ${oldText} → ${newText}. ${remark}`;
-  await ctx.store.updateTask(t.id, {
-    dueAt: data.newDue,
-    dueHasTime: hasTime,
-    nextReminderAt: data.newDue,
-    remarks: [...t.remarks, remarkOf(ctx, update)],
-    dateRequest: null,
-    updatedAt: ctx.now.toISOString(),
-  });
-  return [...(await finish(ctx, `🕒 Date badal di: *${newText}*`)), ...updateNotice(ctx, t, update)];
+  // The bot tells only the creator; the assignee is usually the one changing it.
+  const due: ParsedDue = { dueAt: new Date(data.newDue), hasTime };
+  const r = await changeDue(ctx.store, t, actorOf(ctx), due, remark, ctx.now, { notifyAssignee: false });
+  if (!r.ok) return failed(ctx, r);
+  const newText = formatDue(due.dueAt, hasTime, ctx.now);
+  return [...(await finish(ctx, `🕒 Date badal di: *${newText}*`)), ...r.outs];
 }
 
 // ---------- approval request (staff, beyond 25 days) ----------
