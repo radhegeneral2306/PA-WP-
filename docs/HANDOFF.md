@@ -330,7 +330,8 @@ Run the `docs/TESTING-batch1.md` checklist sections A–G on real phones.
 - **Phase 4 done:** `POST /api/tasks/:id/{done,remark,due,assign}` (`src/dashboard/routes/write.ts`), rules shared with WhatsApp in `src/bot/taskActions.ts`. PWA buttons: Done karo, Remark, Date badlo, Assign badlo (confirm dialog).
 - **Phase 5 done:** `POST /api/tasks/:id/cancel` → `cancelTask` (sends `task_cancelled_v1` to assignee + creator, never the actor). PWA Cancel button asks "Pakka cancel karna hai?" ("Nahi" has default focus); cancelled tasks show in Archive with time and who cancelled.
 - **Reopen done (build `dash-p5b`):** `POST /api/tasks/:id/reopen` → `reopenTask` in `taskActions.ts` (cancelled only, new future date required, assignee gets `task_assigned_v1`). PWA: "Wapas chalu karo" on cancelled tasks in the Archive.
-- Next: 6 (date-request approvals screen), 7 (extras).
+- **Phase 6 done (build `dash-p6`):** `POST /api/tasks/:id/{approve,reject}` → `decideDateRequest` in `taskActions.ts`, now also used by the WhatsApp Approvals flow (one set of rules). PWA Approvals tab lists pending requests (from the pending list), confirm dialog for both choices; requester gets `date_approval_result_v1`.
+- Next: 7 (extras), then Batch 3 Forms, Batch 4 voice notes.
 
 ## 14. Quick troubleshooting
 

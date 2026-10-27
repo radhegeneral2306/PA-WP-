@@ -207,7 +207,7 @@ Each phase should be tested and deployed on its own. Do not start the next until
 | 3 | Cloudflare Pages project + read-only dashboard: pending list, overdue highlighting, filters, search. PWA shell (installable, mobile-first). CORS set up on the Worker. | Medium · ✅ **Code done 27 Oct (`dashboard/`, read API live)**; owner to create the Pages project and set `DASHBOARD_ORIGINS` |
 | 4 | Write actions: Done, remark, change date, change assignee (new assignee notified with `task_assigned_v1`). | Medium · ✅ **Done 27 Oct (API build `dash-p4a`, PWA in `dashboard/`)** |
 | 5 | Cancel (with confirmation prompt) + Archive tab, including the `task_cancelled_v1` template (owner submits it in Interakt first). | Easy-Medium · ✅ **Done 27 Oct (API build `dash-p5a`, template approved, PWA Cancel button with confirm)** |
-| 6 | Date-request approvals screen. | Medium |
+| 6 | Date-request approvals screen. | Medium · ✅ **Done 27 Oct (build `dash-p6`)** |
 | 7 | Nice-to-haves: summary cards, history view, per-staff counts. | Easy-Medium |
 
 **Overall difficulty: Medium-Hard.** Realistically this is multiple sessions of work, not one. State this honestly to the owner.
@@ -242,7 +242,7 @@ Include everything the browser needs to install it on a phone:
 - [x] Done, remark, change date, change assignee and cancel all work and match bot behaviour
 - [x] Archive tab shows both cancelled and done tasks, labelled and filterable, with date and time
 - [ ] Cancel asks for confirmation before acting
-- [ ] Date-request approvals work and notify the requester
+- [x] Date-request approvals work and notify the requester
 - [ ] `task_cancelled_v1` template approved in Interakt; on cancel, both assignee and creator are notified (no self-notification, no duplicates)
 - [ ] On reassign, the new assignee is notified with `task_assigned_v1`
 - [ ] Dashboard live on Cloudflare Pages, calling the Worker with CORS restricted to the dashboard origin; bot deploys unaffected

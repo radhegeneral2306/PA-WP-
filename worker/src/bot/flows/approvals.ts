@@ -7,6 +7,7 @@ import { endFlow, replyValue, setStep, type BotContext, type Flow, type Inbound 
 import type { Outgoing } from "../outgoing";
 import { buttons, clip, list, paginate, text } from "../ui";
 import type { ListRow } from "../../interakt/send";
+import { decideDateRequest, type DateDecision } from "../taskActions";
 
 const ID = "approvals";
 const PAGE_SIZE = 8;
@@ -15,7 +16,7 @@ const DESC_MAX = 72;
 
 type Data = Record<string, string>;
 type Pending = Task & { dateRequest: DateRequest };
-type Decision = "approve" | "reject";
+type Decision = DateDecision;
 
 const MSG = {
   adminOnly: "Ye option sirf admin ke liye hai.",
@@ -149,51 +150,14 @@ async function onDecide(ctx: BotContext, data: Data, input: Inbound): Promise<Ou
 }
 
 async function decide(ctx: BotContext, t: Pending, choice: Decision, data: Data): Promise<Outgoing[]> {
-  const r = t.dateRequest;
-  const admin = ctx.user;
-  const stamp = ctx.now.toISOString();
-  const oldText = due(ctx, t.dueAt, t.dueHasTime);
-  const newText = due(ctx, r.dueAt, r.hasTime);
-  const remark = (body: string) => ({ at: stamp, byPhone: admin.phone, byName: admin.name, text: body });
-
-  if (choice === "approve") {
-    await ctx.store.updateTask(t.id, {
-      dueAt: r.dueAt,
-      dueHasTime: r.hasTime,
-      nextReminderAt: r.dueAt,
-      dateRequest: null,
-      remarks: [...t.remarks, remark(`Date approve hui (${admin.name}): ${oldText} → ${newText}. ${r.remark}`)],
-      updatedAt: stamp,
-    });
-  } else {
-    await ctx.store.updateTask(t.id, {
-      dateRequest: null,
-      remarks: [...t.remarks, remark(`Date request reject hui (${admin.name}). Date ${oldText} hi rahegi.`)],
-      updatedAt: stamp,
-    });
-  }
-
+  const result = await decideDateRequest(ctx.store, t, { phone: ctx.user.phone, name: ctx.user.name }, choice, ctx.now);
+  if (!result.ok) return handledAlready(ctx, data);
   const approved = choice === "approve";
-  const notice = resultNotice(t, approved, approved ? newText : oldText);
-  const head = [say(ctx, approved ? "✅ Approve kar diya" : "❌ Reject kar diya"), notice];
+  const head = [say(ctx, approved ? "✅ Approve kar diya" : "❌ Reject kar diya"), ...result.outs];
   const rest = await loadPending(ctx);
   if (rest.length === 0) {
     await endFlow(ctx);
     return head;
   }
   return [...head, ...(await renderList(ctx, pageOf(data.page)))];
-}
-
-function resultNotice(t: Pending, approved: boolean, dueText: string): Outgoing {
-  const r = t.dateRequest;
-  const result = approved ? "Approved" : "Rejected";
-  return {
-    to: r.byPhone,
-    kind: "template",
-    template: "date_approval_result_v1",
-    bodyValues: [r.byName, t.title, result, dueText],
-    fallbackText:
-      `Namaste ${r.byName} ji,\naapki due date badalne ki request par faisla ho gaya hai.\n\n` +
-      `Task: ${t.title}\nResult: ${result}\nAb due date: ${dueText}`,
-  };
 }

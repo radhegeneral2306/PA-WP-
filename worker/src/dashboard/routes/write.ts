@@ -1,16 +1,16 @@
-// Write routes: POST /api/tasks/:id/{done,remark,due,assign,cancel,reopen}.
+// Write routes: POST /api/tasks/:id/{done,remark,due,assign,cancel,reopen,approve,reject}.
 // Rules live in bot/taskActions (shared with WhatsApp); this module only resolves
 // the acting admin, validates the body and turns ActionResults into responses.
 // The router matches exact paths, so matchWriteRoute binds the :id into the handler.
 
-import { addRemark, cancelTask, changeDue, dueFromInput, markDone, reassign, reopenTask, REMARK_MAX, type ActionResult, type Actor } from "../../bot/taskActions";
+import { addRemark, cancelTask, changeDue, decideDateRequest, dueFromInput, markDone, reassign, reopenTask, REMARK_MAX, type ActionResult, type Actor } from "../../bot/taskActions";
 import type { ParsedDue } from "../../domain/dates";
 import type { Task } from "../../domain/types";
 import { mask } from "../../numbers";
 import { json, type ApiContext, type Route } from "../api";
 import { toTaskDTO } from "./read";
 
-export type WriteAction = "done" | "remark" | "due" | "assign" | "cancel" | "reopen";
+export type WriteAction = "done" | "remark" | "due" | "assign" | "cancel" | "reopen" | "approve" | "reject";
 
 /** Runs one action on a loaded task for a resolved actor. */
 type TaskAction = (ctx: ApiContext, body: Record<string, unknown>, task: Task, actor: Actor) => Promise<Response>;
@@ -77,7 +77,24 @@ const reopen: TaskAction = async (ctx, body, task, actor) => {
   return respond(ctx, "reopen", actor, task, await reopenTask(ctx.store, task, actor, input.due, input.note, ctx.now));
 };
 
-const ACTIONS: Record<WriteAction, TaskAction> = { done, remark, due, assign, cancel, reopen };
+/** Staff date request (body.requestedAt guards against a request replaced since the list loaded). */
+const decideRequest =
+  (decision: "approve" | "reject"): TaskAction =>
+  async (ctx, body, task, actor) => {
+    const expected = typeof body.requestedAt === "string" ? body.requestedAt : null;
+    return respond(ctx, decision, actor, task, await decideDateRequest(ctx.store, task, actor, decision, ctx.now, expected));
+  };
+
+const ACTIONS: Record<WriteAction, TaskAction> = {
+  done,
+  remark,
+  due,
+  assign,
+  cancel,
+  reopen,
+  approve: decideRequest("approve"),
+  reject: decideRequest("reject"),
+};
 
 /** Common prelude: actor (403), task (404), then the action. */
 async function runAction(ctx: ApiContext, body: unknown, id: string, action: WriteAction): Promise<Response> {
@@ -88,7 +105,7 @@ async function runAction(ctx: ApiContext, body: unknown, id: string, action: Wri
   return ACTIONS[action](ctx, asObject(body), task, actor);
 }
 
-const PATH_RE = /^\/api\/tasks\/([^/]+)\/(done|remark|due|assign|cancel|reopen)$/;
+const PATH_RE = /^\/api\/tasks\/([^/]+)\/(done|remark|due|assign|cancel|reopen|approve|reject)$/;
 
 function boundRoute(action: WriteAction, id: string, path: string): Route {
   return { method: "POST", path, auth: "named", handler: (ctx, body) => runAction(ctx, body, id, action) };

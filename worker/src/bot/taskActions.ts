@@ -5,7 +5,7 @@
 import type { Store } from "../data/store";
 import { atIST, formatDateTime, formatDue, isValidDay, type ParsedDue } from "../domain/dates";
 import { afterResponse, nextMonthlyTask } from "../domain/schedule";
-import type { Remark, Task, User } from "../domain/types";
+import type { DateRequest, Remark, Task, User } from "../domain/types";
 import type { Outgoing } from "./outgoing";
 import { clip } from "./ui";
 
@@ -235,6 +235,65 @@ export async function reopenTask(store: Store, t: Task, actor: Actor, due: Parse
   const task = await reload(store, t.id);
   const outs = task.assigneePhone !== actor.phone ? [assignedNotice(task, actor.name, now)] : [];
   return { ok: true, task, outs };
+}
+
+export type DateDecision = "approve" | "reject";
+
+/** date_approval_result_v1 for the staff member who asked for the new date. */
+export function dateResultNotice(t: Task, req: DateRequest, approved: boolean, dueText: string): Outgoing {
+  const result = approved ? "Approved" : "Rejected";
+  return {
+    to: req.byPhone,
+    kind: "template",
+    template: "date_approval_result_v1",
+    bodyValues: [req.byName, t.title, result, dueText],
+    fallbackText:
+      `Namaste ${req.byName} ji,\naapki due date badalne ki request par faisla ho gaya hai.\n\n` +
+      `Task: ${t.title}\nResult: ${result}\nAb due date: ${dueText}`,
+  };
+}
+
+/**
+ * Approve or reject a staff date request (beyond the 25-day limit). Approve moves the due date
+ * and restarts reminders from it; reject keeps the old date. The requester is always told.
+ * expectedRequestedAt (when given) guards against deciding on a request that was replaced meanwhile.
+ */
+export async function decideDateRequest(
+  store: Store,
+  t: Task,
+  actor: Actor,
+  decision: DateDecision,
+  now: Date,
+  expectedRequestedAt?: string | null,
+): Promise<ActionResult> {
+  const blocked = closed(t);
+  if (blocked) return blocked;
+  const r = t.dateRequest;
+  if (!r) return fail(409, "no_request", "Ye request pehle hi handle ho chuki hai");
+  if (expectedRequestedAt && r.requestedAt !== expectedRequestedAt) {
+    return fail(409, "request_changed", "Is request mein badlav hua hai, dobara dekh ke decide kijiye");
+  }
+  const oldText = formatDue(t.dueAt, t.dueHasTime, now);
+  const newText = formatDue(r.dueAt, r.hasTime, now);
+  const approved = decision === "approve";
+  if (approved) {
+    await store.updateTask(t.id, {
+      dueAt: r.dueAt,
+      dueHasTime: r.hasTime,
+      nextReminderAt: r.dueAt,
+      dateRequest: null,
+      remarks: [...t.remarks, remarkBy(actor, `Date approve hui (${actor.name}): ${oldText} → ${newText}. ${r.remark}`, now)],
+      updatedAt: now.toISOString(),
+    });
+  } else {
+    await store.updateTask(t.id, {
+      dateRequest: null,
+      remarks: [...t.remarks, remarkBy(actor, `Date request reject hui (${actor.name}). Date ${oldText} hi rahegi.`, now)],
+      updatedAt: now.toISOString(),
+    });
+  }
+  const outs = [dateResultNotice(t, r, approved, approved ? newText : oldText)];
+  return { ok: true, task: await reload(store, t.id), outs };
 }
 
 /** Dashboard date input ("YYYY-MM-DD", optional "HH:MM") → instant; no time means 10:00 AM IST. */

@@ -37,7 +37,7 @@ const storeWith = (...tasks: Task[]) => new MemoryStore({ users: USERS, tasks: t
 
 describe("matchWriteRoute", () => {
   it("parses POST /api/tasks/<id>/<action>", () => {
-    for (const action of ["done", "remark", "due", "assign", "cancel", "reopen"]) {
+    for (const action of ["done", "remark", "due", "assign", "cancel", "reopen", "approve", "reject"]) {
       const m = matchWriteRoute("POST", `/api/tasks/abc123/${action}`);
       expect(m?.id).toBe("abc123");
       expect(m?.route).toMatchObject({ method: "POST", auth: "named", path: `/api/tasks/abc123/${action}` });
@@ -64,6 +64,8 @@ describe("matchWriteRoute", () => {
       ["POST", "/api/tasks/:id/assign", "named"],
       ["POST", "/api/tasks/:id/cancel", "named"],
       ["POST", "/api/tasks/:id/reopen", "named"],
+      ["POST", "/api/tasks/:id/approve", "named"],
+      ["POST", "/api/tasks/:id/reject", "named"],
     ]);
   });
 });
@@ -298,5 +300,50 @@ describe("reopen", () => {
     const r = await post(gone, "/api/tasks/task1/reopen", { date: "2026-10-30" }, ADMIN.name);
     expect(r.res.status).toBe(400);
     expect((await gone.getTask("task1"))?.status).toBe("cancelled");
+  });
+});
+
+describe("approve / reject date requests", () => {
+  const REQ = {
+    dueAt: "2026-12-05T04:30:00.000Z",
+    hasTime: false,
+    remark: "Customer bahar hai",
+    byPhone: STAFF_DURG.phone,
+    byName: STAFF_DURG.name,
+    requestedAt: "2026-10-26T08:00:00.000Z",
+  };
+  const withReq = () => storeWith(task({ dateRequest: REQ }));
+
+  it("approve moves the date, restarts reminders and tells the requester", async () => {
+    const store = withReq();
+    const { res, body, sent } = await post(store, "/api/tasks/task1/approve", { requestedAt: REQ.requestedAt }, ADMIN.name);
+    expect(res.status).toBe(200);
+    expect(body.task).toMatchObject({ dueAt: REQ.dueAt, dateRequest: null });
+    const saved = await store.getTask("task1");
+    expect(saved).toMatchObject({ dueAt: REQ.dueAt, nextReminderAt: REQ.dueAt, dateRequest: null });
+    expect(saved?.remarks.at(-1)).toMatchObject({ byName: "Bhaskar (dashboard)", text: "Date approve hui (Bhaskar): 27 Oct → 5 Dec. Customer bahar hai" });
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({ to: STAFF_DURG.phone, template: "date_approval_result_v1", bodyValues: [STAFF_DURG.name, "Sharma ji se payment lena", "Approved", "5 Dec"] });
+  });
+
+  it("reject keeps the old date and tells the requester", async () => {
+    const store = withReq();
+    const { res, sent } = await post(store, "/api/tasks/task1/reject", {}, ADMIN.name);
+    expect(res.status).toBe(200);
+    const saved = await store.getTask("task1");
+    expect(saved).toMatchObject({ dueAt: "2026-10-27T04:30:00.000Z", dateRequest: null });
+    expect(saved?.remarks.at(-1)?.text).toBe("Date request reject hui (Bhaskar). Date 27 Oct hi rahegi.");
+    expect(sent[0]).toMatchObject({ to: STAFF_DURG.phone, bodyValues: [STAFF_DURG.name, "Sharma ji se payment lena", "Rejected", "27 Oct"] });
+  });
+
+  it("409 when there is no request, the request was replaced, or the task is closed", async () => {
+    const none = await post(storeWith(task()), "/api/tasks/task1/approve", {}, ADMIN.name);
+    expect([none.res.status, none.body.code]).toEqual([409, "no_request"]);
+    const changed = withReq();
+    const r = await post(changed, "/api/tasks/task1/approve", { requestedAt: "2026-10-20T00:00:00.000Z" }, ADMIN.name);
+    expect([r.res.status, r.body.code]).toEqual([409, "request_changed"]);
+    expect((await changed.getTask("task1"))?.dateRequest).toEqual(REQ);
+    const done = await post(storeWith(task({ status: "done", dateRequest: REQ })), "/api/tasks/task1/reject", {}, ADMIN.name);
+    expect([done.res.status, done.body.code, done.sent]).toEqual([409, "task_closed", []]);
   });
 });

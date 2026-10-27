@@ -119,8 +119,21 @@ Status → `pending`, new due date (required, must be in the future; no time = 1
 WhatsApp `task_assigned_v1` to the assignee (not if they are the actor). 400 if the assignee is no longer active (create a new task instead).
 Response `{ task: TaskDTO, next: null }`. The PWA shows "Wapas chalu karo" only on cancelled tasks in the Archive.
 
-## Later phases (planned, not built)
+## Phase 6 (date-request approvals)
 
-| Phase | Route | Body |
-|---|---|---|
-| 6 | `GET /api/approvals`, `POST /api/approvals/:id` | `{ decision: "approve" \| "reject" }` |
+No separate list route: the PWA takes the pending list (`GET /api/tasks?view=pending`) and shows tasks whose `dateRequest` is set, oldest request first (same order as WhatsApp).
+
+### `POST /api/tasks/:id/approve` and `POST /api/tasks/:id/reject`  (auth: named)
+Body `{ "requestedAt"?: string }` (the `dateRequest.requestedAt` the admin saw; if the staff member replaced the request since, the server refuses).
+Shared with WhatsApp "Approvals" via `decideDateRequest` in `src/bot/taskActions.ts`.
+- **approve:** due date = requested date, `nextReminderAt` = that date, request cleared, remark "Date approve hui (Name): old → new. <staff remark>".
+- **reject:** date unchanged, request cleared, remark "Date request reject hui (Name). Date <old> hi rahegi."
+- The requester always gets `date_approval_result_v1` (Approved/Rejected + the due date now in force).
+
+Errors: 409 `no_request` (already handled), 409 `request_changed` (request replaced), 409 `task_closed`, 404 `not_found`. The PWA closes its confirm dialog on any 409/404, shows the message and refreshes.
+
+## Later phases
+
+| Phase | What |
+|---|---|
+| 7 | Extras: summary cards, history view, per-staff counts (to be decided with the owner). |
