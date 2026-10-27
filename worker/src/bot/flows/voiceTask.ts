@@ -5,7 +5,7 @@
 
 import { BRANCHES, branchName, type BranchId, type TaskRepeat, type User } from "../../domain/types";
 import { addDays, atIST, formatDateTime, formatDue, istDay, isValidDay, parseDue, parseTime, type ISTDay, type ParsedDue } from "../../domain/dates";
-import { recordProblems } from "../../scheduler/health";
+import { recordProblems, SUPER_ADMIN_NAME } from "../../scheduler/health";
 import type { VoiceDraft, VoiceFailure, VoicePerson, VoiceResult } from "../../voice/types";
 import { createTaskFor, TITLE_MAX } from "../taskActions";
 import { endFlow, replyValue, setStep, type BotContext, type Flow, type Inbound } from "../flow";
@@ -76,7 +76,7 @@ export async function handleVoice(ctx: BotContext, mediaUrl: string): Promise<Ou
   const { user } = ctx;
   if (user.role !== "admin") return [text(user.phone, VOICE_MSG.adminsOnly)];
 
-  const active = await ctx.store.listUsers();
+  const active = (await ctx.store.listUsers()).filter((u) => u.active);
   const people: VoicePerson[] = active.map((u) => ({ name: u.name, label: labelOf(u) }));
 
   let result: VoiceResult;
@@ -91,10 +91,15 @@ export async function handleVoice(ctx: BotContext, mediaUrl: string): Promise<Ou
   }
 
   if (!result.ok) {
+    const why = result.detail ? `${result.reason}: ${result.detail}` : result.reason;
+    console.log("voice: failed", why);
     if (HEALTH_FAILURES.has(result.reason)) {
-      await recordProblems(ctx.store, ctx.now, { errors: 1, problem: `voice ${result.reason}` });
+      await recordProblems(ctx.store, ctx.now, { errors: 1, problem: `voice ${why}` });
     }
-    return [text(user.phone, FAILURE_TEXT[result.reason] ?? VOICE_MSG.notUnderstood)];
+    const msg = FAILURE_TEXT[result.reason] ?? VOICE_MSG.notUnderstood;
+    // While voice is being tested, the super admin also sees the technical reason (no keys or numbers in it).
+    const debug = user.name === SUPER_ADMIN_NAME ? `\n\n_Tech: ${why}_` : "";
+    return [text(user.phone, msg + debug)];
   }
   return startFromDraft(ctx, result.draft, active);
 }

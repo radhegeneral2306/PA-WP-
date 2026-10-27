@@ -6,7 +6,7 @@ import type { Outgoing } from "../../src/bot/outgoing";
 import { handleVoice, voiceTaskFlow, VOICE_MSG } from "../../src/bot/flows/voiceTask";
 import { handleMessage } from "../../src/bot/router";
 import type { VoiceDraft, VoiceFailure, VoiceResult, VoiceService } from "../../src/voice/types";
-import { ADMIN, INACTIVE, NOW, STAFF_DURG, STAFF_RAIPUR, USERS, say, tap } from "../helpers/bot";
+import { ADMIN, ADMIN2, INACTIVE, NOW, STAFF_DURG, STAFF_RAIPUR, USERS, say, tap } from "../helpers/bot";
 
 const F = "voice_task";
 const created = "2026-10-01T00:00:00.000Z";
@@ -75,9 +75,10 @@ describe("handleVoice failures", () => {
   ];
   for (const [reason, msg, health] of cases) {
     it(`${reason} -> one text${health ? " + health problem" : ""}`, async () => {
-      const t = setup({ result: { ok: false, reason } });
+      // ADMIN2 (not the super admin) gets exactly the brief's text, no technical line.
+      const t = setup({ user: ADMIN2, result: { ok: false, reason } });
       const out = await t.send();
-      expect(out).toEqual([{ to: ADMIN.phone, kind: "text", body: msg }]);
+      expect(out).toEqual([{ to: ADMIN2.phone, kind: "text", body: msg }]);
       expect(await t.session()).toBeNull();
       const h = await t.store.getHealth();
       if (health) {
@@ -87,6 +88,13 @@ describe("handleVoice failures", () => {
     });
   }
 
+  it("the super admin (Bhaskar) also sees the technical reason while testing", async () => {
+    const t = setup({ result: { ok: false, reason: "download", detail: "media 403 from media.interakt.ai/x.ogg" } });
+    const out = await t.send();
+    expect(body(out[0])).toBe(`${VOICE_MSG.notUnderstood}\n\n_Tech: download: media 403 from media.interakt.ai/x.ogg_`);
+    expect((await t.store.getHealth())?.lastProblem).toBe("voice download: media 403 from media.interakt.ai/x.ogg");
+  });
+
   it("exact brief wording", () => {
     expect(VOICE_MSG.tooLong).toBe("Voice note bahut lamba hai. 1 minute ke andar bhejiye.");
     expect(VOICE_MSG.off).toBe("Voice se task abhi band hai. Form ya 'Naya task' use kijiye.");
@@ -94,12 +102,12 @@ describe("handleVoice failures", () => {
   });
 
   it("no voice service in ctx = not configured", async () => {
-    const t = setup({ voice: null });
+    const t = setup({ user: ADMIN2, voice: null });
     expect(body((await t.send())[0])).toBe(VOICE_MSG.off);
   });
 
   it("service throwing counts as failed", async () => {
-    const t = setup({ voice: fakeVoice(async () => { throw new Error("boom"); }) });
+    const t = setup({ user: ADMIN2, voice: fakeVoice(async () => { throw new Error("boom"); }) });
     expect(body((await t.send())[0])).toBe(VOICE_MSG.notUnderstood);
     expect((await t.store.getHealth())?.lastProblem).toBe("voice failed");
   });
