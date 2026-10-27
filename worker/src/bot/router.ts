@@ -40,7 +40,7 @@ export const MENU: MenuEntry[] = [
   { key: "manage_staff", title: "⚙️ Staff manage", description: "Staff add / edit / remove / list", roles: ["admin"], flow: manageStaffFlow },
 ];
 
-const FLOWS: Flow[] = [tasksFlow, createTaskFlow, manageStaffFlow, approvalsFlow];
+const FLOWS: Flow[] = [tasksFlow, createTaskFlow, manageStaffFlow, approvalsFlow, taskFormFlow];
 
 const GREETINGS = new Set(["hi", "hii", "hiii", "hello", "helo", "hey", "menu", "namaste", "start"]);
 const CANCEL_WORDS = new Set(["cancel", "band", "band karo", "ruko", "stop", "exit"]);
