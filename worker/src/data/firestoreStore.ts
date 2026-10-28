@@ -60,6 +60,8 @@ export class FirestoreStore implements Store {
   constructor(private cfg: FirestoreConfig) {}
 
   async getUser(phone: string): Promise<User | null> {
+    // "" (e.g. the "Bot" creator of health alert tasks) would address the collection itself.
+    if (!phone) return null;
     const doc = await getDoc(this.cfg, USERS, phone);
     return doc ? (doc.data as unknown as User) : null;
   }
@@ -84,6 +86,7 @@ export class FirestoreStore implements Store {
   }
 
   async getTask(id: string): Promise<Task | null> {
+    if (!id) return null;
     const doc = await getDoc(this.cfg, TASKS, id);
     return doc ? toTask(doc) : null;
   }

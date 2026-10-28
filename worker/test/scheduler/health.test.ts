@@ -239,3 +239,18 @@ describe("alertDueAt", () => {
     expect(alerts(s)[0].dueAt).toBe(new Date("2026-10-28T10:00:00+05:30").toISOString());
   });
 });
+
+describe("acting on a Bot check task (creator phone '')", () => {
+  it("Done and remark work and notify nobody", async () => {
+    const { MemoryStore } = await import("../../src/data/memoryStore");
+    const { markDone, addRemark } = await import("../../src/bot/taskActions");
+    const s = new MemoryStore({ users: USERS });
+    s.lastWebhookAt = null;
+    await runHealthCheck(s, CHECK);
+    const alert = (await s.listTasks({ status: "pending" })).find((t) => t.title.startsWith("Bot check:"))!;
+    const r1 = await addRemark(s, alert, { phone: ADMIN.phone, name: ADMIN.name }, "dekh liya", CHECK);
+    expect(r1).toMatchObject({ ok: true, outs: [] });
+    const r2 = await markDone(s, (await s.getTask(alert.id))!, { phone: ADMIN.phone, name: ADMIN.name }, CHECK);
+    expect(r2).toMatchObject({ ok: true, outs: [] });
+  });
+});
