@@ -33,12 +33,29 @@ describe("runDailySummary", () => {
     expect(durg).toMatchObject({ kind: "template", template: "daily_summary_v1", bodyValues: ["Hardware", "3", "2"] });
     if (durg.kind !== "template") throw new Error();
     expect(durg.fallbackText.endsWith("Dekhne ke liye *Mere tasks* likhiye.")).toBe(true);
-    expect(out.get(STAFF_RAIPUR.phone)).toMatchObject({ bodyValues: ["Chikku", "1", "0"] });
+    // Raipur's only task is in 2 days: nothing due today or overdue -> no message (owner decision 28 Oct).
+    expect(out.has(STAFF_RAIPUR.phone)).toBe(false);
   });
 
-  it("skips users with no pending tasks and inactive users", async () => {
+  it("sends to someone whose task is due later today (IST), counting all their pending tasks", async () => {
+    const later = "2026-10-26T11:30:00.000Z"; // 5:00 PM IST, NOW is 3:00 PM IST
+    const s = new MemoryStore({
+      users: USERS,
+      tasks: [task({ id: "t1", dueAt: later, ...raipur }), task({ id: "t2", dueAt: FUTURE, ...raipur })],
+    });
+    const out = byTo(await runDailySummary(s, NOW));
+    expect(out.get(STAFF_RAIPUR.phone)).toMatchObject({ bodyValues: ["Chikku", "2", "0"] });
+  });
+
+  it("tomorrow early morning (IST) is not today", async () => {
+    const tomorrow = "2026-10-26T19:00:00.000Z"; // 27 Oct 00:30 IST
+    const s = new MemoryStore({ users: USERS, tasks: [task({ id: "t1", dueAt: tomorrow, ...raipur })] });
+    expect(await runDailySummary(s, NOW)).toEqual([]);
+  });
+
+  it("skips users with nothing due today/overdue, no pending tasks, and inactive users", async () => {
     const out = byTo(await runDailySummary(store(), NOW));
-    expect(out.size).toBe(2);
+    expect(out.size).toBe(1);
     expect(out.has(ADMIN.phone)).toBe(false);
     expect(out.has(INACTIVE.phone)).toBe(false);
   });

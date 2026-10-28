@@ -195,7 +195,7 @@ Steps: `list → decide`. Lists pending `dateRequest`s (any admin can decide any
 - An inactive or missing assignee **pauses** the reminders (no send, schedule moves on); they resume by themselves when the user is re-activated, or when the task is reassigned
 - Before sending, the cron re-reads each task and skips it if it was done, cancelled or re-dated meanwhile
 - Known limit: two cron runs at the very same moment could send one reminder twice (needs a conditional Firestore write; Cloudflare rarely does this)
-- **Daily summary** 10:00 AM IST: **daily_summary_v1** (pending count, overdue count) to each active user with pending tasks
+- **Daily summary** 10:00 AM IST: **daily_summary_v1** (pending count, overdue count) only to active users who have a task **due today (IST) or overdue** (owner decision 28 Oct, saves cost); someone whose tasks are all in the future gets nothing that day. The pending number still counts all their pending tasks.
 
 ---
 
