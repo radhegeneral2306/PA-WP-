@@ -507,8 +507,8 @@ async function showConfirm(ctx: BotContext, data: Data, hint?: string): Promise<
 }
 
 /**
- * Never title a button "Cancel" / "Stop": Interakt treats those words as a WhatsApp opt-out and
- * unsubscribes the user (seen in testing 28 Oct). The emoji also keeps the router's typed-word shortcuts away.
+ * Never title a button "Cancel" / "Stop": an Interakt automation answers those words with a customer
+ * "goodbye" message (seen in testing 28 Oct). The emoji also keeps the router's typed-word shortcuts away.
  */
 function confirmButtons(to: string, body: string): Outgoing {
   return buttons(to, body, [

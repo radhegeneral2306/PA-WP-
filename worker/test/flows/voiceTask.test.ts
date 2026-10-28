@@ -526,7 +526,7 @@ describe("through the router", () => {
 });
 
 describe("no opt-out words on buttons", () => {
-  it("never titles a button Cancel/Stop (Interakt treats them as unsubscribe)", async () => {
+  it("never titles a button Cancel/Stop (an Interakt automation answers them with a customer goodbye)", async () => {
     const t = setup({ result: ok({ person: STAFF_RAIPUR.name, date: "2026-10-28", time: "16:00" }) });
     const [out] = await t.send();
     const titles = out.kind === "buttons" ? out.buttons.map((b) => b.title.toLowerCase()) : [];
