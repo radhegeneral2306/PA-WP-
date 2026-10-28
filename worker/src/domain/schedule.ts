@@ -54,27 +54,59 @@ export function afterResponse(task: Pick<Task, "repeat" | "nextReminderAt">, now
   return task.repeat === "every90" ? nextMorning(now).toISOString() : task.nextReminderAt;
 }
 
-/** Same day next month (clamped to month end), same IST time of day. */
+/**
+ * The first reminder slot for a reminder scheduled at `at`: every90 reminders only go out
+ * 10 AM–8 PM IST, so a due time at night waits for the next working morning.
+ * Other kinds remind at the exact due time the creator picked.
+ */
+export function reminderSlot(task: Pick<Task, "repeat">, at: Date): Date {
+  return task.repeat === "every90" ? intoWorkingHours(at) : at;
+}
+
+function shiftMonth(year: number, month: number, by: number): { year: number; month: number } {
+  const index = year * 12 + (month - 1) + by;
+  return { year: Math.floor(index / 12), month: (index % 12) + 1 };
+}
+
+const dayIndex = (d: { year: number; month: number; day: number }): number => Date.UTC(d.year, d.month - 1, d.day) / 86_400_000;
+
+/**
+ * Same day next month (clamped to month end), same IST time of day.
+ * "Next month" counts from the month this occurrence belongs to: the repeat day nearest to the
+ * due date. So a 27 Oct task moved to 2 Nov is still October's, and the next one is 27 Nov
+ * (not 27 Dec, which would silently skip November).
+ */
 export function nextMonthlyDue(task: Pick<Task, "dueAt" | "repeatDay">): Date {
   const due = new Date(task.dueAt);
   const day = istDay(due);
   const minutes = istHourMinute(due);
-  const year = day.month === 12 ? day.year + 1 : day.year;
-  const month = day.month === 12 ? 1 : day.month + 1;
-  const target = clampDayOfMonth(year, month, task.repeatDay ?? day.day);
+  const repeatDay = task.repeatDay ?? day.day;
+  let anchor = { year: day.year, month: day.month };
+  let best = Infinity;
+  for (const by of [0, -1, 1]) {
+    const m = shiftMonth(day.year, day.month, by);
+    const gap = Math.abs(dayIndex(clampDayOfMonth(m.year, m.month, repeatDay)) - dayIndex(day));
+    if (gap < best) {
+      best = gap;
+      anchor = m;
+    }
+  }
+  const next = shiftMonth(anchor.year, anchor.month, 1);
+  const target = clampDayOfMonth(next.year, next.month, repeatDay);
   return atIST(target, { hour: Math.floor(minutes / 60), minute: minutes % 60 });
 }
 
 /** The next occurrence of a monthly task that was just marked done. */
 export function nextMonthlyTask(task: Task, now: Date): NewTask {
   const { id: _id, ...rest } = task;
-  const dueAt = nextMonthlyDue(task).toISOString();
+  const due = nextMonthlyDue(task);
+  const dueAt = due.toISOString();
   const stamp = now.toISOString();
   return {
     ...rest,
     dueAt,
     status: "pending",
-    nextReminderAt: dueAt,
+    nextReminderAt: reminderSlot(task, due).toISOString(),
     repeatDay: task.repeatDay ?? istDay(new Date(task.dueAt)).day,
     dateRequest: null,
     lastReminderAt: null,

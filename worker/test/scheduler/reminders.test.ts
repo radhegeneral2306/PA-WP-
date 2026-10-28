@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryStore } from "../../src/data/memoryStore";
 import type { Outgoing } from "../../src/bot/outgoing";
-import { runReminders } from "../../src/scheduler/reminders";
+import { MAX_REMINDERS_PER_RUN, RETRY_AFTER_FAILURE_MS, runReminders } from "../../src/scheduler/reminders";
 import { INACTIVE, NOW, STAFF_DURG, STAFF_RAIPUR, USERS, task } from "../helpers/bot";
 import type { Task } from "../../src/domain/types";
 
@@ -118,14 +118,14 @@ describe("runReminders", () => {
     expect(m.bodyValues[2]).toBe("27 Oct");
   });
 
-  it("inactive or missing assignee: stops reminders, sends nothing", async () => {
+  it("inactive or missing assignee: sends nothing, pauses until the next slot (resumes if re-activated)", async () => {
     const store = setup([
       task({ id: "inactive", assigneePhone: INACTIVE.phone, assigneeName: INACTIVE.name, nextReminderAt: PAST }),
       task({ id: "missing", assigneePhone: "910000000000", assigneeName: "Ghost", nextReminderAt: PAST }),
     ]);
     expect(await runReminders(store, NOW)).toEqual([]);
-    expect(store.tasks.get("inactive")!.nextReminderAt).toBeNull();
-    expect(store.tasks.get("missing")!.nextReminderAt).toBeNull();
+    expect(store.tasks.get("inactive")!.nextReminderAt).toBe("2026-10-27T05:30:00.000Z");
+    expect(store.tasks.get("missing")!.nextReminderAt).toBe("2026-10-27T05:30:00.000Z");
     expect(store.tasks.get("inactive")!.lastReminderAt).toBeUndefined();
   });
 
@@ -157,5 +157,108 @@ describe("runReminders", () => {
     const out = (await runReminders(store, NOW)).map(asTemplate);
     expect(out.map((m) => m.bodyValues[1])).toEqual(["Earlier", "Later"]);
     expect(out[0].to).toBe(STAFF_RAIPUR.phone);
+  });
+});
+
+describe("free-tier limits (audit S1/S2)", () => {
+  const many = (n: number) =>
+    Array.from({ length: n }, (_, i) =>
+      task({ id: `t${String(i).padStart(2, "0")}`, nextReminderAt: new Date(Date.parse(PAST) - (n - i) * 60_000).toISOString() }),
+    );
+
+  it("handles at most MAX_REMINDERS_PER_RUN per run, oldest first; the rest go out on the next runs", async () => {
+    const store = setup(many(20));
+    const first = await runReminders(store, NOW);
+    expect(first).toHaveLength(MAX_REMINDERS_PER_RUN);
+    const second = await runReminders(store, new Date(NOW.getTime() + 5 * 60_000));
+    const third = await runReminders(store, new Date(NOW.getTime() + 10 * 60_000));
+    expect(second).toHaveLength(MAX_REMINDERS_PER_RUN);
+    expect(third).toHaveLength(20 - 2 * MAX_REMINDERS_PER_RUN);
+    // every task reminded exactly once, none lost
+    const all = await store.listTasks({ status: "pending" });
+    expect(all.every((t) => t.lastReminderAt)).toBe(true);
+  });
+
+  it("reads only due tasks (no full scan of pending tasks)", async () => {
+    const store = setup([...many(3), task({ id: "future", nextReminderAt: FUTURE })]);
+    const full = vi.spyOn(store, "listTasks");
+    const dueQuery = vi.spyOn(store, "listDueTasks");
+    await runReminders(store, NOW);
+    expect(full).not.toHaveBeenCalled();
+    expect(dueQuery).toHaveBeenCalledWith(NOW, MAX_REMINDERS_PER_RUN);
+  });
+
+  it("with send: claims, then delivers, then marks", async () => {
+    const store = setup([task({ id: "a", nextReminderAt: PAST })]);
+    const order: string[] = [];
+    const update = store.updateTask.bind(store);
+    store.updateTask = async (id, patch) => {
+      order.push("save");
+      return update(id, patch);
+    };
+    const out = await runReminders(store, NOW, { send: async () => (order.push("send"), true) });
+    expect(order).toEqual(["save", "send", "save"]); // claim (+30 min), send, mark
+    expect(out).toHaveLength(1);
+    expect((await store.getTask("a"))?.lastReminderAt).toBe(NOW.toISOString());
+  });
+
+  it("with send: a failed send is retried after 30 minutes, not lost or marked", async () => {
+    const store = setup([task({ id: "a", nextReminderAt: PAST })]);
+    const out = await runReminders(store, NOW, { send: async () => false });
+    expect(out).toEqual([]);
+    const t = await store.getTask("a");
+    expect(t?.nextReminderAt).toBe(new Date(NOW.getTime() + RETRY_AFTER_FAILURE_MS).toISOString());
+    expect(t?.lastReminderAt ?? null).toBeNull();
+    // next attempt after 30 minutes succeeds
+    const later = new Date(NOW.getTime() + RETRY_AFTER_FAILURE_MS);
+    expect(await runReminders(store, later, { send: async () => true })).toHaveLength(1);
+  });
+
+  it("a closed task that still carries a reminder time is cleared, so it can't crowd out real ones", async () => {
+    const stale = Array.from({ length: MAX_REMINDERS_PER_RUN }, (_, i) =>
+      task({ id: `done${i}`, status: "done", nextReminderAt: "2026-10-20T04:30:00.000Z" }),
+    );
+    const store = setup([...stale, task({ id: "real", nextReminderAt: PAST })]);
+    expect(await runReminders(store, NOW)).toEqual([]); // first run: only stale ones fit
+    for (const s of stale) expect((await store.getTask(s.id))?.nextReminderAt).toBeNull();
+    expect(await runReminders(store, NOW)).toHaveLength(1); // the real one goes out next run
+  });
+
+  it("subrequest budget: a full run stays under Cloudflare Free's 50 even if every template falls back", async () => {
+    const store = setup(many(30));
+    let calls = 2; // OAuth token + the due query
+    for (const m of ["getTask", "getUser", "updateTask"] as const) { // updateTask = claim + mark
+      const orig = (store[m] as (...a: unknown[]) => Promise<unknown>).bind(store);
+      (store as unknown as Record<string, unknown>)[m] = async (...a: unknown[]) => (calls++, orig(...a));
+    }
+    await runReminders(store, NOW, { send: async () => ((calls += 2), true) }); // template fails + text fallback
+    calls += 2; // recordProblems: read + save health
+    expect(calls).toBeLessThan(50);
+  });
+
+  it("send OK but the final save fails: the claim makes it repeat after 30 min, not on every run", async () => {
+    const store = setup([task({ id: "a", nextReminderAt: PAST })]);
+    const update = store.updateTask.bind(store);
+    let n = 0;
+    store.updateTask = async (id, patch) => {
+      if (n++ === 1) throw new Error("write quota"); // 1st = claim OK, 2nd = mark fails
+      return update(id, patch);
+    };
+    const stats = { due: 0, sent: 0, stopped: 0, sendFailed: 0, errors: 0 };
+    let sends = 0;
+    await runReminders(store, NOW, { send: async () => (sends++, true), stats });
+    expect(stats.errors).toBe(1);
+    // 5 and 25 minutes later: nothing (claimed until +30 min)
+    for (const m of [5, 25]) await runReminders(store, new Date(NOW.getTime() + m * 60_000), { send: async () => (sends++, true) });
+    expect(sends).toBe(1);
+    await runReminders(store, new Date(NOW.getTime() + 30 * 60_000), { send: async () => (sends++, true) });
+    expect(sends).toBe(2);
+  });
+
+  it("an empty reminder time is cleared instead of blocking a queue slot", async () => {
+    const store = setup([task({ id: "blank", nextReminderAt: "" }), task({ id: "real", nextReminderAt: PAST })]);
+    const out = await runReminders(store, NOW);
+    expect((await store.getTask("blank"))?.nextReminderAt).toBeNull();
+    expect(out).toHaveLength(1);
   });
 });

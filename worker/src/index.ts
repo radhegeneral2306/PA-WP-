@@ -1,5 +1,7 @@
 import { cleanEnv, type Env } from "./env";
-import { parseWebhook, type IncomingMessage } from "./interakt/parse";
+import { isAudioMessage, parseWebhook, type IncomingMessage } from "./interakt/parse";
+import { createVoiceService } from "./voice";
+import type { VoiceService } from "./voice/types";
 import { createIfAbsent, type FirestoreConfig } from "./firebase/firestore";
 import { safeEqual, verifyInteraktSignature } from "./interakt/signature";
 import { statusReport } from "./status";
@@ -10,16 +12,22 @@ import { handleMessage } from "./bot/router";
 import { text } from "./bot/ui";
 import type { Outgoing } from "./bot/outgoing";
 import { deliverAll } from "./interakt/deliver";
+import { runCleanup } from "./scheduler/cleanup";
+import { recordProblems, runHealthCheck } from "./scheduler/health";
 import { handleUsersEndpoint } from "./admin";
 import { addRoutes, handleApi } from "./dashboard/api";
+import { createRoutes } from "./dashboard/routes/create";
 import { readRoutes } from "./dashboard/routes/read";
 
 addRoutes(readRoutes);
+addRoutes(createRoutes);
 import { runReminders } from "./scheduler/reminders";
 import { runDailySummary } from "./scheduler/daily";
 
 /** Must match the second cron in wrangler.toml (10:00 AM IST). */
 export const DAILY_CRON = "30 4 * * *";
+/** 10:15 AM IST: health check + cleanup, after the summary's send failures are counted. */
+export const HEALTH_CRON = "45 4 * * *";
 
 export default {
   async fetch(request: Request, rawEnv: Env, ctx: ExecutionContext): Promise<Response> {
@@ -30,8 +38,9 @@ export default {
       return new Response("pa-wp-bot ok");
     }
     if (url.pathname.startsWith("/api/")) {
-      const deliver = (outs: Outgoing[]) => deliverAll(env.INTERAKT_API_KEY, onlyAllowed(outs, testNumbers(env)));
-      return handleApi(request, env, storeFor(env), new Date(), deliver);
+      const store = storeFor(env);
+      const deliver = (outs: Outgoing[]) => sendAndRecord(env, store, onlyAllowed(outs, testNumbers(env)));
+      return handleApi(request, env, store, new Date(), deliver);
     }
     const match = url.pathname.match(/^\/webhook\/([^/]+)(\/status|\/users|\/users\/welcome)?$/);
     if (!match || !env.WEBHOOK_SECRET || !safeEqual(match[1], env.WEBHOOK_SECRET)) {
@@ -43,8 +52,9 @@ export default {
       return Response.json(await statusReport(env), { headers: { "Cache-Control": "no-store" } });
     }
     if (match[2] === "/users" || match[2] === "/users/welcome") {
-      const deliver = (outs: Outgoing[]) => deliverAll(env.INTERAKT_API_KEY, onlyAllowed(outs, testNumbers(env)));
-      return handleUsersEndpoint(request, storeFor(env), new Date(), deliver, match[2] === "/users/welcome");
+      const store = storeFor(env);
+      const deliver = (outs: Outgoing[]) => sendAndRecord(env, store, onlyAllowed(outs, testNumbers(env)));
+      return handleUsersEndpoint(request, store, new Date(), deliver, match[2] === "/users/welcome");
     }
     if (request.method !== "POST") return new Response("Not found", { status: 404 });
 
@@ -75,25 +85,81 @@ export default {
   },
 };
 
-/** Every 5 minutes: due reminders. Daily at 10 AM IST: pending-task summary (DAILY_SUMMARY=off disables). */
+/**
+ * Every 5 minutes: due reminders. Daily at 10 AM IST: pending-task summary (DAILY_SUMMARY=off disables),
+ * then the health check (alert task for admins if sends failed, webhooks went silent or reminders are stuck)
+ * and the Firestore cleanup. Neither of those can stop the summary or reminders.
+ */
 export async function runCron(env: Env, cron: string, now: Date, deps: Deps = {}): Promise<void> {
   const store = deps.store ?? storeFor(env);
+  if (cron === HEALTH_CRON) return runHealthAndCleanup(env, store, now, deps);
+  const daily = cron === DAILY_CRON;
   try {
-    let outs: Outgoing[];
-    if (cron === DAILY_CRON) {
-      outs = env.DAILY_SUMMARY === "off" ? [] : await runDailySummary(store, now);
+    if (daily) {
+      const outs = env.DAILY_SUMMARY === "off" ? [] : await runDailySummary(store, now);
+      if (outs.length) console.log(`Cron ${cron}: sending ${outs.length} message(s)`);
+      await sendAndRecord(env, store, onlyAllowed(outs, testNumbers(env)), now);
     } else {
-      outs = await runReminders(store, now);
+      await sendReminders(env, store, now);
     }
-    if (outs.length) console.log(`Cron ${cron}: sending ${outs.length} message(s)`);
-    await deliverAll(env.INTERAKT_API_KEY, onlyAllowed(outs, testNumbers(env)));
   } catch (err) {
     console.error(`Cron ${cron} failed`, err);
+    await recordProblems(store, now, { errors: 1, problem: daily ? "daily summary cron failed" : "reminder cron failed" });
+  }
+}
+
+/** Each reminder is delivered before it is marked as reminded (see scheduler/reminders.ts). */
+async function sendReminders(env: Env, store: Store, now: Date): Promise<void> {
+  const allow = testNumbers(env);
+  let failed = 0;
+  let templateFailures = 0;
+  let problem: string | null = null;
+  const stats = { due: 0, sent: 0, stopped: 0, sendFailed: 0, errors: 0 };
+  await runReminders(store, now, {
+    stats,
+    send: async (message) => {
+      const outs = onlyAllowed([message], allow);
+      if (!outs.length) return true; // TEST_NUMBERS: deliberately not sent, still counts as done
+      const r = await deliverAll(env.INTERAKT_API_KEY, outs);
+      templateFailures += r.templateFallbacks;
+      if (r.failed) {
+        failed += r.failed;
+        problem = r.lastProblem;
+        return false;
+      }
+      return true;
+    },
+  });
+  if (failed || templateFailures || stats.errors) {
+    await recordProblems(store, now, {
+      sendFailures: failed,
+      templateFailures,
+      errors: stats.errors,
+      problem: problem ?? (stats.errors ? "reminder store error" : null),
+    });
+  }
+}
+
+/** 10:15 AM IST, its own run (own subrequest budget). Never throws. */
+async function runHealthAndCleanup(env: Env, store: Store, now: Date, deps: Deps): Promise<void> {
+  const alerts = await runHealthCheck(store, now);
+  await sendAndRecord(env, store, onlyAllowed(alerts, testNumbers(env)), now);
+  // Old webhook_log / stale login_guards; only against real Firestore (tests pass their own store).
+  if (!deps.store) await runCleanup(firestoreConfig(env), now).catch((err) => console.error("Cleanup failed", err));
+}
+
+/** deliverAll + health counters (never throws). */
+async function sendAndRecord(env: Env, store: Store, outs: Outgoing[], now = new Date()): Promise<void> {
+  const r = await deliverAll(env.INTERAKT_API_KEY, outs);
+  if (r.failed || r.templateFallbacks) {
+    await recordProblems(store, now, { sendFailures: r.failed, templateFailures: r.templateFallbacks, problem: r.lastProblem });
   }
 }
 
 export interface Deps {
   store?: Store;
+  /** Tests inject a fake voice service. */
+  voice?: VoiceService;
   now?: Date;
 }
 
@@ -130,14 +196,16 @@ export async function processWebhook(env: Env, body: unknown, rawBody: string, d
     return;
   }
 
-  const ctx = { store, user, now: deps.now ?? new Date() };
+  const ctx = { store, user, now: deps.now ?? new Date(), voice: deps.voice ?? createVoiceService(env) };
   try {
-    const outs = await handleMessage(ctx, { text: msg.text, reply: msg.reply });
-    await deliverAll(env.INTERAKT_API_KEY, onlyAllowed(outs, allow));
+    const voice = isAudioMessage(msg) && msg.mediaUrl ? { mediaUrl: msg.mediaUrl } : null;
+    const outs = await handleMessage(ctx, { text: msg.text, reply: msg.reply, form: msg.form, voice });
+    await sendAndRecord(env, store, onlyAllowed(outs, allow), ctx.now);
   } catch (err) {
     console.error("Bot failed", err);
+    await recordProblems(store, ctx.now, { errors: 1, problem: "webhook handler failed" });
     await store.clearSession(user.phone).catch(() => undefined);
-    await deliverAll(env.INTERAKT_API_KEY, [text(user.phone, "Maaf kijiye, kuch gadbad ho gayi 🙏 Dobara *Hi* bhejiye.")]);
+    await sendAndRecord(env, store, [text(user.phone, "Maaf kijiye, kuch gadbad ho gayi 🙏 Dobara *Hi* bhejiye.")], ctx.now);
   }
 }
 

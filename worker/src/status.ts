@@ -6,7 +6,7 @@ import type { Env } from "./env";
 import { checkAccess } from "./firebase/firestore";
 import { mask, testNumbers } from "./numbers";
 
-export const BUILD = "dash-p3";
+export const BUILD = "s3fix";
 
 export async function statusReport(env: Env) {
   const has = (v: string | undefined) => Boolean(v && v.trim());
@@ -26,6 +26,9 @@ export async function statusReport(env: Env) {
       DASHBOARD_PASSWORD: has(env.DASHBOARD_PASSWORD),
       DASHBOARD_PASSWORD_LONG_ENOUGH: (env.DASHBOARD_PASSWORD ?? "").length >= 12,
       DASHBOARD_ORIGINS: has(env.DASHBOARD_ORIGINS),
+      GROQ_API_KEY: has(env.GROQ_API_KEY),
+      GEMINI_API_KEY: has(env.GEMINI_API_KEY),
+      VOICE_OFF: env.VOICE === "off",
     },
     testNumbers: [...testNumbers(env)].map((n) => ({ number: mask(n), digits: n.length })),
     interaktApiKey: interaktKeyShape(env.INTERAKT_API_KEY),

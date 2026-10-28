@@ -1,21 +1,39 @@
-// Due reminders (cron, every 5 minutes). Reads and updates the Store and
-// returns the messages to send; delivery is the caller's job.
+// Due reminders (cron, every 5 minutes).
+//
+// Free-tier limits shape this file (audit 28 Oct, S1/S2):
+// - Firestore Spark: 50k reads/day, so each run reads only the DUE tasks (listDueTasks), not every
+//   pending task.
+// - Cloudflare Workers Free: 50 subrequests per run. One reminder costs ~5 (re-read, user, send,
+//   maybe a text fallback, save), so a run handles at most MAX_REMINDERS_PER_RUN; the rest go out
+//   on the next runs, oldest first, a few minutes later.
+// - With a `send` function a reminder is first CLAIMED (nextReminderAt moved RETRY_AFTER_FAILURE_MS
+//   ahead), then sent, then marked. A failed send keeps the claim (retried in 30 min, never lost);
+//   if the final save fails after a successful send it repeats at most every 30 min, not every run.
 
 import { formatDue } from "../domain/dates";
-import { afterReminder } from "../domain/schedule";
+import { afterReminder, reminderSlot } from "../domain/schedule";
 import type { Task, User } from "../domain/types";
 import type { Store } from "../data/store";
 import type { Outgoing } from "../bot/outgoing";
 import { clip } from "../bot/ui";
 
 const OVERDUE_GRACE_MS = 5 * 60_000;
+/**
+ * Worst case per reminder: re-read, user, claim, template, text fallback, mark = 6 subrequests.
+ * 7 x 6 + token + query + health read/save = 46 < 50 (Workers Free).
+ */
+export const MAX_REMINDERS_PER_RUN = 7;
+export const RETRY_AFTER_FAILURE_MS = 30 * 60_000;
 const REMARK_MAX = 150;
 
 export interface ReminderStats {
   due: number;
   sent: number;
   stopped: number;
-  failed: number;
+  /** Sends that did not get through (retried in 30 min). */
+  sendFailed: number;
+  /** Store/other errors while handling a task (logged and counted in health by the caller). */
+  errors: number;
 }
 
 export function isReminderDue(task: Task, now: Date): boolean {
@@ -50,30 +68,75 @@ export function reminderMessage(task: Task, user: User, now: Date): Outgoing {
   };
 }
 
-async function remindOne(store: Store, task: Task, now: Date, stats: ReminderStats): Promise<Outgoing | null> {
+/** Sends one reminder; true when it reached Interakt (or was deliberately not sent, e.g. TEST_NUMBERS). */
+export type SendReminder = (message: Outgoing) => Promise<boolean>;
+
+async function remindOne(store: Store, listed: Task, now: Date, stats: ReminderStats, send?: SendReminder): Promise<Outgoing | null> {
+  // Re-read: the task may have been done, cancelled, re-dated or reminded (an overlapping cron run)
+  // since the list was loaded.
+  const task = await store.getTask(listed.id);
+  if (!task || !isReminderDue(task, now)) {
+    // A closed task that still carries a reminder time would come back in every due query and
+    // crowd out real reminders: clear it once.
+    // Same for an empty reminder time ("" sorts before every date in the due query).
+    if (task && ((task.status !== "pending" && task.nextReminderAt) || task.nextReminderAt === "")) {
+      await store.updateTask(task.id, { nextReminderAt: null });
+    }
+    stats.stopped++;
+    return null;
+  }
+  // every90 reminders only go out 10 AM–8 PM IST: a due time at night waits for the morning.
+  const slot = reminderSlot(task, new Date(task.nextReminderAt!));
+  if (slot.getTime() > now.getTime()) {
+    await store.updateTask(task.id, { nextReminderAt: slot.toISOString() });
+    stats.stopped++;
+    return null;
+  }
   const user = await store.getUser(task.assigneePhone);
   if (!user || !user.active) {
-    await store.updateTask(task.id, { nextReminderAt: null });
+    // Paused, not stopped: nothing is sent, but if the user is re-activated the reminders resume.
+    await store.updateTask(task.id, { nextReminderAt: afterReminder(task, now) });
     stats.stopped++;
     return null;
   }
   const message = reminderMessage(task, user, now);
+  if (send) {
+    // Claim first: if anything after this fails, the task comes back in 30 minutes, not in 5.
+    await store.updateTask(task.id, { nextReminderAt: new Date(now.getTime() + RETRY_AFTER_FAILURE_MS).toISOString() });
+    if (!(await send(message))) {
+      stats.sendFailed++; // the claim doubles as the retry time
+      return null;
+    }
+  }
   await store.updateTask(task.id, { nextReminderAt: afterReminder(task, now), lastReminderAt: now.toISOString() });
   stats.sent++;
   return message;
 }
 
-export async function runReminders(store: Store, now: Date): Promise<Outgoing[]> {
-  const pending = await store.listTasks({ status: "pending" });
-  const due = pending.filter((t) => isReminderDue(t, now));
-  const stats: ReminderStats = { due: due.length, sent: 0, stopped: 0, failed: 0 };
+/**
+ * Handles up to `max` due reminders, oldest first. With `send`, each one is delivered before it is
+ * marked as reminded and the returned list holds the ones that went out; without it (tests, older
+ * callers) the messages are only planned, marked, and returned for the caller to deliver.
+ */
+export async function runReminders(
+  store: Store,
+  now: Date,
+  opts: { send?: SendReminder; max?: number; stats?: ReminderStats } = {},
+): Promise<Outgoing[]> {
+  const max = opts.max ?? MAX_REMINDERS_PER_RUN;
+  // Oldest reminder first; same reminder time -> earlier due date first.
+  const due = (await store.listDueTasks(now, max)).sort(
+    (a, b) => (a.nextReminderAt ?? "").localeCompare(b.nextReminderAt ?? "") || a.dueAt.localeCompare(b.dueAt),
+  );
+  const stats: ReminderStats = opts.stats ?? { due: 0, sent: 0, stopped: 0, sendFailed: 0, errors: 0 };
+  stats.due = due.length;
   const out: Outgoing[] = [];
   for (const task of due) {
     try {
-      const message = await remindOne(store, task, now, stats);
+      const message = await remindOne(store, task, now, stats, opts.send);
       if (message) out.push(message);
     } catch (err) {
-      stats.failed++;
+      stats.errors++;
       console.error(`reminder failed for task ${task.id}`, err);
     }
   }

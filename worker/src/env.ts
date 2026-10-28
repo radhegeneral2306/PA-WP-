@@ -15,6 +15,14 @@ export interface Env {
   DASHBOARD_PASSWORD?: string;
   /** Comma-separated origins allowed to call /api (the Cloudflare Pages URL). */
   DASHBOARD_ORIGINS?: string;
+  /** Batch 4 voice notes (Secrets). Missing keys = voice replies "abhi band hai". */
+  GROQ_API_KEY?: string;
+  GEMINI_API_KEY?: string;
+  /** Optional model overrides (defaults live in src/voice). */
+  GROQ_MODEL?: string;
+  GEMINI_MODEL?: string;
+  /** "off" switches voice task creation off without a deploy. */
+  VOICE?: string;
 }
 
 /** Pasted dashboard values often carry a stray space or newline; strip them once. */

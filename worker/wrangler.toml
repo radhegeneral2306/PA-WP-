@@ -21,9 +21,11 @@ keep_vars = true
 #   DASHBOARD_PASSWORD     shared dashboard password (at least 12 characters)
 #   DASHBOARD_ORIGINS      comma-separated dashboard origins allowed to call /api (Cloudflare Pages URL)
 
-# Reminders every 5 minutes; daily summary at 04:30 UTC = 10:00 AM IST (DAILY_CRON in src/index.ts).
+# Reminders every 5 minutes; daily summary at 04:30 UTC = 10:00 AM IST (DAILY_CRON in src/index.ts);
+# health check + Firestore cleanup at 04:45 UTC = 10:15 AM IST (HEALTH_CRON). Separate runs = separate
+# 50-subrequest budgets on the Workers Free plan.
 [triggers]
-crons = ["*/5 * * * *", "30 4 * * *"]
+crons = ["*/5 * * * *", "30 4 * * *", "45 4 * * *"]
 
 # Keeps console logs viewable in the dashboard (Worker -> Observability / Logs).
 [observability]

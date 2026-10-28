@@ -186,18 +186,22 @@ Steps: `list → decide`. Lists pending `dateRequest`s (any admin can decide any
 | Type | First reminder | After that |
 |---|---|---|
 | **Ek baar** (`none`) | at the due time | **daily at 11 AM IST** while pending (at least 6 h after the previous one) |
-| **Har 90 min** (`every90`) | at the due time | every 90 min, only **10 AM–8 PM IST** (outside that window → next 10 AM). A remark pauses it until the next 10 AM. |
-| **Har mahine** (`monthly`) | at the due time | overdue: daily 11 AM. **Done** creates next month's task (same day, clamped: 31 → 30/28/29, then back to 31) |
+| **Har 90 min** (`every90`) | at the due time, but never at night: a due time outside 10 AM–8 PM starts at the next 10 AM | every 90 min, only **10 AM–8 PM IST** (outside that window → next 10 AM). A remark pauses it until the next 10 AM. |
+| **Har mahine** (`monthly`) | at the due time | overdue: daily 11 AM. **Done** creates next month's task (same day, clamped: 31 → 30/28/29, then back to 31). "Next month" counts from the month the occurrence belongs to, so a date moved a few days into the next month does not skip a month |
 
 - Cron runs every 5 min, so reminders can be up to ~5 min late
+- **Free-tier design (fix 28 Oct, audit S1/S2):** each 5-minute run reads only DUE tasks (`listDueTasks`: one `nextReminderAt <= now` range query, oldest first, automatic index) and handles at most `MAX_REMINDERS_PER_RUN` = 7 (Cloudflare Workers Free = 50 subrequests per run; worst case per reminder 6: re-read, user, claim, template, text fallback, mark → max 46 per run). A bigger burst drains over the next runs, 7 per 5 min (40 overdue ≈ 30 min). Each reminder is **claimed** (nextReminderAt +30 min), **sent**, then **marked**: a failed send is retried after 30 min (never lost); if the mark fails after a send it repeats at most every 30 min. Send failures and store errors are counted in the health check. An empty reminder time is cleared. A closed task that still has a reminder time is cleared so it can't block the queue. OAuth token requests are shared (single-flight).
+- **Crons:** `*/5` reminders; `30 4 * * *` (10:00 IST) daily summary only; `45 4 * * *` (10:15 IST) health check + cleanup, in their own run (own 50-subrequest budget). The summary uses `noFallback` (no text retry when the template fails: one call per person), so the run handles ~45 recipients on the Free plan in every case (27 today); a failing summary template is counted in health.
 - Reminder = template **task_reminder_v1** (name, task, due + "(overdue)", last remark or "-")
-- `nextReminderAt` is saved **before** sending, so a crash never double-sends (it may skip one)
-- An inactive or missing assignee stops the reminders
-- **Daily summary** 10:00 AM IST: **daily_summary_v1** (pending count, overdue count) to each active user with pending tasks
+- Order per reminder: claim (+30 min) → send → mark; a crash between send and mark repeats that reminder after 30 min, never skips it
+- An inactive or missing assignee **pauses** the reminders (no send, schedule moves on); they resume by themselves when the user is re-activated, or when the task is reassigned
+- Before sending, the cron re-reads each task and skips it if it was done, cancelled or re-dated meanwhile
+- Known limit: two cron runs at the very same moment could send one reminder twice (needs a conditional Firestore write; Cloudflare rarely does this)
+- **Daily summary** 10:00 AM IST: **daily_summary_v1** (pending count, overdue count) only to active users who have a task **due today (IST) or overdue** (owner decision 28 Oct, saves cost); someone whose tasks are all in the future gets nothing that day. The pending number still counts all their pending tasks.
 
 ---
 
-## 9. WhatsApp templates (all 8 approved in Interakt)
+## 9. WhatsApp templates (all 9 approved in Interakt)
 
 Defined in `bot/outgoing.ts` (`TEMPLATE_PARAMS`), wording in `docs/TEMPLATES.md`. Category Utility, language English (Hinglish text), quick-reply buttons only.
 
@@ -211,6 +215,7 @@ Defined in `bot/outgoing.ts` (`TEMPLATE_PARAMS`), wording in `docs/TEMPLATES.md`
 | `date_approval_result_v1` | approve or reject | staff, task, Approved/Rejected, due |
 | `daily_summary_v1` | 10 AM daily | name, pending, overdue |
 | `welcome_user_v1` | new user added via WhatsApp | name, added by, role |
+| `task_cancelled_v1` | task cancelled (dashboard) | recipient, cancelled by, task, assigned to |
 
 **Template delivery:** if a template send fails, `deliver.ts` sends the `fallbackText` as a plain message instead (this only works inside the 24 h window). Params are sanitized: newlines/tabs are flattened and empty values become "-". **Template names must never change**; editing a template in Meta means creating `_v2` and updating the code.
 
@@ -326,8 +331,40 @@ Run the `docs/TESTING-batch1.md` checklist sections A–G on real phones.
   - Route auth levels: `none` (login), `session`, `named` (data-changing routes need a picked admin name).
   - CORS only for `DASHBOARD_ORIGINS` (comma list, never `*`); a browser request from any other origin gets 403.
 - **Phase 3 done (code):** read routes `GET /api/users`, `GET /api/tasks?view=pending|archive` (`src/dashboard/routes/read.ts`, `toTaskDTO`). Errors carry a machine `code` (see `docs/DASHBOARD-API.md`).
-- **PWA:** `dashboard/` (Vite + React 18 + TS + Tailwind v4 + Phosphor + vite-plugin-pwa, Geist font). Deployed separately on Cloudflare Pages (root `dashboard`, build `npm run build`, output `dist`). Design rules: `docs/DASHBOARD-DESIGN.md`. API contract: `docs/DASHBOARD-API.md`. Action buttons are disabled until Phase 4.
-- Next: 4 (write actions), 5 (cancel + archive actions), 6 (approvals), 7 (extras).
+- **PWA:** `dashboard/` (Vite + React 18 + TS + Tailwind v4 + Phosphor + vite-plugin-pwa, Geist font). Deployed separately on Cloudflare Pages (root `dashboard`, build `npm run build`, output `dist`). Design rules: `docs/DASHBOARD-DESIGN.md`. API contract: `docs/DASHBOARD-API.md`. Live as a Cloudflare Worker static site `radhe-tasks` (https://radhe-tasks.radhegeneral2306.workers.dev).
+- **Phase 4 done:** `POST /api/tasks/:id/{done,remark,due,assign}` (`src/dashboard/routes/write.ts`), rules shared with WhatsApp in `src/bot/taskActions.ts`. PWA buttons: Done karo, Remark, Date badlo, Assign badlo (confirm dialog).
+- **Phase 5 done:** `POST /api/tasks/:id/cancel` → `cancelTask` (sends `task_cancelled_v1` to assignee + creator, never the actor). PWA Cancel button asks "Pakka cancel karna hai?" ("Nahi" has default focus); cancelled tasks show in Archive with time and who cancelled.
+- **Reopen done (build `dash-p5b`):** `POST /api/tasks/:id/reopen` → `reopenTask` in `taskActions.ts` (cancelled only, new future date required, assignee gets `task_assigned_v1`). PWA: "Wapas chalu karo" on cancelled tasks in the Archive.
+- **Phase 6 done (build `dash-p6`):** `POST /api/tasks/:id/{approve,reject}` → `decideDateRequest` in `taskActions.ts`, now also used by the WhatsApp Approvals flow (one set of rules). PWA Approvals tab lists pending requests (from the pending list), confirm dialog for both choices; requester gets `date_approval_result_v1`.
+- **Naya task from the dashboard (build `dash-new`):** `POST /api/tasks` (`src/dashboard/routes/create.ts` → `createTaskFor`). PWA form `dashboard/src/components/NewTaskSheet.tsx`; shared form pieces in `components/formParts.tsx`.
+- Done: Batch 3 Forms (live for all), Batch 4 voice (Bhaskar). Next: dashboard Phase 7 (extras), deliberately last.
+
+## 13b. Batch 3: WhatsApp Form "Naya task (Form)" (LIVE for everyone, build `forms-live`, 27 Oct)
+
+- Owner steps and exact form fields: `docs/FORMS-SETUP.md`. Decisions: `docs/FORMS-BRIEF.md` (Admin form has a fixed Branch + Person list; published Interakt forms can't be edited, so staff changes need a new form + `task_form_admin_v2`...).
+- **Switch:** `FORMS_LIVE` in `src/bot/router.ts` (false). Both templates are APPROVED (27 Oct; Meta put `task_form_staff_v1` in MARKETING). Real submissions were tested on 27 Oct (admin + staff form, past date, past time, default time, every90, monthly): Interakt's format parsed correctly. `FORMS_LIVE = true` since then (menu: admins 6 rows, staff 3). `FORM_TESTERS` only matters if `FORMS_LIVE` is switched off again.
+- **Sending:** menu "📝 Naya task (Form)" → `taskFormFlow.start` (`src/bot/flows/createTaskForm.ts`) sends the form template with `is_flow_template` and flow token `task_form_admin` / `task_form_staff` (`src/interakt/templates.ts`). Fallback text points to the old "➕ Naya task".
+- **Receiving:** `extractForm` in `src/interakt/parse.ts` reads the answers (Meta `nfm_reply.response_json`, or Interakt `flow_response` variants) into `IncomingMessage.form`; `router.ts` sends any form to `handleTaskForm` before menu logic. Dedup is the normal `webhook_log` message-id check. The raw webhook is stored in `webhook_log.raw`, so the first real submission shows the exact format.
+- **Validation (server side, never trusts the form):** tolerant key/value matching (exact keys first, then keys containing branch/person/kisko/title/task/date/time/repeat/reminder; dropdown ids like `3_Pinky_(Durg)` cleaned); person `Name (Branch)` must be an active user whose real branch/role matches; staff can only create self tasks (person/branch answers or the admin token are refused); past dates/times refused; empty time = 10:00 AM. Creation goes through `createTaskFor` (same record and `task_assigned_v1` as the dashboard). Missing fields log only key names.
+- **Admin form v3 (no Branch):** form `Naya Task Admin v3` (ID 2211140249828307), template `task_form_admin_v2` (APPROVED 27 Oct, Marketing). **In use:** `ADMIN_FORM_TEMPLATE = "task_form_admin_v2"` in `flows/createTaskForm.ts`. Submissions with or without Branch both work. Guide: `docs/FORMS-ADMIN-V2.md`.
+- Tests: `test/flows/createTaskForm.test.ts`, `test/parse.test.ts`, `test/templates.test.ts`, `test/routerForm.test.ts`, `test/indexForm.test.ts`.
+
+## 13c. Safety pack (build `safety1`, 27 Oct)
+
+Runs in its own cron at 10:15 IST (`HEALTH_CRON`), after the 10:00 summary; each part catches its own errors, so the summary and the 5-minute reminders are never blocked.
+
+- **Health counters** (`src/scheduler/health.ts`, Firestore doc `system/health`): every `deliverAll` now returns `{sent, failed, templateFallbacks, lastProblem}`; `sendAndRecord` in `index.ts` bumps the counters on failures, and webhook/cron exceptions bump `errors`. `lastProblem` never contains phone numbers or message text.
+- **Daily health check** `runHealthCheck`: problem if (a) any failures/errors since the last check, (b) no incoming webhook for 48 h (`latestWebhookAt` on `webhook_log.loggedAt`; catches a broken Interakt webhook/secret), (c) pending tasks of active users with `nextReminderAt` > 60 min overdue (reminder cron stuck). Then ONE task "Bot check: ..." goes to the **super admin only** (`SUPER_ADMIN_NAME = "Bhaskar"` in `scheduler/health.ts`, owner decision 27 Oct: he builds and maintains the bot; other admins are not alerted). Creator "Bot", `task_assigned_v1` WhatsApp notice, normal reminders; no new one while a "Bot check:" task is pending. If no active admin is named Bhaskar, all active admins are alerted so nothing is missed. The task is visible in the dashboard to every admin. Counters reset after each check. Limitation: if Interakt itself is down / API key invalid, the WhatsApp alert can't go out; the task still shows in the dashboard. Long quiet periods (holidays) can trigger (b); just mark the task Done.
+- **Cleanup** (`src/scheduler/cleanup.ts`): deletes `webhook_log` docs older than 30 days and stale unlocked `login_guards` (never `global`), max 500 per collection per day, ≤ 4 Firestore requests per run. Nothing else is ever touched. Skipped in tests (memory store).
+
+## 13d. Batch 4: Voice note se task (build `voice1f`, Bhaskar only; real-phone tested OK 28 Oct)
+
+Owner decisions: `docs/VOICE-BRIEF.md`. Admins only; while `VOICE_LIVE = false` (`src/bot/router.ts`) only `VOICE_TESTERS` (Bhaskar). Staff voice notes keep the old behaviour (menu).
+- **Routing:** `isAudioMessage` (`interakt/parse.ts`: audio content type or audio-looking media URL) → `Inbound.voice`; router sends it to `handleVoice` unless another flow is open ("Pehle chal raha kaam pura ya cancel kijiye..."). A new voice note replaces an open voice draft.
+- **Service** (`src/voice/`): download (`media.ts`, plain GET, Basic-auth retry ONLY for interakt.ai / interakt.shop hosts, ≤ 2.5 MB) → Groq transcription (`groq.ts`, `whisper-large-v3`, staff names as prompt, no language forced, > 60 s = too_long) → Gemini understanding (`gemini.ts`, `gemini-flash-latest` with fallbacks on 404 because Google retires names (2.5 stopped 16 Oct 2026), key in header, JSON schema, today's IST date + people list, transcript treated as data). 25 s total budget. Audio never stored. Secrets: `GROQ_API_KEY`, `GEMINI_API_KEY`; optional `GROQ_MODEL`, `GEMINI_MODEL`; `VOICE=off` switches it off. Status page shows whether the keys are set.
+- **Conversation** (`src/bot/flows/voiceTask.ts`): asks only what's missing (person list for unclear/duplicate/unknown names, never the sender by default; title; date when not said; time default 10 AM; repeat default Ek baar), then "Maine suna: ..." confirmation with Haan ✅ / Badlo ✏️ / Rehne do ❌ (NEVER a button titled "Cancel"/"Stop": an Interakt automation replies to those words with a Hindi customer "goodbye" message, seen 28 Oct; it does not unsubscribe. Typed "cancel"/"stop" also trigger it). Haan → `createTaskFor(..., { source: "voice", note: "Voice se banaya. Maine suna: ..." })`. Failures: limit / download / failed are counted in the health check (Bhaskar gets "Bot check" next morning).
+- **Dashboard:** mic icon + "Voice note se bana" for `source: "voice"`.
+- **Real-phone test 28 Oct:** Interakt media download works, Groq + Gemini (`gemini-flash-latest`, thinking off) understood the owner's sentences correctly (incl. "Bhaarti" -> Bharti); owner approved. Issues found and fixed on the way: Gemini 2.5 retired (404), busy model (503), slow thinking (timeout), Cancel button word. To add Nayan: put his name in `VOICE_TESTERS` (or set `VOICE_LIVE = true` for all admins). While testing, Bhaskar also sees a `_Tech: ..._` line on failures.
 
 ## 14. Quick troubleshooting
 

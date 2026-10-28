@@ -3,6 +3,7 @@
 
 import { BRANCHES, branchName, type BranchId, type Role, type TaskRepeat, type User } from "../../domain/types";
 import { addDays, dueOnDay, formatDue, istDay, parseDue, type ISTDay, type ParsedDue } from "../../domain/dates";
+import { reminderSlot } from "../../domain/schedule";
 import { endFlow, isReply, replyValue, setStep, type BotContext, type Flow, type Inbound } from "../flow";
 import type { Outgoing } from "../outgoing";
 import { branchList, buttons, confirmButtons, dueDateButtons, text, timeButtons, userList } from "../ui";
@@ -255,7 +256,11 @@ function repeatText(data: Data): string {
 
 /** First reminder (at the due time) plus how it repeats. */
 function nextReminderText(ctx: BotContext, data: Data): string {
-  return dueText(ctx, data) + REPEAT_SUFFIX[repeatOf(data)];
+  const repeat = repeatOf(data);
+  const due = new Date(data.dueAt);
+  const slot = reminderSlot({ repeat }, due);
+  const first = slot.getTime() === due.getTime() ? dueText(ctx, data) : formatDue(slot, true, ctx.now);
+  return first + REPEAT_SUFFIX[repeat];
 }
 
 async function confirm(ctx: BotContext, data: Data, input: Inbound): Promise<Outgoing[]> {
@@ -274,6 +279,19 @@ async function save(ctx: BotContext, data: Data): Promise<Outgoing[]> {
   const { user, now } = ctx;
   const nowIso = now.toISOString();
   const repeat = repeatOf(data);
+  // The session can be up to 30 minutes old: the assignee may have been removed meanwhile,
+  // or a "today 3:10 PM" due time may have passed while the wizard sat on the confirm step.
+  if (data.assigneePhone !== user.phone) {
+    const assignee = await ctx.store.getUser(data.assigneePhone);
+    if (!assignee?.active) {
+      await endFlow(ctx);
+      return [text(user.phone, `${data.assigneeName} ab active nahi hai, task nahi bana. Menu ke liye *Hi* bhejiye.`)];
+    }
+  }
+  if (Date.parse(data.dueAt) < now.getTime()) {
+    await setStep(ctx, ID, "ask_due", data);
+    return [dueDateButtons(user.phone, ID, `⏰ Due time (${dueText(ctx, data)}) nikal chuka hai. ${DUE_PROMPT}`)];
+  }
   await ctx.store.createTask({
     title: data.title,
     assigneePhone: data.assigneePhone,
@@ -285,7 +303,7 @@ async function save(ctx: BotContext, data: Data): Promise<Outgoing[]> {
     dueHasTime: data.dueHasTime === "true",
     status: "pending",
     repeat,
-    nextReminderAt: data.dueAt,
+    nextReminderAt: reminderSlot({ repeat }, new Date(data.dueAt)).toISOString(),
     repeatDay: repeat === "monthly" ? dueDay(data) : null,
     dateRequest: null,
     lastReminderAt: null,

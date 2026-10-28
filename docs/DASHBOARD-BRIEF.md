@@ -52,6 +52,8 @@ The owner explicitly wants **only the important things**, not a bloated dashboar
 | 13 | **Actor name (27 Oct):** after login the dashboard asks "Aap kaun ho?" (active admins list). The picked name is put in the session token and used in remarks/notifications ("Done from dashboard by Bhaskar"). Honor system. |
 | 14 | **Session length (27 Oct): 30 days.** Changing `DASHBOARD_PASSWORD` logs out every device. |
 | 15 | **Notifications from dashboard actions (27 Oct): YES, same as the bot.** Done → creator (`task_done_v1`); remark/date change by someone else → creator (`task_updated_v1`), and a date change also tells the assignee; reassign → new assignee (`task_assigned_v1`); cancel → assignee + creator (`task_cancelled_v1`). Never notify the actor. |
+| 16 | **Reopen cancelled tasks (27 Oct): YES, dashboard only.** Archive → cancelled task → "Wapas chalu karo" with a required new date (optional time, remark). Task goes back to pending, reminders restart from the new date, remark "Wapas chalu kiya" is added, assignee gets `task_assigned_v1` (no new template). Repeat setting is kept. Done tasks can never be reopened. |
+| 17 | **Create tasks from the dashboard (27 Oct): YES.** Same fields and rules as the WhatsApp wizard (title, assignee, due date + optional time, repeat), no 25-day limit, assignee gets `task_assigned_v1`. The WhatsApp "Naya task" flow stays unchanged. |
 | 12 | **No Undo/Restore in version 1.** Restoring cancelled tasks is saved for **version 2**. In version 1, pressing Cancel must show a **confirmation prompt** (for example "Pakka cancel karna hai?") to avoid accidental cancels. |
 
 ---
@@ -204,10 +206,10 @@ Each phase should be tested and deployed on its own. Do not start the next until
 | 1 | Add `cancelled` status in the bot + stop reminders/summary for it + tests. Deploy and verify. | Easy-Medium · ✅ **Done 27 Oct (build `dash-p1`)** |
 | 2 | Shared admin ID + password login, brute-force lockout, and API skeleton in the Worker (session token verified server-side). | Medium · ✅ **Done 27 Oct (build `dash-p2`)** |
 | 3 | Cloudflare Pages project + read-only dashboard: pending list, overdue highlighting, filters, search. PWA shell (installable, mobile-first). CORS set up on the Worker. | Medium · ✅ **Code done 27 Oct (`dashboard/`, read API live)**; owner to create the Pages project and set `DASHBOARD_ORIGINS` |
-| 4 | Write actions: Done, remark, change date, change assignee (new assignee notified with `task_assigned_v1`). | Medium |
-| 5 | Cancel (with confirmation prompt) + Archive tab, including the `task_cancelled_v1` template (owner submits it in Interakt first). | Easy-Medium |
-| 6 | Date-request approvals screen. | Medium |
-| 7 | Nice-to-haves: summary cards, history view, per-staff counts. | Easy-Medium |
+| 4 | Write actions: Done, remark, change date, change assignee (new assignee notified with `task_assigned_v1`). | Medium · ✅ **Done 27 Oct (API build `dash-p4a`, PWA in `dashboard/`)** |
+| 5 | Cancel (with confirmation prompt) + Archive tab, including the `task_cancelled_v1` template (owner submits it in Interakt first). | Easy-Medium · ✅ **Done 27 Oct (API build `dash-p5a`, template approved, PWA Cancel button with confirm)** |
+| 6 | Date-request approvals screen. | Medium · ✅ **Done 27 Oct (build `dash-p6`)** |
+| 7 | Nice-to-haves: summary cards, history view, per-staff counts. | Easy-Medium · **Owner (27 Oct): do this LAST, after Batch 3 and Batch 4** |
 
 **Overall difficulty: Medium-Hard.** Realistically this is multiple sessions of work, not one. State this honestly to the owner.
 
@@ -238,10 +240,10 @@ Include everything the browser needs to install it on a phone:
 - [ ] All existing tests still pass, new tests added; `npx tsc --noEmit` and `npx vitest run` clean
 - [ ] Shared admin ID + password login works; wrong-password lockout works; unauthenticated requests are rejected
 - [ ] Dashboard shows pending tasks with overdue highlighting, filters and search
-- [ ] Done, remark, change date, change assignee and cancel all work and match bot behaviour
-- [ ] Archive tab shows both cancelled and done tasks, labelled and filterable, with date and time
+- [x] Done, remark, change date, change assignee and cancel all work and match bot behaviour
+- [x] Archive tab shows both cancelled and done tasks, labelled and filterable, with date and time
 - [ ] Cancel asks for confirmation before acting
-- [ ] Date-request approvals work and notify the requester
+- [x] Date-request approvals work and notify the requester
 - [ ] `task_cancelled_v1` template approved in Interakt; on cancel, both assignee and creator are notified (no self-notification, no duplicates)
 - [ ] On reassign, the new assignee is notified with `task_assigned_v1`
 - [ ] Dashboard live on Cloudflare Pages, calling the Worker with CORS restricted to the dashboard origin; bot deploys unaffected

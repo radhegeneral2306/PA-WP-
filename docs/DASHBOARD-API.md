@@ -87,15 +87,68 @@ Filtering (branch, staff, search text) is done **in the PWA** on this list. At t
 
 ---
 
-## Later phases (planned, not built)
+## Phase 4 (write actions)
 
-| Phase | Route | Body |
-|---|---|---|
-| 4 | `POST /api/tasks/:id/done` | `{}` |
-| 4 | `POST /api/tasks/:id/remark` | `{ text }` |
-| 4 | `POST /api/tasks/:id/due` | `{ date: "YYYY-MM-DD", time: "HH:MM" \| null }` |
-| 4 | `POST /api/tasks/:id/assign` | `{ phone }` |
-| 5 | `POST /api/tasks/:id/cancel` | `{}` |
-| 6 | `GET /api/approvals`, `POST /api/approvals/:id` | `{ decision: "approve" \| "reject" }` |
+All four routes are `named` (the token must carry a picked admin name). The Worker resolves that name to the active admin's phone; if the name is no longer an active admin → 403 `need_name`. Shared rules live in `worker/src/bot/taskActions.ts` (same code the WhatsApp bot uses).
 
-All Phase 4+ routes are `named` (need the picked admin name) and return `{ task: TaskDTO }`.
+| Route | Body | Effect | WhatsApp notices (never to the actor) |
+|---|---|---|---|
+| `POST /api/tasks/:id/done` | `{}` | status done, reminders stop, date request cleared, remark "Done kiya" by "Name (dashboard)"; monthly → next month's task created | creator: `task_done_v1` |
+| `POST /api/tasks/:id/remark` | `{ "text": string }` (1-500 chars) | remark added; every90 reminders pause till next 10 AM | creator: `task_updated_v1` |
+| `POST /api/tasks/:id/due` | `{ "date": "YYYY-MM-DD", "time": "HH:MM" \| null, "remark"?: string }` | new due (no time = 10:00 AM IST), reminder reset to new due, date request cleared, remark "Date badli: old → new. …" | creator and assignee: `task_updated_v1` |
+| `POST /api/tasks/:id/assign` | `{ "phone": "91…" }` (active user) | assignee name/phone/branch changed, remark "Assign badla: A → B" | new assignee: `task_assigned_v1` |
+
+Response (all four): `{ "task": TaskDTO, "next": TaskDTO | null }` (`next` only for monthly Done).
+
+Errors: 400 `bad_request` (validation, past date, same assignee, inactive user), 404 `not_found` (unknown task id), 409 `task_closed` (task already done or cancelled). The PWA should refresh the list after any success and show the `error` text on failure.
+
+The 25-day staff limit does not apply to the dashboard (admins only).
+
+---
+
+## Phase 5 (cancel)
+
+### `POST /api/tasks/:id/cancel`  (auth: named)
+Body `{}`. Status → `cancelled`, `cancelledAt` = now, `cancelledByName` = "Name (dashboard)", reminders and any date request stop, remark "Cancel kiya". The task is never deleted; it shows in the archive (`closedAt` = `cancelledAt`).
+WhatsApp `task_cancelled_v1` to the assignee and the creator: once each, never the actor, skipped for inactive users.
+Response `{ task: TaskDTO, next: null }`. 409 `task_closed` if already done/cancelled. The PWA must ask "Pakka cancel karna hai?" first (it can be reopened later from the Archive with a new date, see reopen below).
+
+### `POST /api/tasks/:id/reopen`  (auth: named)  (owner decision 16)
+Body `{ "date": "YYYY-MM-DD", "time": "HH:MM" | null, "remark"?: string }`. Only for **cancelled** tasks (409 `not_cancelled` otherwise; done tasks never reopen).
+Status → `pending`, new due date (required, must be in the future; no time = 10:00 AM IST), `nextReminderAt` = new due, `cancelledAt`/`cancelledByName` cleared, remark "Wapas chalu kiya, nayi date: ... <remark>". Repeat setting (monthly etc.) is kept.
+WhatsApp `task_assigned_v1` to the assignee (not if they are the actor). 400 if the assignee is no longer active (create a new task instead).
+Response `{ task: TaskDTO, next: null }`. The PWA shows "Wapas chalu karo" only on cancelled tasks in the Archive.
+
+## Phase 6 (date-request approvals)
+
+No separate list route: the PWA takes the pending list (`GET /api/tasks?view=pending`) and shows tasks whose `dateRequest` is set, oldest request first (same order as WhatsApp).
+
+### `POST /api/tasks/:id/approve` and `POST /api/tasks/:id/reject`  (auth: named)
+Body `{ "requestedAt"?: string }` (the `dateRequest.requestedAt` the admin saw; if the staff member replaced the request since, the server refuses).
+Shared with WhatsApp "Approvals" via `decideDateRequest` in `src/bot/taskActions.ts`.
+- **approve:** due date = requested date, `nextReminderAt` = that date, request cleared, remark "Date approve hui (Name): old → new. <staff remark>".
+- **reject:** date unchanged, request cleared, remark "Date request reject hui (Name). Date <old> hi rahegi."
+- The requester always gets `date_approval_result_v1` (Approved/Rejected + the due date now in force).
+
+Errors: 409 `no_request` (already handled), 409 `request_changed` (request replaced), 409 `request_expired` (approve only: the requested date has already passed; reject it or set a new date), 409 `task_closed`, 404 `not_found`. The PWA closes its confirm dialog on any 409/404, shows the message and refreshes.
+
+## New task from the dashboard (owner request, 27 Oct)
+
+### `POST /api/tasks`  (auth: named)
+Body `{ "title": string, "assigneePhone": string, "date": "YYYY-MM-DD", "time": "HH:MM" | null, "repeat"?: "none" | "every90" | "monthly" }`.
+Rules (`createTaskFor` in `src/bot/taskActions.ts`, same record as the WhatsApp "Naya task" wizard): title trimmed, 1-200 chars; assignee any active user (staff of any branch or an admin, including yourself; branch copied from the user); due date required and in the future, no time = 10:00 AM IST; reminders start at the due time; monthly sets `repeatDay` = IST day of the due date; no 25-day limit (admins only). `createdBy` = the picked admin, first remark "Dashboard se banaya" by "Name (dashboard)".
+WhatsApp `task_assigned_v1` to the assignee unless they created it. Response **201** `{ task: TaskDTO, next: null }`. 400 `bad_request` on any invalid field. `GET /api/tasks` is unchanged (the list).
+PWA: "Naya task" button (floating on phone, top bar on desktop) opens a form: Task kya hai?, Kisko dena hai? (staff picker, pre-picked from the staff filter), Due date, Time (optional), Reminder (Ek baar / Har 90 min / Har mahine with a one-line explanation). Closing a filled form asks "Form band karein?".
+
+## Hardening notes (27 Oct audit)
+
+- `GET /api/me` returns `name: null` when the picked admin was removed or renamed, so the app asks "Aap kaun ho?" again.
+- Task ids that decode to `/`, `\`, control characters, `.`/`..` or more than 256 chars get 404.
+- Shared rules (`taskActions.ts`) never message removed users or the actor; every90 first reminders are moved into working hours (10:00-20:00 IST); reassign restarts a stopped reminder and drops the old assignee's pending date request (noted in the remark).
+- Known limit: two requests at the very same instant can still both apply (no Firestore transactions yet). A stale screen gets 409.
+
+## Later phases
+
+| Phase | What |
+|---|---|
+| 7 | Extras: summary cards, history view, per-staff counts (to be decided with the owner). |

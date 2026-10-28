@@ -1,10 +1,10 @@
 // Interakt Send Template API. Templates work outside the 24-hour window but must
 // be approved by Meta first; wording lives in docs/TEMPLATES.md.
 
-import { TEMPLATE_PARAMS, type TemplateName } from "../bot/outgoing";
+import { FLOW_TEMPLATES, TEMPLATE_PARAMS, type TemplateName } from "../bot/outgoing";
 import type { Recipient } from "./send";
 
-export function templatePayload(to: Recipient, name: TemplateName, bodyValues: string[]) {
+export function templatePayload(to: Recipient, name: TemplateName, bodyValues: string[], flowToken?: string) {
   const expected = TEMPLATE_PARAMS[name].length;
   if (bodyValues.length !== expected) {
     throw new Error(`Template ${name} needs ${expected} body values, got ${bodyValues.length}`);
@@ -13,7 +13,13 @@ export function templatePayload(to: Recipient, name: TemplateName, bodyValues: s
     countryCode: to.countryCode,
     phoneNumber: to.phoneNumber,
     type: "Template",
-    template: { name, languageCode: "en", bodyValues: bodyValues.map(sanitizeParam) },
+    template: {
+      name,
+      languageCode: "en",
+      bodyValues: bodyValues.map(sanitizeParam),
+      // Interakt's Send Template API for form templates: button 0 carries the flow token.
+      ...(FLOW_TEMPLATES.has(name) ? { is_flow_template: true, buttonPayload: { "0": ["flow_token"] }, buttonValues: { "0": [flowToken || "unused"] } } : {}),
+    },
   };
 }
 

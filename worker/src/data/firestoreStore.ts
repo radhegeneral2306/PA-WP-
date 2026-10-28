@@ -3,11 +3,13 @@
 // indexes are needed; remaining filters and sorting happen in memory,
 // matching MemoryStore exactly.
 
-import type { LoginGuard, NewTask, Session, Task, User } from "../domain/types";
+import type { Health, LoginGuard, NewTask, Session, Task, User } from "../domain/types";
 import {
   createDoc,
   deleteDoc,
   getDoc,
+  latestDoc,
+  queryAtMost,
   patchDoc,
   queryDocs,
   setDoc,
@@ -22,6 +24,8 @@ const USERS = "users";
 const TASKS = "tasks";
 const SESSIONS = "sessions";
 const LOGIN_GUARDS = "login_guards";
+const SYSTEM = "system";
+const WEBHOOK_LOG = "webhook_log";
 
 type Fields = { [k: string]: Plain };
 
@@ -56,6 +60,8 @@ export class FirestoreStore implements Store {
   constructor(private cfg: FirestoreConfig) {}
 
   async getUser(phone: string): Promise<User | null> {
+    // "" (e.g. the "Bot" creator of health alert tasks) would address the collection itself.
+    if (!phone) return null;
     const doc = await getDoc(this.cfg, USERS, phone);
     return doc ? (doc.data as unknown as User) : null;
   }
@@ -80,6 +86,7 @@ export class FirestoreStore implements Store {
   }
 
   async getTask(id: string): Promise<Task | null> {
+    if (!id) return null;
     const doc = await getDoc(this.cfg, TASKS, id);
     return doc ? toTask(doc) : null;
   }
@@ -89,6 +96,13 @@ export class FirestoreStore implements Store {
     const fields = plain(rest);
     if (Object.keys(fields).length === 0) return;
     await patchDoc(this.cfg, TASKS, id, fields);
+  }
+
+  async listDueTasks(now: Date, limit: number): Promise<Task[]> {
+    // nextReminderAt is always stored as toISOString(), so string order = time order; null (done,
+    // cancelled, stopped) never matches a range filter.
+    const docs = await queryAtMost(this.cfg, TASKS, "nextReminderAt", now.toISOString(), limit);
+    return docs.map(toTask);
   }
 
   async listTasks(filter: TaskFilter): Promise<Task[]> {
@@ -125,5 +139,21 @@ export class FirestoreStore implements Store {
 
   async saveLoginGuard(guard: LoginGuard): Promise<void> {
     await setDoc(this.cfg, LOGIN_GUARDS, guard.key, plain(guard));
+  }
+
+  async getHealth(): Promise<Health | null> {
+    const doc = await getDoc(this.cfg, SYSTEM, "health");
+    return doc ? (doc.data as unknown as Health) : null;
+  }
+
+  async saveHealth(health: Health): Promise<void> {
+    await setDoc(this.cfg, SYSTEM, "health", plain(health));
+  }
+
+  async latestWebhookAt(): Promise<Date | null> {
+    const doc = await latestDoc(this.cfg, WEBHOOK_LOG, "loggedAt");
+    const at = doc?.data.loggedAt;
+    if (at instanceof Date) return at;
+    return typeof at === "string" && !Number.isNaN(Date.parse(at)) ? new Date(at) : null;
   }
 }

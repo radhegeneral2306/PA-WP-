@@ -1,6 +1,6 @@
 // In-memory Store for tests and local experiments.
 
-import type { LoginGuard, NewTask, Session, Task, User } from "../domain/types";
+import type { Health, LoginGuard, NewTask, Session, Task, User } from "../domain/types";
 import type { Store, TaskFilter, UserFilter } from "./store";
 
 export class MemoryStore implements Store {
@@ -8,6 +8,9 @@ export class MemoryStore implements Store {
   tasks = new Map<string, Task>();
   sessions = new Map<string, Session>();
   guards = new Map<string, LoginGuard>();
+  health: Health | null = null;
+  /** Tests set this to simulate the newest webhook_log entry. */
+  lastWebhookAt: Date | null = null;
   private seq = 0;
 
   constructor(seed: { users?: User[]; tasks?: Task[] } = {}) {
@@ -49,6 +52,16 @@ export class MemoryStore implements Store {
     this.tasks.set(id, { ...t, ...structuredClone(patch) });
   }
 
+  async listDueTasks(now: Date, limit: number) {
+    const at = now.toISOString();
+    return [...this.tasks.values()]
+      // Same as Firestore's string range filter: "" counts (it sorts first), null never does.
+      .filter((t) => typeof t.nextReminderAt === "string" && t.nextReminderAt <= at)
+      .sort((a, b) => a.nextReminderAt!.localeCompare(b.nextReminderAt!))
+      .slice(0, limit)
+      .map((t) => structuredClone(t));
+  }
+
   async listTasks(filter: TaskFilter) {
     return [...this.tasks.values()]
       .filter(
@@ -82,5 +95,17 @@ export class MemoryStore implements Store {
 
   async saveLoginGuard(guard: LoginGuard) {
     this.guards.set(guard.key, structuredClone(guard));
+  }
+
+  async getHealth() {
+    return this.health ? structuredClone(this.health) : null;
+  }
+
+  async saveHealth(health: Health) {
+    this.health = structuredClone(health);
+  }
+
+  async latestWebhookAt() {
+    return this.lastWebhookAt;
   }
 }

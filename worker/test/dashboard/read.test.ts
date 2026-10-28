@@ -36,6 +36,7 @@ function oldTask(overrides: Partial<Task> = {}): Task {
   const t = task(overrides);
   delete t.repeatDay;
   delete t.dateRequest;
+  delete t.source;
   delete t.lastReminderAt;
   delete t.cancelledAt;
   delete t.cancelledByName;
@@ -97,6 +98,7 @@ describe("GET /api/tasks?view=pending", () => {
     expect(t).toMatchObject({
       repeatDay: null,
       dateRequest: null,
+      source: null,
       lastReminderAt: null,
       cancelledAt: null,
       cancelledByName: null,
@@ -190,6 +192,11 @@ describe("toTaskDTO", () => {
     expect(dto).toMatchObject({ closedAt: "2026-10-26T01:00:00.000Z", cancelledByName: "Nayan", dateRequest, doneAt: null });
   });
 
+  it("passes source voice through and maps null to null", () => {
+    expect(toTaskDTO(task({ source: "voice" }), NOW).source).toBe("voice");
+    expect(toTaskDTO(task({ source: null }), NOW).source).toBeNull();
+  });
+
   it("has exactly the contract keys and tolerates missing remarks", () => {
     const t = oldTask();
     delete (t as Partial<Task>).remarks;
@@ -198,7 +205,7 @@ describe("toTaskDTO", () => {
     expect(Object.keys(dto).sort()).toEqual(
       [
         "id", "title", "assigneePhone", "assigneeName", "branch", "createdByPhone", "createdByName", "dueAt", "dueHasTime",
-        "status", "repeat", "repeatDay", "nextReminderAt", "lastReminderAt", "dateRequest", "remarks", "createdAt", "updatedAt",
+        "status", "repeat", "repeatDay", "nextReminderAt", "lastReminderAt", "dateRequest", "source", "remarks", "createdAt", "updatedAt",
         "doneAt", "cancelledAt", "cancelledByName", "overdue", "dueToday", "closedAt", "lastRemark",
       ].sort(),
     );

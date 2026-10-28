@@ -34,6 +34,8 @@ export interface TaskDTO {
   nextReminderAt: string | null;
   lastReminderAt: string | null;
   dateRequest: DateRequest | null;
+  /** "voice" when the bot made this task from a WhatsApp voice note. Older workers may omit it. */
+  source?: "voice" | null;
   remarks: Remark[];
   createdAt: string;
   updatedAt: string;
@@ -83,4 +85,10 @@ export interface MeResponse {
   name: string | null;
   expiresAt: string;
   admins: string[];
+}
+
+export interface TaskActionResponse {
+  task: TaskDTO;
+  /** Only for Done on a monthly task: the newly created next-month task. */
+  next: TaskDTO | null;
 }

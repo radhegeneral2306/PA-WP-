@@ -12,11 +12,18 @@ interface Props {
   selected: string | null;
   onSelect: (phone: string | null) => void;
   onClose: () => void;
+  /** Sheet title. Default "Staff chuniye". */
+  title?: string;
+  /** Show the "Sab staff" row (filter use). Default true. */
+  allOption?: boolean;
+  /** Hide this user (Assign badlo hides the current assignee). */
+  excludePhone?: string;
 }
 
-export function StaffPicker({ users, branches, counts, selected, onSelect, onClose }: Props) {
+export function StaffPicker({ users, branches, counts, selected, onSelect, onClose, title = "Staff chuniye", allOption = true, excludePhone }: Props) {
   const [query, setQuery] = useState("");
-  const groups = useMemo(() => groupUsers(users, branches, query), [users, branches, query]);
+  const shown = useMemo(() => (excludePhone ? users.filter((u) => u.phone !== excludePhone) : users), [users, excludePhone]);
+  const groups = useMemo(() => groupUsers(shown, branches, query), [shown, branches, query]);
 
   function choose(phone: string | null) {
     onSelect(phone);
@@ -26,7 +33,7 @@ export function StaffPicker({ users, branches, counts, selected, onSelect, onClo
   const itemCls = "press flex min-h-12 w-full items-center gap-3 rounded-lg px-3 text-left hover:bg-bg";
 
   return (
-    <Sheet title="Staff chuniye" onClose={onClose}>
+    <Sheet title={title} onClose={onClose}>
       <div className="sticky top-0 z-10 bg-surface pb-3">
         <label htmlFor="staff-search" className="mb-1.5 block text-meta font-medium text-muted">
           Naam se khojein
@@ -36,13 +43,13 @@ export function StaffPicker({ users, branches, counts, selected, onSelect, onClo
           <input id="staff-search" className={`${inputClass} pl-10`} value={query} onChange={(e) => setQuery(e.target.value)} autoComplete="off" />
         </div>
       </div>
-      {!query ? (
+      {allOption && !query ? (
         <button type="button" className={itemCls} onClick={() => choose(null)} aria-pressed={selected === null}>
           <span className="flex-1 text-title">Sab staff</span>
           {selected === null ? <Check size={20} className="text-accent" aria-hidden="true" /> : null}
         </button>
       ) : null}
-      {groups.length === 0 ? <p className="py-8 text-center text-body text-muted">Is naam ka koi nahi mila</p> : null}
+      {groups.length === 0 ? <p className="py-8 text-center text-body text-muted">{query ? "Is naam ka koi nahi mila" : "Koi aur active user nahi mila"}</p> : null}
       {groups.map((g) => (
         <section key={g.key} aria-label={g.label} className="mt-3">
           <h3 className="px-3 pb-1 text-meta font-semibold tracking-wide text-muted uppercase">{g.label}</h3>

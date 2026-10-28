@@ -435,6 +435,21 @@ describe("date badlo", () => {
     expect(await step(ctx)).toBeNull();
   });
 
+  it("a time that passes before the remark arrives is refused, not applied", async () => {
+    const ctx = setup(STAFF_DURG);
+    await toDue(ctx);
+    await send(ctx, tap("tasks:due:today"));
+    await send(ctx, say("4pm")); // 16:00 IST, 30 min after NOW
+    const late = { ...ctx, now: new Date("2026-10-26T11:00:00Z") };
+    const out = await send(late, say("Customer late hai"));
+    expect(bodies(out)).toBe("Ye date/time nikal chuka hai, aage ki date dijiye");
+    expect(out).toHaveLength(1);
+    const t = await ctx.store.getTask("d2");
+    expect(t?.dueAt).toBe("2026-10-27T04:30:00.000Z");
+    expect(t?.remarks).toHaveLength(0);
+    expect(await step(ctx)).toBeNull();
+  });
+
   it("custom 28/10 4pm", async () => {
     const ctx = setup(STAFF_DURG);
     await toDue(ctx);

@@ -94,12 +94,14 @@ body {
   background: var(--bg);
   color: var(--text);
   font-family: var(--font-sans);
-  font-size: 15px;
   -webkit-font-smoothing: antialiased;
   -webkit-tap-highlight-color: transparent;
 }
 
+/* Body copy is 15px, but the root stays at the browser's 16px: Tailwind sizes (h-11, min-h-12...)
+   are rem based, and a 15px root shrank every 44px tap target to 41px. */
 body {
+  font-size: 15px;
   margin: 0;
   min-height: 100dvh;
   overscroll-behavior-y: none;

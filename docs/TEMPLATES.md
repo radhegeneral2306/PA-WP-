@@ -346,7 +346,7 @@ Poori list dekhne ke liye neeche "Mere tasks" dabayein.
 
 ---
 
-### 4.9 `task_cancelled_v1` (Dashboard)
+### 4.9 `task_cancelled_v1` (Dashboard) · approved 27 Oct, used by the dashboard Cancel
 
 Kab jaata hai: jab dashboard se task cancel hota hai. Assignee aur creator dono ko jaata hai, par jisne cancel kiya usko nahi. Agar dono ek hi insaan hain, toh ek hi message jaata hai.
 
@@ -379,6 +379,20 @@ Is task ka ab koi reminder nahi aayega. Baaki tasks ke liye neeche "Mere tasks" 
 | `{{4}}` | Task kiske naam pe tha | Hema |
 
 ---
+
+### 4.10 `task_form_admin_v1` and `task_form_staff_v1` (Batch 3 forms) · APPROVED 27 Oct (Meta categorised `task_form_staff_v1` as MARKETING, admin one as UTILITY)
+
+Form templates: the button opens a WhatsApp Form built in Interakt (Automations → WhatsApp Forms). Full steps and the exact form fields: `docs/FORMS-SETUP.md`.
+
+| | `task_form_admin_v1` | `task_form_staff_v1` |
+|---|---|---|
+| Category / language | Utility / English | Utility / English |
+| Body (no variables) | `Naya task banane ke liye neeche button dabaiye aur form bhariye. Sab ek hi screen pe.` | same |
+| Button | WhatsApp Flow/Form, text `Form kholo`, form **Naya Task Admin v2** | same, form **Naya Task Staff** |
+
+Code: zero body values; sent with `is_flow_template: true` and the flow token `task_form_admin` / `task_form_staff` (`interakt/templates.ts`). Sent only when the user taps "📝 Naya task (Form)" in the menu (inside the 24 h window). If the send fails, the fallback text points to the old "➕ Naya task".
+`task_form_admin_v2` (approved 27 Oct, Marketing) opens **Naya Task Admin v3** (no Branch) and is the one the bot sends now.
+Staff changes: a new Admin form needs a new template `task_form_admin_v2`, `_v3`... (published forms can't be edited).
 
 ## 5. Aage ke liye ideas (OPTIONAL, abhi code mein nahi hain)
 
