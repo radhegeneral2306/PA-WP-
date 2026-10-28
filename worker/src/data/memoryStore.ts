@@ -52,6 +52,15 @@ export class MemoryStore implements Store {
     this.tasks.set(id, { ...t, ...structuredClone(patch) });
   }
 
+  async listDueTasks(now: Date, limit: number) {
+    const at = now.toISOString();
+    return [...this.tasks.values()]
+      .filter((t) => typeof t.nextReminderAt === "string" && t.nextReminderAt !== "" && t.nextReminderAt <= at)
+      .sort((a, b) => a.nextReminderAt!.localeCompare(b.nextReminderAt!))
+      .slice(0, limit)
+      .map((t) => structuredClone(t));
+  }
+
   async listTasks(filter: TaskFilter) {
     return [...this.tasks.values()]
       .filter(

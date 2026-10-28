@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { signJwt } from "../src/firebase/auth";
-import { deleteMany, queryBefore, toFields } from "../src/firebase/firestore";
+import { deleteMany, queryAtMost, queryBefore, toFields } from "../src/firebase/firestore";
 
 // Only the token fetch is mocked; signJwt stays real.
 vi.mock("../src/firebase/auth", async (importActual) => ({
@@ -90,6 +90,19 @@ describe("queryBefore / deleteMany", () => {
 
   const reply = (status: number, body: unknown = {}) =>
     replies.push(new Response(typeof body === "string" ? body : JSON.stringify(body), { status }));
+
+  it("queryAtMost: one <= range filter, ordered by the same field, with a limit (due reminders)", async () => {
+    reply(200, [{ document: { name: `${NAME}/tasks/t1`, fields: { nextReminderAt: { stringValue: "2026-10-28T05:30:00.000Z" } } } }, { readTime: "x" }]);
+    const docs = await queryAtMost(cfg, "tasks", "nextReminderAt", "2026-10-28T05:30:00.000Z", 8);
+    expect(docs.map((d) => d.id)).toEqual(["t1"]);
+    expect(calls[0].url).toBe(`${BASE}:runQuery`);
+    expect(calls[0].body.structuredQuery).toEqual({
+      from: [{ collectionId: "tasks" }],
+      where: { fieldFilter: { field: { fieldPath: "nextReminderAt" }, op: "LESS_THAN_OR_EQUAL", value: { stringValue: "2026-10-28T05:30:00.000Z" } } },
+      orderBy: [{ field: { fieldPath: "nextReminderAt" }, direction: "ASCENDING" }],
+      limit: 8,
+    });
+  });
 
   it("queries with a single LESS_THAN timestamp filter and a limit, no orderBy", async () => {
     reply(200, [

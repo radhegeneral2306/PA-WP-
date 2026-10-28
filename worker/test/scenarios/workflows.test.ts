@@ -399,9 +399,9 @@ describe("duplicate deliveries and double cron", () => {
 
   it("task cancelled after the cron listed it (before sending) gets no reminder", async () => {
     const s = store([task({ id: "a", nextReminderAt: "2026-10-26T09:00:00.000Z" })]);
-    const list = s.listTasks.bind(s);
-    s.listTasks = async (f) => {
-      const rows = await list(f);
+    const list = s.listDueTasks.bind(s);
+    s.listDueTasks = async (now, limit) => {
+      const rows = await list(now, limit);
       await cancelTask(s, (await s.getTask("a"))!, DASH, NOW);
       return rows;
     };
@@ -411,9 +411,9 @@ describe("duplicate deliveries and double cron", () => {
 
   it("task re-dated after the cron listed it waits for the new date", async () => {
     const s = store([task({ id: "a", nextReminderAt: "2026-10-26T09:00:00.000Z" })]);
-    const list = s.listTasks.bind(s);
-    s.listTasks = async (f) => {
-      const rows = await list(f);
+    const list = s.listDueTasks.bind(s);
+    s.listDueTasks = async (now, limit) => {
+      const rows = await list(now, limit);
       await s.updateTask("a", { dueAt: "2026-10-29T04:30:00.000Z", nextReminderAt: "2026-10-29T04:30:00.000Z" });
       return rows;
     };

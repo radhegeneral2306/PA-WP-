@@ -26,6 +26,8 @@ import { runDailySummary } from "./scheduler/daily";
 
 /** Must match the second cron in wrangler.toml (10:00 AM IST). */
 export const DAILY_CRON = "30 4 * * *";
+/** 10:15 AM IST: health check + cleanup, after the summary's send failures are counted. */
+export const HEALTH_CRON = "45 4 * * *";
 
 export default {
   async fetch(request: Request, rawEnv: Env, ctx: ExecutionContext): Promise<Response> {
@@ -90,27 +92,51 @@ export default {
  */
 export async function runCron(env: Env, cron: string, now: Date, deps: Deps = {}): Promise<void> {
   const store = deps.store ?? storeFor(env);
+  if (cron === HEALTH_CRON) return runHealthAndCleanup(env, store, now, deps);
   const daily = cron === DAILY_CRON;
   try {
-    let outs: Outgoing[];
     if (daily) {
-      outs = env.DAILY_SUMMARY === "off" ? [] : await runDailySummary(store, now);
+      const outs = env.DAILY_SUMMARY === "off" ? [] : await runDailySummary(store, now);
+      if (outs.length) console.log(`Cron ${cron}: sending ${outs.length} message(s)`);
+      await sendAndRecord(env, store, onlyAllowed(outs, testNumbers(env)), now);
     } else {
-      outs = await runReminders(store, now);
+      await sendReminders(env, store, now);
     }
-    if (outs.length) console.log(`Cron ${cron}: sending ${outs.length} message(s)`);
-    await sendAndRecord(env, store, onlyAllowed(outs, testNumbers(env)), now);
   } catch (err) {
     console.error(`Cron ${cron} failed`, err);
     await recordProblems(store, now, { errors: 1, problem: daily ? "daily summary cron failed" : "reminder cron failed" });
   }
-  // After the summary, so this morning's send failures are already counted. Never throws.
-  if (daily) {
-    const alerts = await runHealthCheck(store, now);
-    await sendAndRecord(env, store, onlyAllowed(alerts, testNumbers(env)), now);
-    // Old webhook_log / stale login_guards; only against real Firestore (tests pass their own store).
-    if (!deps.store) await runCleanup(firestoreConfig(env), now).catch((err) => console.error("Cleanup failed", err));
-  }
+}
+
+/** Each reminder is delivered before it is marked as reminded (see scheduler/reminders.ts). */
+async function sendReminders(env: Env, store: Store, now: Date): Promise<void> {
+  const allow = testNumbers(env);
+  let failed = 0;
+  let templateFailures = 0;
+  let problem: string | null = null;
+  await runReminders(store, now, {
+    send: async (message) => {
+      const outs = onlyAllowed([message], allow);
+      if (!outs.length) return true; // TEST_NUMBERS: deliberately not sent, still counts as done
+      const r = await deliverAll(env.INTERAKT_API_KEY, outs);
+      templateFailures += r.templateFallbacks;
+      if (r.failed) {
+        failed += r.failed;
+        problem = r.lastProblem;
+        return false;
+      }
+      return true;
+    },
+  });
+  if (failed || templateFailures) await recordProblems(store, now, { sendFailures: failed, templateFailures, problem });
+}
+
+/** 10:15 AM IST, its own run (own subrequest budget). Never throws. */
+async function runHealthAndCleanup(env: Env, store: Store, now: Date, deps: Deps): Promise<void> {
+  const alerts = await runHealthCheck(store, now);
+  await sendAndRecord(env, store, onlyAllowed(alerts, testNumbers(env)), now);
+  // Old webhook_log / stale login_guards; only against real Firestore (tests pass their own store).
+  if (!deps.store) await runCleanup(firestoreConfig(env), now).catch((err) => console.error("Cleanup failed", err));
 }
 
 /** deliverAll + health counters (never throws). */

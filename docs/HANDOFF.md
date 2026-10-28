@@ -190,8 +190,10 @@ Steps: `list → decide`. Lists pending `dateRequest`s (any admin can decide any
 | **Har mahine** (`monthly`) | at the due time | overdue: daily 11 AM. **Done** creates next month's task (same day, clamped: 31 → 30/28/29, then back to 31). "Next month" counts from the month the occurrence belongs to, so a date moved a few days into the next month does not skip a month |
 
 - Cron runs every 5 min, so reminders can be up to ~5 min late
+- **Free-tier design (fix 28 Oct, audit S1/S2):** each 5-minute run reads only DUE tasks (`listDueTasks`: one `nextReminderAt <= now` range query, oldest first, automatic index) and handles at most `MAX_REMINDERS_PER_RUN` = 8 (Cloudflare Workers Free = 50 subrequests per run; one reminder ≈ 5). A bigger burst (e.g. 40 overdue at 11:00) drains over the next runs, ~8 per 5 min. Each reminder is **sent first and marked after**; a failed send is retried after 30 min and counted in the health check. A closed task that still has a reminder time is cleared so it can't block the queue. OAuth token requests are shared (single-flight).
+- **Crons:** `*/5` reminders; `30 4 * * *` (10:00 IST) daily summary only; `45 4 * * *` (10:15 IST) health check + cleanup, in their own run (own 50-subrequest budget). The summary run handles ~45 recipients on the Free plan (27 today).
 - Reminder = template **task_reminder_v1** (name, task, due + "(overdue)", last remark or "-")
-- `nextReminderAt` is saved **before** sending, so a crash never double-sends (it may skip one)
+- `nextReminderAt` is saved **after** a successful send (a crash between send and save could repeat one reminder, never skip it)
 - An inactive or missing assignee **pauses** the reminders (no send, schedule moves on); they resume by themselves when the user is re-activated, or when the task is reassigned
 - Before sending, the cron re-reads each task and skips it if it was done, cancelled or re-dated meanwhile
 - Known limit: two cron runs at the very same moment could send one reminder twice (needs a conditional Firestore write; Cloudflare rarely does this)
@@ -349,7 +351,7 @@ Run the `docs/TESTING-batch1.md` checklist sections A–G on real phones.
 
 ## 13c. Safety pack (build `safety1`, 27 Oct)
 
-Runs inside the daily 10:00 IST cron, **after** the daily summary; each part catches its own errors, so the summary and the 5-minute reminders are never blocked.
+Runs in its own cron at 10:15 IST (`HEALTH_CRON`), after the 10:00 summary; each part catches its own errors, so the summary and the 5-minute reminders are never blocked.
 
 - **Health counters** (`src/scheduler/health.ts`, Firestore doc `system/health`): every `deliverAll` now returns `{sent, failed, templateFallbacks, lastProblem}`; `sendAndRecord` in `index.ts` bumps the counters on failures, and webhook/cron exceptions bump `errors`. `lastProblem` never contains phone numbers or message text.
 - **Daily health check** `runHealthCheck`: problem if (a) any failures/errors since the last check, (b) no incoming webhook for 48 h (`latestWebhookAt` on `webhook_log.loggedAt`; catches a broken Interakt webhook/secret), (c) pending tasks of active users with `nextReminderAt` > 60 min overdue (reminder cron stuck). Then ONE task "Bot check: ..." goes to the **super admin only** (`SUPER_ADMIN_NAME = "Bhaskar"` in `scheduler/health.ts`, owner decision 27 Oct: he builds and maintains the bot; other admins are not alerted). Creator "Bot", `task_assigned_v1` WhatsApp notice, normal reminders; no new one while a "Bot check:" task is pending. If no active admin is named Bhaskar, all active admins are alerted so nothing is missed. The task is visible in the dashboard to every admin. Counters reset after each check. Limitation: if Interakt itself is down / API key invalid, the WhatsApp alert can't go out; the task still shows in the dashboard. Long quiet periods (holidays) can trigger (b); just mark the task Done.

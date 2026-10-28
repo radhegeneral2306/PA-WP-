@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import worker, { DAILY_CRON, processWebhook, runCron } from "../src/index";
+import worker, { DAILY_CRON, HEALTH_CRON, processWebhook, runCron } from "../src/index";
 import type { Env } from "../src/env";
 import { textWebhook } from "./fixtures";
 import { interaktSignature } from "../src/interakt/signature";
@@ -315,25 +315,50 @@ describe("cron", () => {
     expect(interaktCalls().map((c) => c.body.template?.name)).toEqual(["daily_summary_v1"]);
   });
 
-  it("daily cron: summary first, then the health check alerts admins (and never blocks the summary)", async () => {
+  it("10:00 sends only the summary; the health check runs on its own at 10:15 (separate budget)", async () => {
     const admin = { phone: "917777777777", name: "Bhaskar", role: "admin" as const, branch: null, active: true, createdAt: "2026-10-01T00:00:00.000Z" };
     const store = new MemoryStore({ users: [staff, admin] });
     await store.createTask(due);
     store.lastWebhookAt = null; // no incoming message on record -> "webhook silent" problem
     await runCron(env, DAILY_CRON, new Date("2026-10-26T04:30:00Z"), { store });
-    const sent = interaktCalls().map((c) => c.body.template?.name);
-    expect(sent[0]).toBe("daily_summary_v1");
-    expect(sent).toContain("task_assigned_v1");
+    expect(interaktCalls().map((c) => c.body.template?.name)).toEqual(["daily_summary_v1"]);
+    expect(await store.getHealth()).toBeNull();
+
+    await runCron(env, HEALTH_CRON, new Date("2026-10-26T04:45:00Z"), { store });
+    expect(interaktCalls().map((c) => c.body.template?.name)).toContain("task_assigned_v1");
     const alert = (await store.listTasks({ status: "pending" })).find((t) => t.title.startsWith("Bot check:"));
     expect(alert).toMatchObject({ assigneePhone: admin.phone, createdByName: "Bot" });
-    expect((await store.getHealth())?.lastCheckAt).toBe("2026-10-26T04:30:00.000Z");
+    expect((await store.getHealth())?.lastCheckAt).toBe("2026-10-26T04:45:00.000Z");
+  });
+
+  it("reminder cron: a failed send is not marked as reminded; it is retried in 30 minutes and counted", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      calls.push({ url, body: init?.body ? JSON.parse(String(init.body)) : null });
+      return new Response("down", { status: 500 });
+    }));
+    const store = new MemoryStore({ users: [staff] });
+    const t = await store.createTask(due);
+    await runCron(env, "*/5 * * * *", new Date("2026-10-26T09:30:00Z"), { store });
+    const saved = await store.getTask(t.id);
+    expect(saved?.nextReminderAt).toBe("2026-10-26T10:00:00.000Z");
+    expect(saved?.lastReminderAt ?? null).toBeNull();
+    expect((await store.getHealth())?.sendFailures).toBe(1);
+  });
+
+  it("reminder cron: a number outside TEST_NUMBERS is not messaged but still marked (no endless retries)", async () => {
+    const other = { ...staff, phone: "918888888888" };
+    const store = new MemoryStore({ users: [other] });
+    const t = await store.createTask({ ...due, assigneePhone: other.phone });
+    await runCron(env, "*/5 * * * *", new Date("2026-10-26T09:30:00Z"), { store });
+    expect(interaktCalls()).toHaveLength(0);
+    expect((await store.getTask(t.id))?.lastReminderAt).toBe("2026-10-26T09:30:00.000Z");
   });
 
   it("daily cron with a healthy bot creates no alert", async () => {
     const admin = { phone: "917777777777", name: "Bhaskar", role: "admin" as const, branch: null, active: true, createdAt: "2026-10-01T00:00:00.000Z" };
     const store = new MemoryStore({ users: [staff, admin] });
     store.lastWebhookAt = new Date("2026-10-26T03:00:00Z");
-    await runCron(env, DAILY_CRON, new Date("2026-10-26T04:30:00Z"), { store });
+    await runCron(env, HEALTH_CRON, new Date("2026-10-26T04:45:00Z"), { store });
     expect((await store.listTasks({})).filter((t) => t.title.startsWith("Bot check:"))).toEqual([]);
   });
 });

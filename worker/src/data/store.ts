@@ -30,6 +30,13 @@ export interface Store {
   updateTask(id: string, patch: Partial<NewTask>): Promise<void>;
   /** Sorted by dueAt ascending. */
   listTasks(filter: TaskFilter): Promise<Task[]>;
+  /**
+   * Tasks whose nextReminderAt is at or before `now`, oldest first, at most `limit`.
+   * One range query (automatic single-field index) instead of reading every pending task
+   * on each 5-minute run (Firestore free tier: 50k reads/day). May include stale non-pending
+   * tasks; callers re-check the status.
+   */
+  listDueTasks(now: Date, limit: number): Promise<Task[]>;
 
   getSession(phone: string): Promise<Session | null>;
   saveSession(session: Session): Promise<void>;

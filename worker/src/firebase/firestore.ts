@@ -155,6 +155,23 @@ export async function queryDocs(cfg: FirestoreConfig, collection: string, filter
   return rows.filter((r) => r.document).map((r) => decodeDoc(r.document as RawDoc));
 }
 
+/**
+ * Documents with `field <= value` (string or timestamp), lowest first, at most `limit`.
+ * Range filter + orderBy on the same field needs only the automatic single-field index.
+ */
+export async function queryAtMost(cfg: FirestoreConfig, collection: string, field: string, value: Plain, limit: number): Promise<Doc[]> {
+  const structuredQuery = {
+    from: [{ collectionId: collection }],
+    where: { fieldFilter: { field: { fieldPath: field }, op: "LESS_THAN_OR_EQUAL", value: toValue(value) } },
+    orderBy: [{ field: { fieldPath: field }, direction: "ASCENDING" }],
+    limit,
+  };
+  const res = await call(cfg, "POST", `${docsUrl(cfg)}:runQuery`, { structuredQuery });
+  if (!res.ok) return fail(`query ${collection} ${field} <=`, res);
+  const rows = (await res.json()) as { document?: RawDoc }[];
+  return rows.filter((r) => r.document).map((r) => decodeDoc(r.document as RawDoc));
+}
+
 /** The document with the highest `field` value (single-field index, automatic), or null. */
 export async function latestDoc(cfg: FirestoreConfig, collection: string, field: string): Promise<Doc | null> {
   const structuredQuery = {

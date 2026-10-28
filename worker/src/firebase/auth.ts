@@ -10,13 +10,23 @@ export interface ServiceAccount {
 }
 
 let cached: { token: string; expiresAt: number; clientEmail: string } | null = null;
+/** Parallel callers share one token request (each extra fetch costs a subrequest). */
+let inFlight: { clientEmail: string; promise: Promise<string> } | null = null;
 
 export async function getAccessToken(sa: ServiceAccount): Promise<string> {
   const now = Math.floor(Date.now() / 1000);
   if (cached && cached.clientEmail === sa.clientEmail && cached.expiresAt - 60 > now) {
     return cached.token;
   }
+  if (inFlight && inFlight.clientEmail === sa.clientEmail) return inFlight.promise;
+  const promise = fetchToken(sa, now).finally(() => {
+    if (inFlight?.promise === promise) inFlight = null;
+  });
+  inFlight = { clientEmail: sa.clientEmail, promise };
+  return promise;
+}
 
+async function fetchToken(sa: ServiceAccount, now: number): Promise<string> {
   const assertion = await signJwt(sa, now);
   const res = await fetch(TOKEN_URL, {
     method: "POST",

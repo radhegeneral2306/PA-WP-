@@ -9,6 +9,7 @@ import {
   deleteDoc,
   getDoc,
   latestDoc,
+  queryAtMost,
   patchDoc,
   queryDocs,
   setDoc,
@@ -92,6 +93,13 @@ export class FirestoreStore implements Store {
     const fields = plain(rest);
     if (Object.keys(fields).length === 0) return;
     await patchDoc(this.cfg, TASKS, id, fields);
+  }
+
+  async listDueTasks(now: Date, limit: number): Promise<Task[]> {
+    // nextReminderAt is always stored as toISOString(), so string order = time order; null (done,
+    // cancelled, stopped) never matches a range filter.
+    const docs = await queryAtMost(this.cfg, TASKS, "nextReminderAt", now.toISOString(), limit);
+    return docs.map(toTask);
   }
 
   async listTasks(filter: TaskFilter): Promise<Task[]> {
