@@ -6,8 +6,9 @@
 // - Cloudflare Workers Free: 50 subrequests per run. One reminder costs ~5 (re-read, user, send,
 //   maybe a text fallback, save), so a run handles at most MAX_REMINDERS_PER_RUN; the rest go out
 //   on the next runs, oldest first, a few minutes later.
-// - With a `send` function the reminder is SENT FIRST and nextReminderAt is saved only after a
-//   successful send; a failed send is retried after RETRY_AFTER_FAILURE_MS instead of being lost.
+// - With a `send` function a reminder is first CLAIMED (nextReminderAt moved RETRY_AFTER_FAILURE_MS
+//   ahead), then sent, then marked. A failed send keeps the claim (retried in 30 min, never lost);
+//   if the final save fails after a successful send it repeats at most every 30 min, not every run.
 
 import { formatDue } from "../domain/dates";
 import { afterReminder, reminderSlot } from "../domain/schedule";
@@ -17,8 +18,11 @@ import type { Outgoing } from "../bot/outgoing";
 import { clip } from "../bot/ui";
 
 const OVERDUE_GRACE_MS = 5 * 60_000;
-/** ~5 subrequests each + 2 for the run (token, query) + 2 for health counters stays under 50. */
-export const MAX_REMINDERS_PER_RUN = 8;
+/**
+ * Worst case per reminder: re-read, user, claim, template, text fallback, mark = 6 subrequests.
+ * 7 x 6 + token + query + health read/save = 46 < 50 (Workers Free).
+ */
+export const MAX_REMINDERS_PER_RUN = 7;
 export const RETRY_AFTER_FAILURE_MS = 30 * 60_000;
 const REMARK_MAX = 150;
 
@@ -26,7 +30,10 @@ export interface ReminderStats {
   due: number;
   sent: number;
   stopped: number;
-  failed: number;
+  /** Sends that did not get through (retried in 30 min). */
+  sendFailed: number;
+  /** Store/other errors while handling a task (logged and counted in health by the caller). */
+  errors: number;
 }
 
 export function isReminderDue(task: Task, now: Date): boolean {
@@ -71,7 +78,10 @@ async function remindOne(store: Store, listed: Task, now: Date, stats: ReminderS
   if (!task || !isReminderDue(task, now)) {
     // A closed task that still carries a reminder time would come back in every due query and
     // crowd out real reminders: clear it once.
-    if (task && task.status !== "pending" && task.nextReminderAt) await store.updateTask(task.id, { nextReminderAt: null });
+    // Same for an empty reminder time ("" sorts before every date in the due query).
+    if (task && ((task.status !== "pending" && task.nextReminderAt) || task.nextReminderAt === "")) {
+      await store.updateTask(task.id, { nextReminderAt: null });
+    }
     stats.stopped++;
     return null;
   }
@@ -90,11 +100,13 @@ async function remindOne(store: Store, listed: Task, now: Date, stats: ReminderS
     return null;
   }
   const message = reminderMessage(task, user, now);
-  if (send && !(await send(message))) {
-    // Not lost: try again in a while (the health check counts the failure).
+  if (send) {
+    // Claim first: if anything after this fails, the task comes back in 30 minutes, not in 5.
     await store.updateTask(task.id, { nextReminderAt: new Date(now.getTime() + RETRY_AFTER_FAILURE_MS).toISOString() });
-    stats.failed++;
-    return null;
+    if (!(await send(message))) {
+      stats.sendFailed++; // the claim doubles as the retry time
+      return null;
+    }
   }
   await store.updateTask(task.id, { nextReminderAt: afterReminder(task, now), lastReminderAt: now.toISOString() });
   stats.sent++;
@@ -109,21 +121,22 @@ async function remindOne(store: Store, listed: Task, now: Date, stats: ReminderS
 export async function runReminders(
   store: Store,
   now: Date,
-  opts: { send?: SendReminder; max?: number } = {},
+  opts: { send?: SendReminder; max?: number; stats?: ReminderStats } = {},
 ): Promise<Outgoing[]> {
   const max = opts.max ?? MAX_REMINDERS_PER_RUN;
   // Oldest reminder first; same reminder time -> earlier due date first.
   const due = (await store.listDueTasks(now, max)).sort(
     (a, b) => (a.nextReminderAt ?? "").localeCompare(b.nextReminderAt ?? "") || a.dueAt.localeCompare(b.dueAt),
   );
-  const stats: ReminderStats = { due: due.length, sent: 0, stopped: 0, failed: 0 };
+  const stats: ReminderStats = opts.stats ?? { due: 0, sent: 0, stopped: 0, sendFailed: 0, errors: 0 };
+  stats.due = due.length;
   const out: Outgoing[] = [];
   for (const task of due) {
     try {
       const message = await remindOne(store, task, now, stats, opts.send);
       if (message) out.push(message);
     } catch (err) {
-      stats.failed++;
+      stats.errors++;
       console.error(`reminder failed for task ${task.id}`, err);
     }
   }

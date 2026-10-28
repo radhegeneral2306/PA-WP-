@@ -55,7 +55,8 @@ export class MemoryStore implements Store {
   async listDueTasks(now: Date, limit: number) {
     const at = now.toISOString();
     return [...this.tasks.values()]
-      .filter((t) => typeof t.nextReminderAt === "string" && t.nextReminderAt !== "" && t.nextReminderAt <= at)
+      // Same as Firestore's string range filter: "" counts (it sorts first), null never does.
+      .filter((t) => typeof t.nextReminderAt === "string" && t.nextReminderAt <= at)
       .sort((a, b) => a.nextReminderAt!.localeCompare(b.nextReminderAt!))
       .slice(0, limit)
       .map((t) => structuredClone(t));

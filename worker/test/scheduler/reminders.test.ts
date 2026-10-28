@@ -188,7 +188,7 @@ describe("free-tier limits (audit S1/S2)", () => {
     expect(dueQuery).toHaveBeenCalledWith(NOW, MAX_REMINDERS_PER_RUN);
   });
 
-  it("with send: delivers first, marks only after success", async () => {
+  it("with send: claims, then delivers, then marks", async () => {
     const store = setup([task({ id: "a", nextReminderAt: PAST })]);
     const order: string[] = [];
     const update = store.updateTask.bind(store);
@@ -197,7 +197,7 @@ describe("free-tier limits (audit S1/S2)", () => {
       return update(id, patch);
     };
     const out = await runReminders(store, NOW, { send: async () => (order.push("send"), true) });
-    expect(order).toEqual(["send", "save"]);
+    expect(order).toEqual(["save", "send", "save"]); // claim (+30 min), send, mark
     expect(out).toHaveLength(1);
     expect((await store.getTask("a"))?.lastReminderAt).toBe(NOW.toISOString());
   });
@@ -227,12 +227,38 @@ describe("free-tier limits (audit S1/S2)", () => {
   it("subrequest budget: a full run stays under Cloudflare Free's 50 even if every template falls back", async () => {
     const store = setup(many(30));
     let calls = 2; // OAuth token + the due query
-    for (const m of ["getTask", "getUser", "updateTask"] as const) {
+    for (const m of ["getTask", "getUser", "updateTask"] as const) { // updateTask = claim + mark
       const orig = (store[m] as (...a: unknown[]) => Promise<unknown>).bind(store);
       (store as unknown as Record<string, unknown>)[m] = async (...a: unknown[]) => (calls++, orig(...a));
     }
     await runReminders(store, NOW, { send: async () => ((calls += 2), true) }); // template fails + text fallback
     calls += 2; // recordProblems: read + save health
     expect(calls).toBeLessThan(50);
+  });
+
+  it("send OK but the final save fails: the claim makes it repeat after 30 min, not on every run", async () => {
+    const store = setup([task({ id: "a", nextReminderAt: PAST })]);
+    const update = store.updateTask.bind(store);
+    let n = 0;
+    store.updateTask = async (id, patch) => {
+      if (n++ === 1) throw new Error("write quota"); // 1st = claim OK, 2nd = mark fails
+      return update(id, patch);
+    };
+    const stats = { due: 0, sent: 0, stopped: 0, sendFailed: 0, errors: 0 };
+    let sends = 0;
+    await runReminders(store, NOW, { send: async () => (sends++, true), stats });
+    expect(stats.errors).toBe(1);
+    // 5 and 25 minutes later: nothing (claimed until +30 min)
+    for (const m of [5, 25]) await runReminders(store, new Date(NOW.getTime() + m * 60_000), { send: async () => (sends++, true) });
+    expect(sends).toBe(1);
+    await runReminders(store, new Date(NOW.getTime() + 30 * 60_000), { send: async () => (sends++, true) });
+    expect(sends).toBe(2);
+  });
+
+  it("an empty reminder time is cleared instead of blocking a queue slot", async () => {
+    const store = setup([task({ id: "blank", nextReminderAt: "" }), task({ id: "real", nextReminderAt: PAST })]);
+    const out = await runReminders(store, NOW);
+    expect((await store.getTask("blank"))?.nextReminderAt).toBeNull();
+    expect(out).toHaveLength(1);
   });
 });

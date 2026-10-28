@@ -345,6 +345,29 @@ describe("cron", () => {
     expect((await store.getHealth())?.sendFailures).toBe(1);
   });
 
+  it("reminder cron: a store error is counted in health", async () => {
+    const store = new MemoryStore({ users: [staff] });
+    await store.createTask(due);
+    store.getUser = async () => {
+      throw new Error("firestore down");
+    };
+    await runCron(env, "*/5 * * * *", new Date("2026-10-26T09:30:00Z"), { store });
+    expect(await store.getHealth()).toMatchObject({ errors: 1, lastProblem: "reminder store error" });
+  });
+
+  it("daily summary: a failing template is not followed by a text fallback (one call per person) and is counted", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      calls.push({ url, body: init?.body ? JSON.parse(String(init.body)) : null });
+      return new Response("rejected", { status: 400 });
+    }));
+    const store = new MemoryStore({ users: [staff] });
+    await store.createTask(due);
+    await runCron(env, DAILY_CRON, new Date("2026-10-26T04:30:00Z"), { store });
+    expect(interaktCalls()).toHaveLength(1);
+    expect(interaktCalls()[0].body.type).toBe("Template");
+    expect(await store.getHealth()).toMatchObject({ sendFailures: 1 });
+  });
+
   it("reminder cron: a number outside TEST_NUMBERS is not messaged but still marked (no endless retries)", async () => {
     const other = { ...staff, phone: "918888888888" };
     const store = new MemoryStore({ users: [other] });

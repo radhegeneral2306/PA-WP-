@@ -17,6 +17,12 @@ export type Outgoing =
       fallbackText: string;
       /** Form (WhatsApp Flow) templates only: comes back with the answers, tells which form it was. */
       flowToken?: string;
+      /**
+       * Skip the plain-text fallback when the template fails. For bulk sends (daily summary) where
+       * a doubled call count would break the Workers Free 50-subrequest budget; outside the 24 h
+       * window the text would fail anyway.
+       */
+      noFallback?: boolean;
     };
 
 /**

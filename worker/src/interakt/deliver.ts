@@ -66,6 +66,7 @@ async function deliverTemplate(
     console.error("Template send error, using fallback text", out.template, String(err));
     why = "error";
   }
+  if (out.noFallback) return { ok: false, templateFallback: false, problem: `template ${out.template} ${why}, no fallback` };
   let fallback: string;
   let ok = false;
   try {

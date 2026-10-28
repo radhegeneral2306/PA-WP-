@@ -38,6 +38,8 @@ export function summaryMessage(user: User, c: Counts): Outgoing {
     kind: "template",
     template: "daily_summary_v1",
     bodyValues: [user.name, String(c.pending), String(c.overdue)],
+    // One call per recipient keeps a 27+ person summary inside the Workers Free budget.
+    noFallback: true,
     fallbackText:
       `☀️ Namaste ${user.name} ji, aaj ke tasks ki summary:\n\n` +
       `Pending tasks: ${c.pending}\nOverdue tasks: ${c.overdue}\n\n` +

@@ -114,7 +114,9 @@ async function sendReminders(env: Env, store: Store, now: Date): Promise<void> {
   let failed = 0;
   let templateFailures = 0;
   let problem: string | null = null;
+  const stats = { due: 0, sent: 0, stopped: 0, sendFailed: 0, errors: 0 };
   await runReminders(store, now, {
+    stats,
     send: async (message) => {
       const outs = onlyAllowed([message], allow);
       if (!outs.length) return true; // TEST_NUMBERS: deliberately not sent, still counts as done
@@ -128,7 +130,14 @@ async function sendReminders(env: Env, store: Store, now: Date): Promise<void> {
       return true;
     },
   });
-  if (failed || templateFailures) await recordProblems(store, now, { sendFailures: failed, templateFailures, problem });
+  if (failed || templateFailures || stats.errors) {
+    await recordProblems(store, now, {
+      sendFailures: failed,
+      templateFailures,
+      errors: stats.errors,
+      problem: problem ?? (stats.errors ? "reminder store error" : null),
+    });
+  }
 }
 
 /** 10:15 AM IST, its own run (own subrequest budget). Never throws. */
