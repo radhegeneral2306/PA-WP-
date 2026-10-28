@@ -234,7 +234,7 @@ describe("confirmation", () => {
   it("Cancel -> nothing created", async () => {
     const t = setup({ result: ok({ person: "Pinky" }) });
     await t.send();
-    const out = await t.step(tap(`${F}:confirm:no`, "Cancel ❌"));
+    const out = await t.step(tap(`${F}:confirm:no`, "Rehne do ❌"));
     expect(body(out[0])).toBe("Theek hai, task nahi banaya.");
     expect(await t.session()).toBeNull();
     expect(await t.store.listTasks({})).toHaveLength(0);
@@ -245,7 +245,7 @@ describe("confirmation", () => {
     await t.send();
     const out = await t.step(say("kya?"));
     expect(ids(out[0])).toEqual(CONFIRM_IDS);
-    expect(body(out[0])).toMatch(/^Haan, Badlo ya Cancel dabaiye/);
+    expect(body(out[0])).toMatch(/^Haan, Badlo ya Rehne do dabaiye/);
     expect((await t.session())?.step).toBe("confirm");
   });
 
@@ -503,7 +503,7 @@ describe("through the router", () => {
   it("Cancel button tap reaches the flow (not the router's cancel word)", async () => {
     const t = setup({ result: ok({ person: "Pinky" }) });
     await handleMessage(t.ctx, voiceIn());
-    const out = await handleMessage(t.ctx, tap(`${F}:confirm:no`, "Cancel ❌"));
+    const out = await handleMessage(t.ctx, tap(`${F}:confirm:no`, "Rehne do ❌"));
     expect(body(out[0])).toBe(VOICE_MSG.cancelled);
   });
 
@@ -522,5 +522,15 @@ describe("through the router", () => {
     const out = await handleMessage(t.ctx, voiceIn());
     expect(ids(out[0])).toEqual(CONFIRM_IDS);
     expect(t.voice!.understand).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("no opt-out words on buttons", () => {
+  it("never titles a button Cancel/Stop (Interakt treats them as unsubscribe)", async () => {
+    const t = setup({ result: ok({ person: STAFF_RAIPUR.name, date: "2026-10-28", time: "16:00" }) });
+    const [out] = await t.send();
+    const titles = out.kind === "buttons" ? out.buttons.map((b) => b.title.toLowerCase()) : [];
+    expect(titles.length).toBe(3);
+    for (const title of titles) expect(title).not.toMatch(/\b(cancel|stop|unsubscribe)\b/);
   });
 });

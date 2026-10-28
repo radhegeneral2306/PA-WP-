@@ -1,7 +1,7 @@
 // "Voice se task" (Batch 4, docs/VOICE-BRIEF.md): an admin's voice note is transcribed and
 // understood by ctx.voice, then checked against the real staff list and dates here. The bot asks
 // only for what is missing (person from a list, title, date), always shows the transcript and the
-// understood task (Haan / Badlo / Cancel) and creates the task only on Haan, via createTaskFor.
+// understood task (Haan / Badlo / Rehne do) and creates the task only on Haan, via createTaskFor.
 
 import { BRANCHES, branchName, type BranchId, type TaskRepeat, type User } from "../../domain/types";
 import { addDays, atIST, formatDateTime, formatDue, istDay, isValidDay, parseDue, parseTime, type ISTDay, type ParsedDue } from "../../domain/dates";
@@ -506,12 +506,15 @@ async function showConfirm(ctx: BotContext, data: Data, hint?: string): Promise<
   return [confirmButtons(ctx.user.phone, confirmBody(ctx, data, hint))];
 }
 
-/** Titles carry an emoji so the router's typed-"cancel" shortcut does not swallow the tap. */
+/**
+ * Never title a button "Cancel" / "Stop": Interakt treats those words as a WhatsApp opt-out and
+ * unsubscribes the user (seen in testing 28 Oct). The emoji also keeps the router's typed-word shortcuts away.
+ */
 function confirmButtons(to: string, body: string): Outgoing {
   return buttons(to, body, [
     { id: `${ID}:confirm:yes`, title: "Haan ✅" },
     { id: `${ID}:confirm:edit`, title: "Badlo ✏️" },
-    { id: `${ID}:confirm:no`, title: "Cancel ❌" },
+    { id: `${ID}:confirm:no`, title: "Rehne do ❌" },
   ]);
 }
 
@@ -536,7 +539,7 @@ async function answerConfirm(ctx: BotContext, data: Data, input: Inbound): Promi
     await setStep(ctx, ID, "edit_menu", data);
     return [editList(ctx, data)];
   }
-  if (answer !== "yes") return showConfirm(ctx, data, "Haan, Badlo ya Cancel dabaiye 👇");
+  if (answer !== "yes") return showConfirm(ctx, data, "Haan, Badlo ya Rehne do dabaiye 👇");
   return save(ctx, data);
 }
 
