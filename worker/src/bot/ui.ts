@@ -2,7 +2,7 @@
 // Reply ids follow `${flow}:<kind>:<value>`; flows read them with replyValue().
 
 import { BRANCHES, branchName, type Task, type User } from "../domain/types";
-import { formatDue, isOverdue } from "../domain/dates";
+import { addDays, dueOnDay, formatDue, isOverdue, istDay, type ParsedDue } from "../domain/dates";
 import type { ListRow } from "../interakt/send";
 import type { Outgoing } from "./outgoing";
 
@@ -113,6 +113,51 @@ export function dueDateButtons(to: string, flow: string, body: string): Outgoing
     { id: `${flow}:due:tomorrow`, title: "Kal" },
     { id: `${flow}:due:custom`, title: "Date likho" },
   ]);
+}
+
+/** One tap = date + time (replaces the old Aaj/Kal then time steps). `days` from today, `time` null = 10 AM default. */
+const QUICK_DUE = [
+  { key: "today18", title: "Aaj shaam 6 PM", days: 0, time: "6pm" },
+  { key: "tom10", title: "Kal 10 AM", days: 1, time: null },
+  { key: "tom14", title: "Kal 2 PM", days: 1, time: "2pm" },
+  { key: "tom17", title: "Kal 5 PM", days: 1, time: "5pm" },
+  { key: "day2", title: "Parso 10 AM", days: 2, time: null },
+  { key: "week", title: "1 hafte baad 10 AM", days: 7, time: null },
+] as const;
+
+/** Options closer than this to now are not offered (they would be past by the time of the tap). */
+const QUICK_MIN_AHEAD_MS = 30 * 60_000;
+
+/** The due for a quick-pick id value, or null for an unknown / already past option. */
+export function quickDue(key: string, now: Date): ParsedDue | null {
+  const opt = QUICK_DUE.find((q) => q.key === key);
+  if (!opt) return null;
+  const due = dueOnDay(addDays(istDay(now), opt.days), opt.time);
+  return due && due.dueAt.getTime() > now.getTime() ? due : null;
+}
+
+/** Due date picker. ids: `${flow}:quick:<key>` and `${flow}:quick:custom`; typed dates still work at the same step. */
+export function quickDueList(to: string, flow: string, body: string, now: Date): Outgoing {
+  const rows: ListRow[] = [];
+  for (const q of QUICK_DUE) {
+    const due = dueOnDay(addDays(istDay(now), q.days), q.time);
+    if (!due || due.dueAt.getTime() - now.getTime() < QUICK_MIN_AHEAD_MS) continue;
+    rows.push({ id: `${flow}:quick:${q.key}`, title: q.title, description: formatDue(due.dueAt, true, now) });
+  }
+  rows.push({ id: `${flow}:quick:custom`, title: "✍️ Date / time likho", description: "Jaise 28/10 4pm" });
+  return list(to, `${body}\nYa seedha likh dijiye, jaise *28/10 4pm* 👇`, "Date chuno", rows, "Due date");
+}
+
+/** Active users whose name matches typed text: exact first, then starts-with, then contains (3+ letters). */
+export function matchUsers(users: User[], typed: string): User[] {
+  const q = typed.trim().toLowerCase().replace(/\s+/g, " ");
+  if (q.length < 2) return [];
+  const name = (u: User) => u.name.toLowerCase();
+  const exact = users.filter((u) => name(u) === q);
+  if (exact.length > 0) return exact;
+  const starts = users.filter((u) => name(u).startsWith(q));
+  if (starts.length > 0 || q.length < 3) return starts;
+  return users.filter((u) => name(u).includes(q));
 }
 
 /** Ask for an optional time. id: `${flow}:time:skip` (means 10:00 AM). */

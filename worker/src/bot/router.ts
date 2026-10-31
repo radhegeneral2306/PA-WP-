@@ -4,7 +4,7 @@
 import { SESSION_TTL_MINUTES, type Role, type User } from "../domain/types";
 import type { BotContext, Flow, Inbound } from "./flow";
 import type { Outgoing } from "./outgoing";
-import { list, text } from "./ui";
+import { buttons, list, text } from "./ui";
 import { createTaskFlow } from "./flows/createTask";
 import { manageStaffFlow } from "./flows/manageStaff";
 import { tasksFlow } from "./flows/tasks";
@@ -55,6 +55,12 @@ export const MENU: MenuEntry[] = [
 
 const FLOWS: Flow[] = [tasksFlow, createTaskFlow, manageStaffFlow, approvalsFlow, taskFormFlow, voiceTaskFlow];
 
+/** Reply ids that carry the id of what they act on (see tasks / approvals detail messages). */
+const DIRECT: { re: RegExp; flow: Flow }[] = [
+  { re: /^tasks:act:(done|update|date):./, flow: tasksFlow },
+  { re: /^approvals:decide:(approve|reject):./, flow: approvalsFlow },
+];
+
 const GREETINGS = new Set(["hi", "hii", "hiii", "hello", "helo", "hey", "menu", "namaste", "start"]);
 const CANCEL_WORDS = new Set(["cancel", "band", "band karo", "ruko", "stop", "exit"]);
 
@@ -71,6 +77,8 @@ export function mainMenu(ctx: BotContext, intro?: string): Outgoing {
     description: m.description,
   }));
   const body = intro ?? `Namaste ${user.name} 🙏\nKya karna hai? Neeche se chuniye.`;
+  // Three options or fewer (staff): plain buttons, one tap instead of "open list" + pick.
+  if (rows.length <= 3) return buttons(user.phone, body, rows.map((r) => ({ id: r.id, title: r.title })));
   return list(user.phone, body, "Menu kholo", rows, user.role === "admin" ? "Admin menu" : "Staff menu");
 }
 
@@ -110,6 +118,13 @@ export async function handleMessage(ctx: BotContext, input: Inbound): Promise<Ou
   const session = await store.getSession(user.phone);
   const fresh = session && ctx.now.getTime() - Date.parse(session.updatedAt) < SESSION_TTL_MINUTES * 60_000;
   if (session && !fresh) await store.clearSession(user.phone);
+
+  // Buttons that name their own task (task actions, approvals) work from any older message.
+  const direct = DIRECT.find((d) => d.re.test(replyId));
+  if (direct && !(session && fresh && session.flow === direct.flow.id)) {
+    const stub = { phone: user.phone, flow: "", step: "", data: {}, updatedAt: ctx.now.toISOString() };
+    return direct.flow.handle(ctx, stub, input);
+  }
 
   if (session && fresh) {
     const flow = FLOWS.find((f) => f.id === session.flow);

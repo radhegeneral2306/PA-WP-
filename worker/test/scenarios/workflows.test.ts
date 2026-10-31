@@ -167,6 +167,7 @@ describe("every90 with a night due time", () => {
     await send("Stock check");
     await send(tap("create_task:due:today"));
     await send("10pm");
+    await send(tap("create_task:confirm:repeat"));
     await send(tap("create_task:repeat:every90"));
     const out = await send(tap("create_task:confirm:yes"));
     const [t] = [...s.tasks.values()];
@@ -378,8 +379,56 @@ describe("duplicate deliveries and double cron", () => {
     const second = await chat(s, STAFF_DURG)(tap("tasks:act:done"));
     expect(templates(first)).toHaveLength(1);
     expect(templates(second)).toHaveLength(0);
-    expect(all(second)).toContain("purana");
+    // The list came back after the first Done, so the old button is just re-prompted.
+    expect(all(second)).toContain("list se chuniye");
     expect(s.tasks.size).toBe(2);
+  });
+
+  it("the same id-carrying Done tap delivered twice: second says already done", async () => {
+    const s = store([task({ id: "m", repeat: "monthly", repeatDay: 27, createdByPhone: ADMIN.phone })]);
+    await openTask(s, STAFF_DURG, "m");
+    const first = await chat(s, STAFF_DURG)(tap("tasks:act:done:m"));
+    const second = await chat(s, STAFF_DURG)(tap("tasks:act:done:m"));
+    expect(templates(first)).toHaveLength(1);
+    expect(templates(second)).toHaveLength(0);
+    expect(all(second)).toContain("pehle hi done");
+    expect(s.tasks.size).toBe(2);
+  });
+
+  it("id-carrying buttons work after the session expired (router direct path)", async () => {
+    const s = store([task({ id: "m" })]);
+    const out = await chat(s, STAFF_DURG)(tap("tasks:act:done:m"));
+    expect(all(out)).toContain("done mark ho gaya");
+    expect(templates(out)).toHaveLength(1);
+    expect((await s.getTask("m"))?.status).toBe("done");
+    expect(await s.getSession(STAFF_DURG.phone)).toBeNull();
+  });
+
+  it("an old approval button decides its own request, not the one open now (C2)", async () => {
+    const s = store([
+      task({ id: "pa", title: "Pehla", dateRequest: req() }),
+      task({ id: "pb", title: "Doosra", dateRequest: req({ requestedAt: "2026-10-25T05:30:00.000Z" }) }),
+    ]);
+    const send = chat(s, ADMIN);
+    await send(tap("MENU:approvals"));
+    const a = await send(tap("approvals:task:pa"));
+    const approveA = a[0].kind === "buttons" ? a[0].buttons[0].id : "";
+    await send(tap("approvals:task:pb")); // B is open now
+    await send(tap(approveA));
+    expect((await s.getTask("pa"))?.dateRequest).toBeNull();
+    expect((await s.getTask("pb"))?.dateRequest).not.toBeNull();
+  });
+
+  it("an approval button for a request that was replaced since is not applied", async () => {
+    const s = store([task({ id: "pa", dateRequest: req() })]);
+    const send = chat(s, ADMIN);
+    await send(tap("MENU:approvals"));
+    const a = await send(tap("approvals:task:pa"));
+    const approveA = a[0].kind === "buttons" ? a[0].buttons[0].id : "";
+    await s.updateTask("pa", { dateRequest: req({ requestedAt: "2026-10-26T08:00:00.000Z" }) });
+    const out = await send(tap(approveA));
+    expect(all(out)).toContain("badlav hua hai");
+    expect((await s.getTask("pa"))?.dateRequest?.requestedAt).toBe("2026-10-26T08:00:00.000Z");
   });
 
   it("an old Done button pressed after the task was done elsewhere is refused", async () => {

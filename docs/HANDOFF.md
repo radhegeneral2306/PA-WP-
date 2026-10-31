@@ -153,20 +153,20 @@ Defined in `worker/src/domain/types.ts`:
 **Staff menu:** 📋 Mere tasks · ➕ Naya task
 
 ### A. Naya task, `create_task` (`flows/createTask.ts`)
-Steps: `pick_branch → pick_user → ask_title → ask_due → (ask_time | ask_custom_due) → ask_repeat → confirm`
-- Admin: branch list (incl. 👔 Admins) → person (paged) → title. Staff skip straight to the title (self task).
-- Due buttons: **Aaj / Kal / Date likho**. Aaj/Kal then ask for the time (Skip = 10 AM). A typed date is also accepted (`28/10`, `28/10 4pm`, `kal 11am`, `shaam 6`). Past times are rejected.
-- Repeat buttons: **Ek baar / Har 90 min / Har mahine**
+Steps (31 Oct, shortened): `pick_branch (or typed name) → pick_user → ask_title → ask_due (one-tap list | ask_custom_due) → confirm (⇄ ask_repeat)`
+- Admin: typed name at the branch step (`matchUsers`: exact, then starts-with, then contains; one active match only) → title; or branch list (incl. 👔 Admins) → person (paged) → title. Staff skip straight to the title (self task).
+- Due: `quickDueList` (ui.ts), ids `create_task:quick:<today18|tom10|tom14|tom17|day2|week|custom>`; options < 30 min away are hidden and re-checked at tap time. A typed date is also accepted (`28/10`, `28/10 4pm`, `kal 11am`, `shaam 6`). Past times are rejected. Old `due:today|tomorrow|custom` / `time:skip` ids and the `ask_time` step still work for messages sent before the change.
+- Confirm buttons: **Haan ✅ / 🔔 Reminder badlo / Nahi ❌**; repeat defaults to Ek baar, "Reminder badlo" → **Ek baar / Har 90 min / Har mahine** → back to confirm
 - On confirm: the task is saved (`nextReminderAt = dueAt`, monthly also gets `repeatDay`). The creator gets "✅ Task ban gaya". The assignee gets template **task_assigned_v1** (skipped for self tasks).
 
 ### B. Tasks, `tasks` (`flows/tasks.ts`)
 Steps: `list | pick_branch → pick_user → list → detail → (ask_remark | ask_due → ask_time/ask_custom_due → ask_date_remark)`
 - **Mere tasks:** pending tasks sorted by due, ⚠️ = overdue, 8 per page with ⬅️/➡️
 - **Staff ke tasks (admin):** branch → person or "Sabhi ke pending tasks" (or the Admins group)
-- **Detail:** title, assignee, creator, 🕒 due, reminder type, pending date request, last remark. Buttons: **Done ✅ / Update ✏️ / Date badlo 🕒**. Allowed for the assignee, the creator, or any admin.
+- **Detail:** title, assignee, creator, 🕒 due, reminder type, pending date request, last remark. Buttons: **Done ✅ / Update ✏️ / Date badlo 🕒**, ids `tasks:act:<done|update|date>:<taskId>` (C1 fix). These ids are handled at any step, and by the router even with no or another flow's session (`DIRECT` in router.ts); permission and open-status are checked as before. Typed text at the detail step = the update remark. After an action the view's list is shown again (`andBack`). Admin typed name at the branch step opens that person's list. Allowed for the assignee, the creator, or any admin.
 - **Done:** status done, reminders stop, request cleared. Template **task_done_v1** goes only to the creator (if creator ≠ actor). Monthly → next month's task is created automatically.
 - **Update:** remark required (≤500 chars), appended to remarks. every90 pauses until the next 10 AM. Template **task_updated_v1** to the creator if creator ≠ actor.
-- **Date badlo:** new date → remark required.
+- **Date badlo:** one-tap due list (same as Naya task) or typed date → remark required.
   - Staff and > 25 days ahead → creates a `dateRequest` (date unchanged) and sends **date_approval_request_v1** to the approvers (the creator if they are an active admin, else all active admins, never the requester)
   - Otherwise: date changed, `nextReminderAt = new due`, any pending request cleared, **task_updated_v1** to the creator if creator ≠ actor
 

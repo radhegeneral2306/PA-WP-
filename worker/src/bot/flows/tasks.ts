@@ -1,5 +1,6 @@
 // "Mere tasks" / "Staff ke tasks": browse pending tasks, open one, and act on
-// it (Done / Update remark / Date badlo).
+// it (Done / Update remark / Date badlo). Action buttons carry the task id, so a
+// button on an older message acts on its own task; after an action the list comes back.
 
 import type { BranchId, DateRequest, Task, TaskRepeat, User } from "../../domain/types";
 import { BRANCHES, branchName } from "../../domain/types";
@@ -18,7 +19,7 @@ import {
 import { endFlow, isReply, replyValue, setStep, type BotContext, type Flow, type Inbound } from "../flow";
 import type { Outgoing } from "../outgoing";
 import { addRemark, changeDue, markDone as markTaskDone, REMARK_MAX, type ActionResult, type Actor } from "../taskActions";
-import { branchList, buttons, dueDateButtons, taskList, text, timeButtons, userList } from "../ui";
+import { branchList, buttons, matchUsers, quickDue, quickDueList, taskList, text, timeButtons, userList } from "../ui";
 
 const ID = "tasks";
 const ADMINS = "ADMINS";
@@ -34,7 +35,7 @@ const MSG = {
   notFound: "Ye task nahi mila 🤔 Menu ke liye *Hi* bhejiye.",
   notYours: "Ye task aapka nahi hai.",
   adminOnly: "Ye option sirf admin ke liye hai.",
-  pickBranch: "Kis branch ke tasks dekhne hain?",
+  pickBranch: "Kis branch ke tasks dekhne hain?\nYa seedha naam likh dijiye 👤",
   askRemark: "Update / remark likhiye (jaise customer ne kya bola):",
   askDue: "Nayi due date kab ki hai?",
   askTime: "Time bhi dena hai? Likhiye jaise *4pm*. Nahi toh Skip dabaiye (10 AM).",
@@ -55,6 +56,12 @@ export const tasksFlow: Flow = {
 
   async handle(ctx, session, input) {
     const data = session.data;
+    // Done / Update / Date badlo from any task message, whatever step is open (or none, see router).
+    const act = parseAct(input);
+    if (act?.taskId) {
+      const keep = session.flow === ID ? viewData(data) : {};
+      return onAct(ctx, { ...keep, taskId: act.taskId }, act.kind);
+    }
     switch (session.step) {
       case "pick_branch":
         return onPickBranch(ctx, input);
@@ -153,6 +160,7 @@ function groupLabel(branch: string): string {
 
 async function onPickBranch(ctx: BotContext, input: Inbound): Promise<Outgoing[]> {
   const branch = replyValue(input, ID, "branch");
+  if (!branch && isTyped(input)) return pickByName(ctx, input.text);
   if (!branch || (branch !== ADMINS && !isBranch(branch))) {
     return [say(ctx, MSG.useList), branchList(ctx.user.phone, ID, MSG.pickBranch, { includeAdmins: true })];
   }
@@ -164,6 +172,25 @@ async function onPickBranch(ctx: BotContext, input: Inbound): Promise<Outgoing[]
     ];
   }
   return renderUsers(ctx, branch, 0, users);
+}
+
+/** Typed name at the branch step: one match opens that person's tasks. */
+async function pickByName(ctx: BotContext, typed: string): Promise<Outgoing[]> {
+  const matches = matchUsers(await ctx.store.listUsers({}), typed);
+  const again = branchList(ctx.user.phone, ID, MSG.pickBranch, { includeAdmins: true });
+  if (matches.length !== 1) {
+    const hint =
+      matches.length === 0
+        ? `"${typed.trim()}" naam ka koi nahi mila.`
+        : `"${typed.trim()}" naam se ${matches.length} log mile: ${matches.map((u) => u.name).join(", ")}. Poora naam likhiye ya branch chuniye.`;
+    return [say(ctx, hint), again];
+  }
+  const u = matches[0];
+  const view: Data = { view: "user", phone: u.phone, branch: u.role === "admin" ? ADMINS : (u.branch ?? ""), page: "0" };
+  const tasks = await loadView(ctx, view);
+  if (tasks === null) return oops(ctx);
+  if (tasks.length === 0) return [say(ctx, `*${u.name}* ke koi pending task nahi hain.`), again];
+  return renderList(ctx, view, tasks);
 }
 
 async function renderUsers(ctx: BotContext, branch: string, page: number, users?: User[]): Promise<Outgoing[]> {
@@ -267,12 +294,26 @@ function detailBody(t: Task, now: Date): string {
   return lines.join("\n");
 }
 
+const TYPE_HINT = "✍️ Update ke liye seedha likh ke bhej dijiye.";
+
+/** ids: `${ID}:act:done|update|date:<taskId>`. */
 function detailMessage(ctx: BotContext, t: Task): Outgoing {
-  return buttons(ctx.user.phone, detailBody(t, ctx.now), [
-    { id: `${ID}:act:done`, title: "Done ✅" },
-    { id: `${ID}:act:update`, title: "Update ✏️" },
-    { id: `${ID}:act:date`, title: "Date badlo 🕒" },
+  return buttons(ctx.user.phone, `${detailBody(t, ctx.now)}\n\n${TYPE_HINT}`, [
+    { id: `${ID}:act:done:${t.id}`, title: "Done ✅" },
+    { id: `${ID}:act:update:${t.id}`, title: "Update ✏️" },
+    { id: `${ID}:act:date:${t.id}`, title: "Date badlo 🕒" },
   ]);
+}
+
+type ActKind = "done" | "update" | "date";
+
+/** Reads `act:<kind>:<taskId>` (current) or `act:<kind>` (messages sent before ids were added). */
+function parseAct(input: Inbound): { kind: ActKind; taskId: string | null } | null {
+  const v = replyValue(input, ID, "act");
+  if (v === null) return null;
+  const [kind, ...rest] = v.split(":");
+  if (kind !== "done" && kind !== "update" && kind !== "date") return null;
+  return { kind, taskId: rest.join(":") || null };
 }
 
 const STATUS_LABEL: Record<Task["status"], string> = { pending: "Pending", done: "Done ✅", cancelled: "Cancelled ❌" };
@@ -305,13 +346,23 @@ async function openDetail(ctx: BotContext, data: Data, taskId: string): Promise<
   return [detailMessage(ctx, t)];
 }
 
+function onAct(ctx: BotContext, data: Data, kind: ActKind): Promise<Outgoing[]> {
+  if (kind === "done") return markDone(ctx, data);
+  if (kind === "update") return goto(ctx, data, "ask_remark", say(ctx, MSG.askRemark));
+  return goto(ctx, data, "ask_due", dueList(ctx, MSG.askDue));
+}
+
+function dueList(ctx: BotContext, body: string): Outgoing {
+  return quickDueList(ctx.user.phone, ID, body, ctx.now);
+}
+
 async function onDetail(ctx: BotContext, data: Data, input: Inbound): Promise<Outgoing[]> {
-  const act = replyValue(input, ID, "act");
-  if (act === "done") return markDone(ctx, data);
-  if (act === "update") return goto(ctx, data, "ask_remark", say(ctx, MSG.askRemark));
-  if (act === "date") return goto(ctx, data, "ask_due", dueDateButtons(ctx.user.phone, ID, MSG.askDue));
+  const act = parseAct(input);
+  if (act) return onAct(ctx, data, act.kind);
   // The task list is still on screen; let the user jump to another row.
   if (replyValue(input, ID, "task") !== null || replyValue(input, ID, "page") !== null) return onList(ctx, data, input);
+  // Typed text while a task is open is its update (saves the "Update" tap).
+  if (isTyped(input)) return onRemark(ctx, data, input);
 
   const t = await loadOpen(ctx, data.taskId);
   if (Array.isArray(t)) return t;
@@ -335,7 +386,19 @@ async function markDone(ctx: BotContext, data: Data): Promise<Outgoing[]> {
   if (!r.ok) return failed(ctx, r);
   let body = `✅ *${t.title}* done mark ho gaya. Shabash! 👏`;
   if (r.next) body += `\n🔁 Agla task: *${formatDue(r.next.dueAt, r.next.dueHasTime, ctx.now)}*`;
-  return [...(await finish(ctx, body)), ...r.outs];
+  return andBack(ctx, data, body, r.outs);
+}
+
+/** Confirms the action, then shows the remaining list again (when the user came from a list). */
+async function andBack(ctx: BotContext, data: Data, body: string, outs: Outgoing[]): Promise<Outgoing[]> {
+  if (!data.view) return [...(await finish(ctx, body)), ...outs];
+  const tasks = await loadView(ctx, data);
+  if (!tasks) return [...(await finish(ctx, body)), ...outs];
+  if (tasks.length === 0) {
+    const empty = data.view === "mine" ? "🎉 Aapke koi pending task nahi hain!" : "🎉 Koi pending task nahi bacha!";
+    return [...(await finish(ctx, `${body}\n\n${empty}`)), ...outs];
+  }
+  return [say(ctx, body), ...outs, ...(await renderList(ctx, data, tasks))];
 }
 
 // ---------- remarks ----------
@@ -355,12 +418,23 @@ async function onRemark(ctx: BotContext, data: Data, input: Inbound): Promise<Ou
   if (Array.isArray(t)) return t;
   const r = await addRemark(ctx.store, t, actorOf(ctx), remark, ctx.now);
   if (!r.ok) return failed(ctx, r);
-  return [...(await finish(ctx, "📝 Remark save ho gaya.")), ...r.outs];
+  return andBack(ctx, data, `📝 *${t.title}*: remark save ho gaya.`, r.outs);
 }
 
 // ---------- date change ----------
 
 async function onAskDue(ctx: BotContext, data: Data, input: Inbound): Promise<Outgoing[]> {
+  const quick = replyValue(input, ID, "quick");
+  if (quick === "custom") {
+    await setStep(ctx, ID, "ask_custom_due", data);
+    return [say(ctx, MSG.askCustomDue)];
+  }
+  if (quick !== null) {
+    const due = quickDue(quick, ctx.now);
+    if (due) return applyNewDue(ctx, data, due);
+    return [say(ctx, "⏰ Ye time nikal chuka hai. Aage ki date/time chuniye."), dueList(ctx, MSG.askDue)];
+  }
+  // Aaj / Kal / Date likho buttons on messages sent before the one-tap list.
   const pick = replyValue(input, ID, "due");
   const today = istDay(ctx.now);
   if (pick === "today" || pick === "tomorrow") {
@@ -374,7 +448,7 @@ async function onAskDue(ctx: BotContext, data: Data, input: Inbound): Promise<Ou
   }
   const parsed = isTyped(input) ? parseDue(input.text, ctx.now) : null;
   if (parsed) return applyNewDue(ctx, data, parsed);
-  return [say(ctx, `Samajh nahi aaya 🤔 ${MSG.askCustomDue} ya button dabaiye.`), dueDateButtons(ctx.user.phone, ID, MSG.askDue)];
+  return [say(ctx, `Samajh nahi aaya 🤔 ${MSG.askCustomDue} ya list se chuniye.`), dueList(ctx, MSG.askDue)];
 }
 
 async function onAskTime(ctx: BotContext, data: Data, input: Inbound): Promise<Outgoing[]> {
@@ -397,7 +471,7 @@ async function applyNewDue(ctx: BotContext, data: Data, due: ParsedDue): Promise
   if (Array.isArray(t)) return t;
   if (due.dueAt.getTime() <= ctx.now.getTime()) {
     await setStep(ctx, ID, "ask_due", data);
-    return [say(ctx, "⏰ Ye time nikal chuka hai. Aage ki date/time chuniye."), dueDateButtons(ctx.user.phone, ID, MSG.askDue)];
+    return [say(ctx, "⏰ Ye time nikal chuka hai. Aage ki date/time chuniye."), dueList(ctx, MSG.askDue)];
   }
   const rest = { ...data };
   delete rest.day;
@@ -423,7 +497,7 @@ async function onDateRemark(ctx: BotContext, data: Data, input: Inbound): Promis
   const r = await changeDue(ctx.store, t, actorOf(ctx), due, remark, ctx.now, { notifyAssignee: false });
   if (!r.ok) return failed(ctx, r);
   const newText = formatDue(due.dueAt, hasTime, ctx.now);
-  return [...(await finish(ctx, `🕒 Date badal di: *${newText}*`)), ...r.outs];
+  return andBack(ctx, data, `🕒 *${t.title}*: date badal di, ab *${newText}*`, r.outs);
 }
 
 // ---------- approval request (staff, beyond 25 days) ----------

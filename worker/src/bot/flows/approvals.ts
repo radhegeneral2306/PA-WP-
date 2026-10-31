@@ -1,5 +1,6 @@
 // "Approvals": admins review staff requests to move a due date beyond the
-// 25-day limit and approve or reject them.
+// 25-day limit and approve or reject them. Decide buttons carry the task id and
+// request time, so a button on an older message decides its own request.
 
 import type { DateRequest, Task } from "../../domain/types";
 import { formatDue } from "../../domain/dates";
@@ -38,6 +39,8 @@ export const approvalsFlow: Flow = {
 
   async handle(ctx, session, input) {
     if (ctx.user.role !== "admin") return finish(ctx, MSG.adminOnly);
+    const direct = parseDecide(input);
+    if (direct?.taskId) return onDecide(ctx, { page: session.flow === ID ? (session.data.page ?? "0") : "0" }, input);
     if (session.step === "list") return onList(ctx, session.data, input);
     if (session.step === "decide") return onDecide(ctx, session.data, input);
     return renderList(ctx, 0);
@@ -114,10 +117,21 @@ function detailMessage(ctx: BotContext, t: Pending): Outgoing {
     `Nayi date: ${due(ctx, r.dueAt, r.hasTime)}`,
     `Remark: ${r.remark}`,
   ].join("\n");
+  const key = `${t.id}:${Date.parse(r.requestedAt)}`;
   return buttons(ctx.user.phone, body, [
-    { id: `${ID}:decide:approve`, title: "Approve ✅" },
-    { id: `${ID}:decide:reject`, title: "Reject ❌" },
+    { id: `${ID}:decide:approve:${key}`, title: "Approve ✅" },
+    { id: `${ID}:decide:reject:${key}`, title: "Reject ❌" },
   ]);
+}
+
+/** Reads `decide:<choice>:<taskId>:<requestedAtMs>` (current) or `decide:<choice>` (older messages). */
+function parseDecide(input: Inbound): { choice: Decision; taskId: string | null; requestedMs: number | null } | null {
+  const v = replyValue(input, ID, "decide");
+  if (v === null) return null;
+  const [choice, taskId, ms] = v.split(":");
+  if (choice !== "approve" && choice !== "reject") return null;
+  const n = Number(ms);
+  return { choice, taskId: taskId || null, requestedMs: ms && Number.isFinite(n) ? n : null };
 }
 
 async function handledAlready(ctx: BotContext, data: Data): Promise<Outgoing[]> {
@@ -133,7 +147,18 @@ async function openDetail(ctx: BotContext, data: Data, taskId: string): Promise<
 }
 
 async function onDecide(ctx: BotContext, data: Data, input: Inbound): Promise<Outgoing[]> {
-  const choice = replyValue(input, ID, "decide");
+  const parsed = parseDecide(input);
+  if (parsed?.taskId) {
+    // The button names its own request: decide that one, whatever is open.
+    const t = await ctx.store.getTask(parsed.taskId);
+    if (!hasRequest(t)) return handledAlready(ctx, data);
+    if (parsed.requestedMs !== null && Date.parse(t.dateRequest.requestedAt) !== parsed.requestedMs) {
+      await setStep(ctx, ID, "decide", { page: data.page ?? "0", taskId: t.id, requestedAt: t.dateRequest.requestedAt });
+      return [say(ctx, MSG.changed), detailMessage(ctx, t)];
+    }
+    return decide(ctx, t, parsed.choice, { ...data, taskId: t.id, requestedAt: t.dateRequest.requestedAt });
+  }
+  const choice = parsed?.choice ?? null;
   if (choice !== "approve" && choice !== "reject") {
     // The list is still on screen; let the admin jump to another row.
     if (replyValue(input, ID, "task") !== null || replyValue(input, ID, "page") !== null) return onList(ctx, data, input);
