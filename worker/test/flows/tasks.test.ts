@@ -199,9 +199,10 @@ describe("task detail", () => {
     const msg = out[0];
     if (msg.kind !== "buttons") throw new Error("expected buttons");
     expect(msg.body).toBe(
-      "*Purana kaam*\nKisko: Hardware\nDiya: Bhaskar\nDue: 25 Oct ⚠️ Overdue\nReminder: Ek baar\nStatus: Pending\nLast remark: Kal aayenge (25 Oct, 12:00 PM)",
+      "*Purana kaam*\nKisko: Hardware\nDiya: Bhaskar\nDue: 25 Oct ⚠️ Overdue\nReminder: Ek baar\nStatus: Pending\nLast remark: Kal aayenge (25 Oct, 12:00 PM)" +
+        "\n\n✍️ Update ke liye seedha likh ke bhej dijiye.",
     );
-    expect(msg.buttons.map((b) => b.id)).toEqual(["tasks:act:done", "tasks:act:update", "tasks:act:date"]);
+    expect(msg.buttons.map((b) => b.id)).toEqual(["tasks:act:done:d1", "tasks:act:update:d1", "tasks:act:date:d1"]);
     expect(await step(ctx)).toBe("detail");
   });
 
@@ -245,12 +246,41 @@ describe("task detail", () => {
     expect((await ctx.store.getTask("d2"))?.status).toBe("pending");
   });
 
-  it("re-shows detail on unexpected input", async () => {
+  it("re-shows detail on an unexpected tap", async () => {
     const ctx = setup(STAFF_DURG);
     await openMine(ctx, "d2");
-    const out = await send(ctx, say("hmm"));
+    const out = await send(ctx, tap("tasks:due:today"));
     expect(last(out)?.kind).toBe("buttons");
     expect(await step(ctx)).toBe("detail");
+  });
+
+  it("typed text while a task is open saves it as the update, then shows the list again", async () => {
+    const ctx = setup(STAFF_DURG);
+    await openMine(ctx, "d2");
+    const out = await send(ctx, say("Customer ne kal bulaya"));
+    expect(bodies([out[0]])).toBe("📝 *Kal wala kaam*: remark save ho gaya.");
+    expect(out[1]).toMatchObject({ to: ADMIN.phone, template: "task_updated_v1" });
+    expect(rowIds(out[2])).toContain("tasks:task:d2");
+    expect(await step(ctx)).toBe("list");
+    expect((await ctx.store.getTask("d2"))?.remarks.at(-1)?.text).toBe("Customer ne kal bulaya");
+  });
+
+  it("a button on an older task message acts on its own task (C1)", async () => {
+    const ctx = setup(STAFF_DURG);
+    await openMine(ctx, "d1");
+    await send(ctx, tap("tasks:task:d2")); // d2 is now the open task
+    const out = await send(ctx, tap("tasks:act:done:d1"));
+    expect(bodies([out[0]])).toContain("*Purana kaam* done");
+    expect((await ctx.store.getTask("d1"))?.status).toBe("done");
+    expect((await ctx.store.getTask("d2"))?.status).toBe("pending");
+  });
+
+  it("an id button still checks permission", async () => {
+    const ctx = setup(STAFF_RAIPUR);
+    await tasksFlow.start(ctx, "mine");
+    const out = await send(ctx, tap("tasks:act:done:d2"));
+    expect(bodies(out)).toBe("Ye task aapka nahi hai.");
+    expect((await ctx.store.getTask("d2"))?.status).toBe("pending");
   });
 
   it("missing session data does not crash", async () => {
@@ -274,10 +304,12 @@ describe("done", () => {
       template: "task_done_v1",
       bodyValues: ["Bhaskar", "Hardware", "Kal wala kaam", "26 Oct, 3:00 PM"],
     });
-    expect(out).toHaveLength(2);
+    // The remaining tasks come back as a list, ready for the next one.
+    expect(out).toHaveLength(3);
+    expect(rowIds(out[2])).toEqual(["tasks:task:d1", "tasks:task:d3"]);
     const t = await ctx.store.getTask("d2");
     expect(t).toMatchObject({ status: "done", doneAt: ctx.now.toISOString(), updatedAt: ctx.now.toISOString(), nextReminderAt: null });
-    expect(await step(ctx)).toBeNull();
+    expect(await step(ctx)).toBe("list");
   });
 
   it("clears a pending date request", async () => {
@@ -324,7 +356,15 @@ describe("done", () => {
     const ctx = setup(STAFF_DURG);
     await openMine(ctx, "d3");
     const out = await send(ctx, tap("tasks:act:done"));
-    expect(out).toHaveLength(1);
+    expect(out.map((o) => o.kind)).toEqual(["text", "list"]);
+  });
+
+  it("the last task done ends with a celebration", async () => {
+    const ctx = setup(STAFF_RAIPUR);
+    await openMine(ctx, "r1");
+    const out = await send(ctx, tap("tasks:act:done:r1"));
+    expect(bodies(out)).toContain("Aapke koi pending task nahi hain");
+    expect(await step(ctx)).toBeNull();
   });
 
   it("admin can mark another's task done", async () => {
@@ -357,7 +397,7 @@ describe("update remark", () => {
     expect(await step(ctx)).toBe("ask_remark");
     expect(bodies(await send(ctx, say("x".repeat(501))))).toContain("500");
     const out = await send(ctx, say("Customer ne kal bulaya"));
-    expect(bodies([out[0]])).toBe("📝 Remark save ho gaya.");
+    expect(bodies([out[0]])).toBe("📝 *Kal wala kaam*: remark save ho gaya.");
     const t = await ctx.store.getTask("d2");
     expect(t?.remarks).toEqual([{ at: ctx.now.toISOString(), byPhone: STAFF_DURG.phone, byName: "Hardware", text: "Customer ne kal bulaya" }]);
     expect(t?.updatedAt).toBe(ctx.now.toISOString());
@@ -374,7 +414,7 @@ describe("update remark", () => {
   it("notifies the creator with task_updated_v1 when someone else remarks", async () => {
     const ctx = setup(STAFF_DURG);
     const out = await remark(ctx, "d2", "Customer ne kal bulaya " + "y".repeat(300));
-    expect(out).toHaveLength(2);
+    expect(out).toHaveLength(3);
     const tpl = out[1];
     if (tpl.kind !== "template") throw new Error("expected template");
     expect(tpl).toMatchObject({ to: ADMIN.phone, template: "task_updated_v1" });
@@ -387,7 +427,7 @@ describe("update remark", () => {
   it("no notice when the creator remarks", async () => {
     const ctx = setup(STAFF_DURG);
     const out = await remark(ctx, "d3", "Apna note");
-    expect(out).toHaveLength(1);
+    expect(out.map((o) => o.kind)).toEqual(["text", "list"]);
   });
 
   it("every90 pauses until the next morning", async () => {
@@ -409,7 +449,15 @@ describe("date badlo", () => {
   async function toDue(ctx: BotContext, id = "d2"): Promise<void> {
     await openMine(ctx, id);
     const out = await send(ctx, tap("tasks:act:date"));
-    expect(rowIdsOfButtons(out[0])).toEqual(["tasks:due:today", "tasks:due:tomorrow", "tasks:due:custom"]);
+    expect(rowIds(out[0])).toEqual([
+      "tasks:quick:today18",
+      "tasks:quick:tom10",
+      "tasks:quick:tom14",
+      "tasks:quick:tom17",
+      "tasks:quick:day2",
+      "tasks:quick:week",
+      "tasks:quick:custom",
+    ]);
   }
   function rowIdsOfButtons(o: Outgoing | undefined): string[] {
     return o?.kind === "buttons" ? o.buttons.map((b) => b.id) : [];
@@ -423,7 +471,7 @@ describe("date badlo", () => {
     const r = await send(ctx, tap("tasks:time:skip"));
     expect(bodies(r)).toContain("Date kyun badal rahe hain?");
     const out = await send(ctx, say("Customer bahar hai"));
-    expect(bodies([out[0]])).toBe("🕒 Date badal di: *27 Oct*");
+    expect(bodies([out[0]])).toBe("🕒 *Purana kaam*: date badal di, ab *27 Oct*");
     const task1 = await ctx.store.getTask("d1");
     expect(task1).toMatchObject({
       dueAt: "2026-10-27T04:30:00.000Z",
@@ -432,7 +480,37 @@ describe("date badlo", () => {
       updatedAt: ctx.now.toISOString(),
     });
     expect(task1?.remarks.at(-1)?.text).toBe("Date badli: 25 Oct → 27 Oct. Customer bahar hai");
-    expect(await step(ctx)).toBeNull();
+    expect(await step(ctx)).toBe("list");
+  });
+
+  it("one tap on the list picks date and time (Kal 2 PM)", async () => {
+    const ctx = setup(STAFF_DURG);
+    await toDue(ctx, "d1");
+    const r = await send(ctx, tap("tasks:quick:tom14"));
+    expect(bodies(r)).toContain("Date kyun badal rahe hain?");
+    await send(ctx, say("Customer bahar hai"));
+    expect(await ctx.store.getTask("d1")).toMatchObject({ dueAt: "2026-10-27T08:30:00.000Z", dueHasTime: true });
+  });
+
+  it("Kal 10 AM keeps the no-time default; custom asks to type", async () => {
+    const ctx = setup(STAFF_DURG);
+    await toDue(ctx, "d1");
+    await send(ctx, tap("tasks:quick:tom10"));
+    await send(ctx, say("ok"));
+    expect(await ctx.store.getTask("d1")).toMatchObject({ dueAt: "2026-10-27T04:30:00.000Z", dueHasTime: false });
+    await toDue(ctx, "d2");
+    expect(bodies(await send(ctx, tap("tasks:quick:custom")))).toContain("*28/10*");
+    expect(await step(ctx)).toBe("ask_custom_due");
+  });
+
+  it("an option that has passed by the time of the tap is refused", async () => {
+    const ctx = setup(STAFF_DURG);
+    await toDue(ctx);
+    const late = { ...ctx, now: new Date("2026-10-26T13:00:00Z") }; // 18:30 IST
+    const out = await send(late, tap("tasks:quick:today18"));
+    expect(bodies(out)).toContain("nikal chuka");
+    expect(rowIds(last(out))).not.toContain("tasks:quick:today18");
+    expect(await step(ctx)).toBe("ask_due");
   });
 
   it("a time that passes before the remark arrives is refused, not applied", async () => {
@@ -456,7 +534,7 @@ describe("date badlo", () => {
     expect(bodies(await send(ctx, tap("tasks:due:custom")))).toContain("*28/10*");
     await send(ctx, say("28/10 4pm"));
     const out = await send(ctx, say("Shaam ko milenge"));
-    expect(bodies([out[0]])).toBe("🕒 Date badal di: *28 Oct, 4:00 PM*");
+    expect(bodies([out[0]])).toBe("🕒 *Kal wala kaam*: date badal di, ab *28 Oct, 4:00 PM*");
     const t = await ctx.store.getTask("d2");
     expect(t).toMatchObject({ dueAt: "2026-10-28T10:30:00.000Z", dueHasTime: true });
     expect(t?.remarks.at(-1)?.text).toBe("Date badli: 27 Oct → 28 Oct, 4:00 PM. Shaam ko milenge");
@@ -589,7 +667,7 @@ describe("date badlo", () => {
     await send(ctx, tap("tasks:due:custom"));
     await send(ctx, say("28/10"));
     const out = await send(ctx, say("Kal nahi ho payega"));
-    expect(out).toHaveLength(2);
+    expect(out).toHaveLength(3);
     expect(out[1]).toMatchObject({
       to: ADMIN.phone,
       kind: "template",
@@ -604,7 +682,7 @@ describe("date badlo", () => {
     await send(ctx, tap("tasks:due:custom"));
     await send(ctx, say("29/10"));
     const out = await send(ctx, say("ok"));
-    expect(out).toHaveLength(1);
+    expect(out.map((o) => o.kind)).toEqual(["text", "list"]);
   });
 
   it("admin date change clears a pending request", async () => {
@@ -620,7 +698,7 @@ describe("date badlo", () => {
     await send(ctx, tap("tasks:due:custom"));
     await send(ctx, say("15/12"));
     const out = await send(ctx, say("Theek hai"));
-    expect(bodies([out[0]])).toBe("🕒 Date badal di: *15 Dec*");
+    expect(bodies([out[0]])).toBe("🕒 *Kal wala kaam*: date badal di, ab *15 Dec*");
     expect(out[1]).toMatchObject({ to: ADMIN.phone, template: "task_updated_v1" });
     const t = await ctx.store.getTask("d2");
     expect(t).toMatchObject({ dueAt: "2026-12-15T04:30:00.000Z", dateRequest: null });
@@ -646,7 +724,7 @@ describe("date badlo", () => {
     await send(ctx, tap("tasks:due:custom"));
     await send(ctx, say("30/11"));
     const out = await send(ctx, say("Partner ne bola"));
-    expect(bodies([out[0]])).toBe("🕒 Date badal di: *30 Nov*");
+    expect(bodies([out[0]])).toBe("🕒 *Admin1 kaam*: date badal di, ab *30 Nov*");
     expect(out[1]).toMatchObject({ to: ADMIN2.phone, template: "task_updated_v1", bodyValues: ["Partner Two", "Bhaskar", "Admin1 kaam", "Date badli: 29 Oct → 30 Nov. Partner ne bola"] });
     expect((await ctx.store.getTask("a2"))?.dueAt).toBe("2026-11-30T04:30:00.000Z");
   });
@@ -655,7 +733,7 @@ describe("date badlo", () => {
     const ctx = setup(STAFF_DURG);
     await toDue(ctx);
     const out = await send(ctx, tap("tasks:act:done"));
-    expect(last(out)?.kind).toBe("buttons");
+    expect(last(out)?.kind).toBe("list");
     expect(await step(ctx)).toBe("ask_due");
     expect((await ctx.store.getTask("d2"))?.status).toBe("pending");
   });

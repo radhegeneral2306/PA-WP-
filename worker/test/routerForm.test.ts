@@ -64,7 +64,7 @@ describe("router: form menu entry (FORMS_LIVE, everyone since 27 Oct)", () => {
 
   it.each([ADMIN, ADMIN2, STAFF_DURG])("menu for %s has 'Naya task (Form)'", async (user) => {
     const [menu] = await handleMessage(makeCtx(user), { text: "Hi", reply: null });
-    expect(rowIds(menu)).toContain("MENU:create_task_form");
+    expect(JSON.stringify(menu)).toContain("MENU:create_task_form");
     expect(JSON.stringify(menu)).toContain("Naya task (Form)");
   });
 

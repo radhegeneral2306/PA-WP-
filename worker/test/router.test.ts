@@ -23,7 +23,11 @@ describe("router", () => {
 
   it("shows staff only their three entries", async () => {
     const [menu] = await handleMessage(makeCtx(STAFF_DURG), say("hello"));
-    expect(rowIds(menu)).toEqual(["MENU:my_tasks", "MENU:create_task", "MENU:create_task_form"]);
+    // Three entries fit in plain buttons: one tap instead of "Menu kholo" + pick.
+    expect(menu.kind).toBe("buttons");
+    if (menu.kind !== "buttons") return;
+    expect(menu.buttons.map((b) => b.id)).toEqual(["MENU:my_tasks", "MENU:create_task", "MENU:create_task_form"]);
+    expect(menu.buttons.every((b) => [...b.title].length <= 20)).toBe(true);
   });
 
   it("refuses admin-only entries for staff", async () => {

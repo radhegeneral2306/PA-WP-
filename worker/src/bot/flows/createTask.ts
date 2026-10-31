@@ -1,12 +1,13 @@
-// "Naya task" wizard: pick assignee (admins only), title, due date/time,
-// reminder type, confirm, then save and notify the assignee.
+// "Naya task" wizard: pick assignee (admins only; typing a name skips the branch list),
+// title, due date + time in one tap, confirm (reminder type defaults to Ek baar and can
+// be changed from the confirm screen), then save and notify the assignee.
 
 import { BRANCHES, branchName, type BranchId, type Role, type TaskRepeat, type User } from "../../domain/types";
 import { addDays, dueOnDay, formatDue, istDay, parseDue, type ISTDay, type ParsedDue } from "../../domain/dates";
 import { reminderSlot } from "../../domain/schedule";
 import { endFlow, isReply, replyValue, setStep, type BotContext, type Flow, type Inbound } from "../flow";
 import type { Outgoing } from "../outgoing";
-import { branchList, buttons, confirmButtons, dueDateButtons, text, timeButtons, userList } from "../ui";
+import { branchList, buttons, matchUsers, quickDue, quickDueList, text, timeButtons, userList } from "../ui";
 
 const ID = "create_task";
 const TITLE_MAX = 200;
@@ -15,7 +16,7 @@ const ADMINS = "ADMINS";
 type Data = Record<string, string>;
 
 const TAP_HINT = "Neeche diye option mein se chuniye 👇";
-const BRANCH_PROMPT = "Kis branch ko task dena hai?";
+const BRANCH_PROMPT = "Kis branch ko task dena hai?\nYa seedha naam likh dijiye 👤";
 const TITLE_PROMPT = "Task kya hai? Likh ke bhejiye 📝";
 const DUE_PROMPT = "Task ki due date kab hai?";
 const TIME_PROMPT = "Time bhi dena hai? Likhiye jaise *4pm* ya *11:30 am*. Time nahi hai toh Skip dabaiye (10 AM default).";
@@ -99,6 +100,7 @@ function groupLabel(key: string): string {
 async function pickBranch(ctx: BotContext, input: Inbound): Promise<Outgoing[]> {
   const to = ctx.user.phone;
   const key = replyValue(input, ID, "branch");
+  if (!key && !input.reply && input.text.trim()) return pickByName(ctx, input.text);
   const users = key ? await usersFor(ctx, key) : null;
   if (!key || !users) return [branchList(to, ID, withHint(TAP_HINT, BRANCH_PROMPT), { includeAdmins: true })];
   if (users.length === 0) {
@@ -107,6 +109,21 @@ async function pickBranch(ctx: BotContext, input: Inbound): Promise<Outgoing[]> 
   }
   await setStep(ctx, ID, "pick_user", { branch: key });
   return [userList(to, ID, users, userPrompt(key))];
+}
+
+/** Typed name at the branch step: one match goes straight to the title. */
+async function pickByName(ctx: BotContext, typed: string): Promise<Outgoing[]> {
+  const to = ctx.user.phone;
+  const matches = matchUsers(await ctx.store.listUsers({}), typed);
+  if (matches.length === 1) {
+    await setStep(ctx, ID, "ask_title", assigneeData(matches[0]));
+    return [text(to, `👤 *${matches[0].name}*\n\n${TITLE_PROMPT}`)];
+  }
+  const hint =
+    matches.length === 0
+      ? `"${typed.trim()}" naam ka koi nahi mila.`
+      : `"${typed.trim()}" naam se ${matches.length} log mile: ${matches.map((u) => u.name).join(", ")}. Poora naam likhiye ya branch chuniye.`;
+  return [branchList(to, ID, withHint(hint, BRANCH_PROMPT), { includeAdmins: true })];
 }
 
 function userPrompt(key: string): string {
@@ -139,7 +156,7 @@ async function askTitle(ctx: BotContext, data: Data, input: Inbound): Promise<Ou
     return [text(ctx.user.phone, withHint(`Task likh ke bhejiye (${TITLE_MAX} akshar tak).`, TITLE_PROMPT))];
   }
   await setStep(ctx, ID, "ask_due", { ...data, title });
-  return [dueDateButtons(ctx.user.phone, ID, DUE_PROMPT)];
+  return [dueList(ctx, DUE_PROMPT)];
 }
 
 function dayKey(d: ISTDay): string {
@@ -154,6 +171,17 @@ function parseDayKey(s: string | undefined): ISTDay | null {
 async function askDue(ctx: BotContext, data: Data, input: Inbound): Promise<Outgoing[]> {
   const to = ctx.user.phone;
   if (!data.title) return broken(ctx);
+  const quick = replyValue(input, ID, "quick");
+  if (quick === "custom") {
+    await setStep(ctx, ID, "ask_custom_due", data);
+    return [text(to, CUSTOM_DUE_PROMPT)];
+  }
+  if (quick !== null) {
+    const due = quickDue(quick, ctx.now);
+    if (due) return acceptDue(ctx, data, due);
+    return [dueList(ctx, withHint("Ye time nikal chuka hai, aage ki date chuniye.", DUE_PROMPT))];
+  }
+  // Aaj / Kal / Date likho buttons on messages sent before the one-tap list.
   const choice = replyValue(input, ID, "due");
   if (choice === "today" || choice === "tomorrow") {
     const today = istDay(ctx.now);
@@ -167,7 +195,7 @@ async function askDue(ctx: BotContext, data: Data, input: Inbound): Promise<Outg
   }
   const typed = input.reply ? null : parseDue(input.text, ctx.now);
   if (typed) return acceptDue(ctx, data, typed);
-  return [dueDateButtons(to, ID, withHint("Button dabaiye ya date likhiye (jaise *28/10*).", DUE_PROMPT))];
+  return [dueList(ctx, withHint("Date samajh nahi aayi. List se chuniye ya likhiye (jaise *28/10 4pm*).", DUE_PROMPT))];
 }
 
 async function askTime(ctx: BotContext, data: Data, input: Inbound): Promise<Outgoing[]> {
@@ -192,11 +220,24 @@ async function acceptDue(ctx: BotContext, data: Data, due: ParsedDue): Promise<O
   const { day: _day, ...rest } = data;
   if (due.dueAt.getTime() < ctx.now.getTime()) {
     await setStep(ctx, ID, "ask_due", rest);
-    return [dueDateButtons(to, ID, withHint("Ye date/time nikal chuka hai, aage ki date dijiye.", DUE_PROMPT))];
+    return [dueList(ctx, withHint("Ye date/time nikal chuka hai, aage ki date dijiye.", DUE_PROMPT))];
   }
-  const next = { ...rest, dueAt: due.dueAt.toISOString(), dueHasTime: String(due.hasTime) };
-  await setStep(ctx, ID, "ask_repeat", next);
-  return [repeatButtons(to, REPEAT_PROMPT)];
+  const next = { ...rest, dueAt: due.dueAt.toISOString(), dueHasTime: String(due.hasTime), repeat: repeatOf(rest) };
+  await setStep(ctx, ID, "confirm", next);
+  return [confirmMessage(ctx, next)];
+}
+
+function dueList(ctx: BotContext, body: string): Outgoing {
+  return quickDueList(ctx.user.phone, ID, body, ctx.now);
+}
+
+/** ids: `${ID}:confirm:yes|repeat|no`. Reminder type is changed from here instead of a separate step. */
+function confirmMessage(ctx: BotContext, data: Data, hint?: string): Outgoing {
+  return buttons(ctx.user.phone, withHint(hint, `${summary(ctx, data)}\n\nTask bana du?`), [
+    { id: `${ID}:confirm:yes`, title: "Haan ✅" },
+    { id: `${ID}:confirm:repeat`, title: "🔔 Reminder badlo" },
+    { id: `${ID}:confirm:no`, title: "Nahi ❌" },
+  ]);
 }
 
 function repeatButtons(to: string, body: string): Outgoing {
@@ -222,7 +263,7 @@ async function askRepeat(ctx: BotContext, data: Data, input: Inbound): Promise<O
   if (!isRepeat(repeat)) return [repeatButtons(to, withHint(TAP_HINT, REPEAT_PROMPT))];
   const next = { ...data, repeat };
   await setStep(ctx, ID, "confirm", next);
-  return [confirmButtons(to, ID, `${summary(ctx, next)}\n\nTask bana du?`)];
+  return [confirmMessage(ctx, next)];
 }
 
 function assigneeLabel(data: Data): string {
@@ -271,7 +312,11 @@ async function confirm(ctx: BotContext, data: Data, input: Inbound): Promise<Out
     await endFlow(ctx);
     return [text(to, "Theek hai, task cancel kar diya.")];
   }
-  if (answer !== "yes") return [confirmButtons(to, ID, withHint(TAP_HINT, `${summary(ctx, data)}\n\nTask bana du?`))];
+  if (answer === "repeat") {
+    await setStep(ctx, ID, "ask_repeat", data);
+    return [repeatButtons(to, REPEAT_PROMPT)];
+  }
+  if (answer !== "yes") return [confirmMessage(ctx, data, TAP_HINT)];
   return save(ctx, data);
 }
 
@@ -290,7 +335,7 @@ async function save(ctx: BotContext, data: Data): Promise<Outgoing[]> {
   }
   if (Date.parse(data.dueAt) < now.getTime()) {
     await setStep(ctx, ID, "ask_due", data);
-    return [dueDateButtons(user.phone, ID, `⏰ Due time (${dueText(ctx, data)}) nikal chuka hai. ${DUE_PROMPT}`)];
+    return [dueList(ctx, `⏰ Due time (${dueText(ctx, data)}) nikal chuka hai. ${DUE_PROMPT}`)];
   }
   await ctx.store.createTask({
     title: data.title,

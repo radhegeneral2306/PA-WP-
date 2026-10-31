@@ -96,15 +96,15 @@ Admin browser ──► dashboard PWA ──(login token)──► same Worker u
 Send **"Hi"** (or hello / menu / namaste / start) → menu as a WhatsApp list.
 
 - **Admin menu (6):** 📋 Mere tasks · 👥 Staff ke tasks · ➕ Naya task · 📝 Naya task (Form) · ⏳ Approvals · ⚙️ Staff manage
-- **Staff menu (3):** 📋 Mere tasks · ➕ Naya task · 📝 Naya task (Form)
+- **Staff menu (3):** 📋 Mere tasks · ➕ Naya task · 📝 Naya task (Form), shown as 3 plain buttons (one tap; admins get a list because they have 6 options)
 - Typing "cancel / band / ruko / stop / exit" ends the current conversation. Unfinished conversations expire after **30 minutes**. Taps on old buttons from another conversation get "Ye option purana hai".
 
 ### 5.1 ➕ Naya task (chat wizard)
-1. Admin: pick branch (or "Admins") → pick person (paged list). Staff: skips straight to step 2 (self task).
+*Shortened 31 Oct: staff 3 steps (title → one date tap → Haan), admin 4–5 steps (was 5 and 7).*
+1. Admin: **type the person's name** (e.g. "chikku") to skip the lists, or pick branch (or "Admins") → pick person (paged list). Staff: skips straight to step 2 (self task).
 2. "Task kya hai?" → type the title.
-3. Due date buttons **Aaj / Kal / Date likho**; Aaj/Kal then ask the time (Skip = 10 AM). Typed Hinglish dates work: `28/10`, `28/10 4pm`, `kal 11am`, `kal shaam 6`, `12 baje`, `dopahar 2`.
-4. Repeat buttons **Ek baar / Har 90 min / Har mahine**.
-5. Summary → **Haan / Nahi**. On Haan: task saved, creator gets "✅ Task ban gaya!" with details and first reminder time; the assignee gets the **task_assigned_v1** WhatsApp template (not for self tasks).
+3. One-tap due list: **Aaj shaam 6 PM** (only while it's ≥ 30 min away) · **Kal 10 AM** · **Kal 2 PM** · **Kal 5 PM** · **Parso 10 AM** · **1 hafte baad 10 AM** · **✍️ Date / time likho**. Typed Hinglish dates work at the same step: `28/10`, `28/10 4pm`, `kal 11am`, `kal shaam 6`, `12 baje`, `dopahar 2`.
+4. Summary → **Haan ✅ / 🔔 Reminder badlo / Nahi ❌**. Reminder starts as **Ek baar**; "Reminder badlo" shows **Ek baar / Har 90 min / Har mahine** and returns to the summary. On Haan: task saved, creator gets "✅ Task ban gaya!" with details and first reminder time; the assignee gets the **task_assigned_v1** WhatsApp template (not for self tasks).
 
 ### 5.2 📝 Naya task (Form) — WhatsApp Forms (Batch 3)
 - Tapping it sends a template with a **"Form kholo"** button that opens a one-screen form inside WhatsApp.
@@ -126,13 +126,15 @@ Send **"Hi"** (or hello / menu / namaste / start) → menu as a WhatsApp list.
 
 ### 5.4 📋 Mere tasks / 👥 Staff ke tasks
 - Pending tasks, earliest due first, ⚠️ marks overdue, 8 per page. Admin view: branch → person, or "everyone".
-- Task detail shows title, assignee, creator, due, reminder type, pending date request, last remark, with buttons **Done ✅ / Update ✏️ / Date badlo 🕒** (assignee, creator or any admin).
+- Admin "Staff ke tasks": **type a name** to jump straight to that person's tasks, or branch → person.
+- Task detail shows title, assignee, creator, due, reminder type, pending date request, last remark, with buttons **Done ✅ / Update ✏️ / Date badlo 🕒** (assignee, creator or any admin). The buttons carry the task id, so a button on an **older** task message acts on its own task (fixes audit C1).
+- After Done / Update / Date badlo the **remaining list comes back** (next task in one tap); after the last one: "🎉 Aapke koi pending task nahi hain!".
 - **Done:** reminders stop; creator gets **task_done_v1**; monthly → next month's task created.
-- **Update:** remark (≤ 500 chars) added; creator gets **task_updated_v1**; every90 pauses till next morning.
-- **Date badlo:** new date + reason. Staff > 25 days → approval request (**date_approval_request_v1** to the creating admin, else all admins). Otherwise date changes, reminders restart from the new date, creator informed.
+- **Update:** tap Update, or **just type the update while the task is open**. Remark (≤ 500 chars) added; creator gets **task_updated_v1**; every90 pauses till next morning.
+- **Date badlo:** one tap on the same due list as above (or type a date) + reason (still required). Staff > 25 days → approval request (**date_approval_request_v1** to the creating admin, else all admins). Otherwise date changes, reminders restart from the new date, creator informed.
 
 ### 5.5 ⏳ Approvals (admins)
-List of pending date requests → **Approve ✅ / Reject ❌**. Requester gets **date_approval_result_v1**. A request that changed meanwhile, already handled, or whose requested date has passed is refused safely.
+List of pending date requests → **Approve ✅ / Reject ❌** (buttons carry the request, so an older message decides its own request, fixes audit C2). Requester gets **date_approval_result_v1**. A request that changed meanwhile, already handled, or whose requested date has passed is refused safely.
 
 ### 5.6 ⚙️ Staff manage (admins)
 - **Add:** name → 10-digit number → Staff/Admin → branch → confirm; the new person gets **welcome_user_v1** (Meta classified it Marketing).

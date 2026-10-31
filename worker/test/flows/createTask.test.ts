@@ -36,7 +36,7 @@ async function adminToTitle(t: ReturnType<typeof setup>, branch = "DURG", user =
 }
 
 describe("createTaskFlow", () => {
-  it("admin happy path: Durg staff, kal + skip, saved and template sent", async () => {
+  it("admin happy path: Durg staff, one tap Kal 10 AM, saved and template sent", async () => {
     const t = setup(ADMIN);
     const start = await createTaskFlow.start(t.ctx);
     expect(start[0].kind).toBe("list");
@@ -50,18 +50,21 @@ describe("createTaskFlow", () => {
     expect(body(title[0])).toContain("Task kya hai");
 
     const due = await t.step(say("  Sharma ji se payment lena  "));
-    expect(ids(due[0])).toEqual([`${F}:due:today`, `${F}:due:tomorrow`, `${F}:due:custom`]);
+    expect(ids(due[0])).toEqual([
+      `${F}:quick:today18`,
+      `${F}:quick:tom10`,
+      `${F}:quick:tom14`,
+      `${F}:quick:tom17`,
+      `${F}:quick:day2`,
+      `${F}:quick:week`,
+      `${F}:quick:custom`,
+    ]);
 
-    const time = await t.step(tap(`${F}:due:tomorrow`));
-    expect(ids(time[0])).toEqual([`${F}:time:skip`]);
-
-    const rep = await t.step(tap(`${F}:time:skip`));
-    expect((await t.session())?.step).toBe("ask_repeat");
-    expect(ids(rep[0])).toEqual([`${F}:repeat:none`, `${F}:repeat:every90`, `${F}:repeat:monthly`]);
-    expect(body(rep[0])).toContain("Reminder kaise chahiye?");
-
-    const conf = await t.step(tap(`${F}:repeat:none`));
+    // Date + time in one tap, straight to confirm (reminder defaults to Ek baar).
+    const conf = await t.step(tap(`${F}:quick:tom10`));
+    expect((await t.session())?.step).toBe("confirm");
     expect(conf[0].kind).toBe("buttons");
+    expect(ids(conf[0])).toEqual([`${F}:confirm:yes`, `${F}:confirm:repeat`, `${F}:confirm:no`]);
     expect(body(conf[0])).toContain("🔔 Reminder: *Ek baar*");
     expect(body(conf[0])).toContain("*Sharma ji se payment lena*");
     expect(body(conf[0])).toContain("Hardware (Durg)");
@@ -199,7 +202,7 @@ describe("createTaskFlow", () => {
     await t.step(tap(`${F}:due:today`));
     const out = await t.step(tap(`${F}:time:skip`)); // today 10 AM < 3 PM now
     expect(body(out[0])).toContain("nikal chuka hai");
-    expect(ids(out[0])).toContain(`${F}:due:today`);
+    expect(ids(out[0])).toContain(`${F}:quick:custom`);
     const s = await t.session();
     expect(s?.step).toBe("ask_due");
     expect(s?.data.day).toBeUndefined();
@@ -210,9 +213,7 @@ describe("createTaskFlow", () => {
     const t = setup(ADMIN);
     await adminToTitle(t);
     await t.step(say("Visit"));
-    await t.step(say("kal 11am"));
-    expect((await t.session())?.step).toBe("ask_repeat");
-    const conf = await t.step(tap(`${F}:repeat:none`));
+    const conf = await t.step(say("kal 11am"));
     expect((await t.session())?.step).toBe("confirm");
     expect(body(conf[0])).toContain("27 Oct, 11:00 AM");
   });
@@ -235,7 +236,7 @@ describe("createTaskFlow", () => {
     await createTaskFlow.start(t.ctx);
     const wrong = await t.step(say("Durg"));
     expect(wrong[0].kind).toBe("list");
-    expect(body(wrong[0])).toContain("chuniye");
+    expect(body(wrong[0])).toContain("naam ka koi nahi mila");
     expect((await t.session())?.step).toBe("pick_branch");
 
     await t.step(tap(`${F}:branch:DURG`));
@@ -252,14 +253,14 @@ describe("createTaskFlow", () => {
 
     await t.step(say("Visit"));
     const junk = await t.step(say("pata nahi"));
-    expect(ids(junk[0])).toContain(`${F}:due:custom`);
+    expect(ids(junk[0])).toContain(`${F}:quick:custom`);
     expect((await t.session())?.step).toBe("ask_due");
 
     await t.step(tap(`${F}:due:tomorrow`));
     await t.step(tap(`${F}:time:skip`));
     await t.step(tap(`${F}:repeat:none`));
     const confJunk = await t.step(say("ok"));
-    expect(ids(confJunk[0])).toEqual([`${F}:confirm:yes`, `${F}:confirm:no`]);
+    expect(ids(confJunk[0])).toEqual([`${F}:confirm:yes`, `${F}:confirm:repeat`, `${F}:confirm:no`]);
     expect((await t.session())?.step).toBe("confirm");
   });
 
@@ -303,6 +304,9 @@ describe("createTaskFlow", () => {
     await adminToTitle(t);
     await t.step(say("Rent dena"));
     await t.step(say("28/10 4pm"));
+    const rep = await t.step(tap(`${F}:confirm:repeat`));
+    expect(body(rep[0])).toContain("Reminder kaise chahiye?");
+    expect((await t.session())?.step).toBe("ask_repeat");
   }
 
   it("Har 90 min: stored every90, summary line and template next-reminder text", async () => {
@@ -349,6 +353,7 @@ describe("createTaskFlow", () => {
     await adminToTitle(t);
     await t.step(say("Bill"));
     await t.step(say("1/11 1am")); // 31 Oct 19:30 UTC
+    await t.step(tap(`${F}:confirm:repeat`));
     await t.step(tap(`${F}:repeat:monthly`));
     await t.step(tap(`${F}:confirm:yes`));
     const [saved] = await t.store.listTasks({});
@@ -395,6 +400,62 @@ describe("createTaskFlow", () => {
     await t.step(tap(`${F}:confirm:yes`));
     const [saved] = await t.store.listTasks({});
     expect(saved).toMatchObject({ repeat: "none", repeatDay: null });
+  });
+
+  it("admin types a name at the branch step and skips the branch + person lists", async () => {
+    const t = setup(ADMIN);
+    await createTaskFlow.start(t.ctx);
+    const out = await t.step(say("chikku"));
+    expect(body(out[0])).toContain("*Chikku*");
+    expect(body(out[0])).toContain("Task kya hai");
+    expect((await t.session())?.data).toMatchObject({ assigneePhone: STAFF_RAIPUR.phone, assigneeBranch: "RAIPUR" });
+    await t.step(say("Stock check"));
+    await t.step(tap(`${F}:quick:tom17`));
+    const done = await t.step(tap(`${F}:confirm:yes`));
+    expect(done[1]).toMatchObject({ to: STAFF_RAIPUR.phone, template: "task_assigned_v1" });
+    expect((await t.store.listTasks({}))[0]).toMatchObject({ dueAt: "2026-10-27T11:30:00.000Z", dueHasTime: true, repeat: "none" });
+  });
+
+  it("an ambiguous or inactive name shows the branch list again", async () => {
+    const t = setup(ADMIN);
+    await createTaskFlow.start(t.ctx);
+    const two = await t.step(say("Par")); // only "Partner Two" starts with it
+    expect((await t.session())?.data.assigneePhone).toBe(ADMIN2.phone);
+    expect(body(two[0])).toContain("Partner Two");
+
+    const t2 = setup(ADMIN);
+    await createTaskFlow.start(t2.ctx);
+    const old = await t2.step(say("Old Staff")); // inactive
+    expect(body(old[0])).toContain("nahi mila");
+    expect((await t2.session())?.step).toBe("pick_branch");
+
+    const t3 = setup(ADMIN);
+    await createTaskFlow.start(t3.ctx);
+    const many = await t3.step(say("staff")); // Jag Staff + Old Staff(inactive) → one match
+    expect((await t3.session())?.data.assigneeName).toBe("Jag Staff");
+    expect(body(many[0])).toContain("Jag Staff");
+  });
+
+  it("staff self task takes three steps: title, one date tap, Haan", async () => {
+    const t = setup(STAFF_RAIPUR);
+    await createTaskFlow.start(t.ctx);
+    await t.step(say("Godown stock check"));
+    await t.step(tap(`${F}:quick:day2`));
+    const out = await t.step(tap(`${F}:confirm:yes`));
+    expect(body(out[0])).toContain("✅ Task ban gaya!");
+    expect((await t.store.listTasks({}))[0]).toMatchObject({ dueAt: "2026-10-28T04:30:00.000Z", dueHasTime: false });
+  });
+
+  it("a quick option that has passed is refused at tap time", async () => {
+    const t = setup(STAFF_RAIPUR);
+    await createTaskFlow.start(t.ctx);
+    await t.step(say("Godown"));
+    const late = { ...t.ctx, now: new Date("2026-10-26T13:00:00Z") };
+    const session = await t.store.getSession(STAFF_RAIPUR.phone);
+    const out = await createTaskFlow.handle(late, session!, tap(`${F}:quick:today18`));
+    expect(body(out[0])).toContain("nikal chuka");
+    expect(ids(out[0])).not.toContain(`${F}:quick:today18`);
+    expect((await t.session())?.step).toBe("ask_due");
   });
 
   it("every emitted reply id is namespaced", async () => {

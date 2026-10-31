@@ -123,7 +123,8 @@ describe("decide", () => {
     const msg = out[0];
     if (msg.kind !== "buttons") throw new Error("expected buttons");
     expect(msg.body).toBe("*Payment lena*\nStaff: Hardware\nAbhi ki date: 27 Oct\nNayi date: 5 Dec\nRemark: Customer bahar hai");
-    expect(msg.buttons.map((b) => b.id)).toEqual(["approvals:decide:approve", "approvals:decide:reject"]);
+    const key = `p1:${Date.parse("2026-10-25T04:30:00.000Z")}`;
+    expect(msg.buttons.map((b) => b.id)).toEqual([`approvals:decide:approve:${key}`, `approvals:decide:reject:${key}`]);
     expect(await step(ctx)).toBe("decide");
     expect(bodies(await send(ctx, say("hmm")))).toContain("buttons se chuniye");
   });
