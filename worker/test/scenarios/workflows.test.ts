@@ -304,9 +304,9 @@ describe("staff deactivated while owning pending tasks", () => {
     await chat(s, STAFF_DURG)(tap("MENU:create_task"));
     await chat(s, STAFF_DURG)("Bank jana");
     await chat(s, STAFF_DURG)(tap("create_task:due:today"));
-    await chat(s, STAFF_DURG)("3:10pm");
-    await chat(s, STAFF_DURG)(tap("create_task:repeat:none"));
-    const out = await chat(s, STAFF_DURG, at("2026-10-26T09:50:00Z"))(tap("create_task:confirm:yes")); // 15:20 IST
+    await chat(s, STAFF_DURG)("3:01pm");
+    // Within the 2-minute chat timeout, but after the due time.
+    const out = await chat(s, STAFF_DURG, at("2026-10-26T09:31:30Z"))(tap("create_task:confirm:yes")); // 15:01:30 IST
     expect(all(out)).toContain("nikal chuka hai");
     expect(s.tasks.size).toBe(0);
     expect((await s.getSession(STAFF_DURG.phone))!.step).toBe("ask_due");

@@ -104,7 +104,8 @@ export interface Session {
   updatedAt: string; // ISO UTC; sessions older than SESSION_TTL_MINUTES are dropped
 }
 
-export const SESSION_TTL_MINUTES = 30;
+/** An open chat (session) expires after this much silence; owner decision 2 Nov (was 30). */
+export const SESSION_TTL_MINUTES = 2;
 
 /** Failed dashboard logins, per client (hashed IP) and one "global" record. */
 export interface LoginGuard {

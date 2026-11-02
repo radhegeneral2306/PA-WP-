@@ -97,7 +97,7 @@ Send **"Hi"** (or hello / menu / namaste / start) → menu as a WhatsApp list.
 
 - **Admin menu (6):** 📋 Mere tasks · 👥 Staff ke tasks · ➕ Naya task · 📝 Naya task (Form) · ⏳ Approvals · ⚙️ Staff manage
 - **Staff menu (3):** 📋 Mere tasks · ➕ Naya task · 📝 Naya task (Form), shown as 3 plain buttons (one tap; admins get a list because they have 6 options)
-- Typing "cancel / band / ruko / stop / exit" ends the current conversation. Unfinished conversations expire after **30 minutes**. Taps on old buttons from another conversation get "Ye option purana hai".
+- Typing "cancel / band / ruko / stop / exit" ends the current conversation. Unfinished conversations expire after **2 minutes** of silence (was 30; owner 2 Nov), counted from the last message; then any message or tap gets "⏱️ Session expire ho gaya … *Hi* bhejiye". Taps on old buttons from another open conversation get "Ye option purana hai".
 
 ### 5.1 ➕ Naya task (chat wizard)
 *Shortened 31 Oct: staff 3 steps (title → one date tap → Haan), admin 4–5 steps (was 5 and 7).*

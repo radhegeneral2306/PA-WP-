@@ -34,6 +34,8 @@ export function canUseVoice(user: User): boolean {
   return user.role === "admin" && (VOICE_LIVE || VOICE_TESTERS.has(user.name));
 }
 
+export const EXPIRED = `⏱️ Session expire ho gaya (${SESSION_TTL_MINUTES} minute tak koi jawab nahi aaya). Dobara shuru karne ke liye *Hi* bhejiye.`;
+
 const BUSY_FOR_VOICE = "Pehle chal raha kaam pura ya cancel kijiye, phir voice note bhejiye.";
 
 const FORM_ENTRY: MenuEntry = {
@@ -117,7 +119,8 @@ export async function handleMessage(ctx: BotContext, input: Inbound): Promise<Ou
 
   const session = await store.getSession(user.phone);
   const fresh = session && ctx.now.getTime() - Date.parse(session.updatedAt) < SESSION_TTL_MINUTES * 60_000;
-  if (session && !fresh) await store.clearSession(user.phone);
+  const expired = !!session && !fresh;
+  if (expired) await store.clearSession(user.phone);
 
   // Buttons that name their own task (task actions, approvals) work from any older message.
   const direct = DIRECT.find((d) => d.re.test(replyId));
@@ -125,6 +128,9 @@ export async function handleMessage(ctx: BotContext, input: Inbound): Promise<Ou
     const stub = { phone: user.phone, flow: "", step: "", data: {}, updatedAt: ctx.now.toISOString() };
     return direct.flow.handle(ctx, stub, input);
   }
+
+  // A chat that went quiet: say so instead of silently treating the message as something else.
+  if (expired) return [text(user.phone, EXPIRED)];
 
   if (session && fresh) {
     const flow = FLOWS.find((f) => f.id === session.flow);
@@ -135,10 +141,14 @@ export async function handleMessage(ctx: BotContext, input: Inbound): Promise<Ou
     if (input.reply && !replyId.startsWith(`${flow.id}:`)) {
       return [mainMenu(ctx, "Ye option purana hai 🙂 Naye menu se chuniye.")];
     }
-    return flow.handle(ctx, session, input);
+    // The timeout counts from the user's last message, also when a step only re-prompts.
+    const touched = { ...session, updatedAt: ctx.now.toISOString() };
+    await store.saveSession(touched);
+    return flow.handle(ctx, touched, input);
   }
 
-  if (input.reply) return [mainMenu(ctx, "Ye option purana ho gaya hai 🙂 Naye menu se chuniye.")];
+  // A tap on a list/button whose chat already ended (no session left).
+  if (input.reply) return [text(user.phone, EXPIRED)];
   return [mainMenu(ctx)];
 }
 
