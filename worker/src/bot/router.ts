@@ -122,15 +122,18 @@ export async function handleMessage(ctx: BotContext, input: Inbound): Promise<Ou
   const expired = !!session && !fresh;
   if (expired) await store.clearSession(user.phone);
 
-  // Buttons that name their own task (task actions, approvals) work from any older message.
+  // A chat that went quiet: say so instead of silently treating the message as something else.
+  // This includes Done / Approve buttons on older messages (owner decision 2 Nov: they expire too).
+  if (expired) return [text(user.phone, EXPIRED)];
+
+  // While a chat is open, buttons that name their own task (task actions, approvals) act on that
+  // task even from an older message or from another flow's chat.
   const direct = DIRECT.find((d) => d.re.test(replyId));
-  if (direct && !(session && fresh && session.flow === direct.flow.id)) {
+  if (direct && session && fresh && session.flow !== direct.flow.id) {
+    await store.saveSession({ ...session, updatedAt: ctx.now.toISOString() });
     const stub = { phone: user.phone, flow: "", step: "", data: {}, updatedAt: ctx.now.toISOString() };
     return direct.flow.handle(ctx, stub, input);
   }
-
-  // A chat that went quiet: say so instead of silently treating the message as something else.
-  if (expired) return [text(user.phone, EXPIRED)];
 
   if (session && fresh) {
     const flow = FLOWS.find((f) => f.id === session.flow);

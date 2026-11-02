@@ -127,7 +127,7 @@ Send **"Hi"** (or hello / menu / namaste / start) → menu as a WhatsApp list.
 ### 5.4 📋 Mere tasks / 👥 Staff ke tasks
 - Pending tasks, earliest due first, ⚠️ marks overdue, 8 per page. Admin view: branch → person, or "everyone".
 - Admin "Staff ke tasks": **type a name** to jump straight to that person's tasks, or branch → person.
-- Task detail shows title, assignee, creator, due, reminder type, pending date request, last remark, with buttons **Done ✅ / Update ✏️ / Date badlo 🕒** (assignee, creator or any admin). The buttons carry the task id, so a button on an **older** task message acts on its own task (fixes audit C1).
+- Task detail shows title, assignee, creator, due, reminder type, pending date request, last remark, with buttons **Done ✅ / Update ✏️ / Date badlo 🕒** (assignee, creator or any admin). The buttons carry the task id, so a button on an **older** task message acts on its own task (fixes audit C1), but only while a chat is open: after the 2-minute timeout every old button (Done, Approve, Reject too) says "Session expire ho gaya".
 - After Done / Update / Date badlo the **remaining list comes back** (next task in one tap); after the last one: "🎉 Aapke koi pending task nahi hain!".
 - **Done:** reminders stop; creator gets **task_done_v1**; monthly → next month's task created.
 - **Update:** tap Update, or **just type the update while the task is open**. Remark (≤ 500 chars) added; creator gets **task_updated_v1**; every90 pauses till next morning.
