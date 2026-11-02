@@ -304,9 +304,9 @@ describe("staff deactivated while owning pending tasks", () => {
     await chat(s, STAFF_DURG)(tap("MENU:create_task"));
     await chat(s, STAFF_DURG)("Bank jana");
     await chat(s, STAFF_DURG)(tap("create_task:due:today"));
-    await chat(s, STAFF_DURG)("3:10pm");
-    await chat(s, STAFF_DURG)(tap("create_task:repeat:none"));
-    const out = await chat(s, STAFF_DURG, at("2026-10-26T09:50:00Z"))(tap("create_task:confirm:yes")); // 15:20 IST
+    await chat(s, STAFF_DURG)("3:01pm");
+    // Within the 2-minute chat timeout, but after the due time.
+    const out = await chat(s, STAFF_DURG, at("2026-10-26T09:31:30Z"))(tap("create_task:confirm:yes")); // 15:01:30 IST
     expect(all(out)).toContain("nikal chuka hai");
     expect(s.tasks.size).toBe(0);
     expect((await s.getSession(STAFF_DURG.phone))!.step).toBe("ask_due");
@@ -395,13 +395,32 @@ describe("duplicate deliveries and double cron", () => {
     expect(s.tasks.size).toBe(2);
   });
 
-  it("id-carrying buttons work after the session expired (router direct path)", async () => {
+  it("old Done / Approve buttons after the chat ended say expired and change nothing", async () => {
+    const s = store([task({ id: "m" }), task({ id: "p", dateRequest: req() })]);
+    const out = await chat(s, STAFF_DURG)(tap("tasks:act:done:m"));
+    expect(all(out)).toContain("Session expire ho gaya");
+    expect(templates(out)).toHaveLength(0);
+    expect((await s.getTask("m"))?.status).toBe("pending");
+    const appr = await chat(s, ADMIN)(tap(`approvals:decide:approve:p:${Date.parse(req().requestedAt)}`));
+    expect(all(appr)).toContain("Session expire ho gaya");
+    expect((await s.getTask("p"))?.dateRequest).not.toBeNull();
+  });
+
+  it("old Done button after 2 quiet minutes says expired", async () => {
+    const s = store([task({ id: "m" }), task({ id: "n" })]);
+    await openTask(s, STAFF_DURG, "m");
+    const late = await chat(s, STAFF_DURG, at("2026-10-26T09:32:30Z"))(tap("tasks:act:done:m"));
+    expect(all(late)).toContain("Session expire ho gaya");
+    expect((await s.getTask("m"))?.status).toBe("pending");
+  });
+
+  it("while another chat is open, a task button still acts on its own task", async () => {
     const s = store([task({ id: "m" })]);
+    await openTask(s, STAFF_DURG, "m");
+    await chat(s, STAFF_DURG)(tap("MENU:create_task"));
     const out = await chat(s, STAFF_DURG)(tap("tasks:act:done:m"));
     expect(all(out)).toContain("done mark ho gaya");
-    expect(templates(out)).toHaveLength(1);
     expect((await s.getTask("m"))?.status).toBe("done");
-    expect(await s.getSession(STAFF_DURG.phone)).toBeNull();
   });
 
   it("an old approval button decides its own request, not the one open now (C2)", async () => {

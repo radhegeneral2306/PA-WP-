@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { handleMessage } from "../src/bot/router";
+import { EXPIRED, handleMessage } from "../src/bot/router";
 import { MemoryStore } from "../src/data/memoryStore";
 import { ADMIN, ADMIN2, NOW, STAFF_DURG, USERS, makeCtx, say, tap } from "./helpers/bot";
 
@@ -57,8 +57,30 @@ describe("router", () => {
     const store = new MemoryStore({ users: USERS });
     await store.saveSession({ phone: ADMIN.phone, flow: "create_task", step: "ask_title", data: {}, updatedAt: "2026-10-26T08:00:00.000Z" });
     const [out] = await handleMessage(makeCtx(ADMIN, store, NOW), say("Sharma ji payment"));
-    expect(out.kind).toBe("list");
+    expect(out).toEqual({ to: ADMIN.phone, kind: "text", body: EXPIRED });
+    expect(EXPIRED).toContain("*Hi*");
     expect(await store.getSession(ADMIN.phone)).toBeNull();
+  });
+
+  it("expires a chat after 2 quiet minutes, counted from the user's last message", async () => {
+    const store = new MemoryStore({ users: USERS });
+    const at = (sec: number) => new Date(NOW.getTime() + sec * 1000);
+    await handleMessage(makeCtx(STAFF_DURG, store, NOW), tap("MENU:create_task"));
+    // A wrong input only re-prompts, but still keeps the chat alive.
+    await handleMessage(makeCtx(STAFF_DURG, store, at(100)), tap("create_task:due:today"));
+    await handleMessage(makeCtx(STAFF_DURG, store, at(200)), say("Bank jana"));
+    expect((await store.getSession(STAFF_DURG.phone))?.step).toBe("ask_due");
+    const [late] = await handleMessage(makeCtx(STAFF_DURG, store, at(200 + 121)), tap("create_task:quick:tom10"));
+    expect(late).toMatchObject({ kind: "text", body: EXPIRED });
+    expect(await store.getSession(STAFF_DURG.phone)).toBeNull();
+  });
+
+  it("a tap from a chat that already ended says expired; typed text with no chat gets the menu", async () => {
+    const store = new MemoryStore({ users: USERS });
+    const [tapOut] = await handleMessage(makeCtx(STAFF_DURG, store), tap("create_task:quick:tom10"));
+    expect(tapOut).toMatchObject({ kind: "text", body: EXPIRED });
+    const [typed] = await handleMessage(makeCtx(STAFF_DURG, store), say("kuch bhi"));
+    expect(typed.kind).toBe("buttons");
   });
 
   it("cancels with a cancel word", async () => {
