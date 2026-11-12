@@ -76,8 +76,9 @@ export async function request<T>(path: string, opts: Options = {}): Promise<T> {
 }
 
 export const api = {
-  login: (user: string, password: string) =>
-    request<LoginResponse>("/api/login", { method: "POST", body: { user, password }, authHandling: false }),
+  loginNames: () => request<{ admins: string[] }>("/api/login-names", { authHandling: false }),
+  login: (password: string, name: string | null) =>
+    request<LoginResponse>("/api/login", { method: "POST", body: name ? { password, name } : { password }, authHandling: false }),
   actor: (name: string) => request<ActorResponse>("/api/actor", { method: "POST", body: { name } }),
   me: () => request<MeResponse>("/api/me"),
   users: () => request<UsersResponse>("/api/users"),
