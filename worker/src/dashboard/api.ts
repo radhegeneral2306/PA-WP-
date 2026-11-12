@@ -1,5 +1,5 @@
 // /api/* for the dashboard (Cloudflare Pages app on another origin).
-// Every route except /api/login needs a valid session token; routes that change
+// Every route except /api/login and /api/login-names needs a valid session token; routes that change
 // data also need the admin name picked after login (used in remarks).
 
 import type { Env } from "../env";
@@ -30,6 +30,7 @@ export interface Route {
 
 const ROUTES: Route[] = [
   { method: "POST", path: "/api/login", auth: "none", handler: postLogin },
+  { method: "GET", path: "/api/login-names", auth: "none", handler: getLoginNames },
   { method: "GET", path: "/api/me", auth: "session", handler: getMe },
   { method: "POST", path: "/api/actor", auth: "session", handler: postActor },
 ];
@@ -96,13 +97,22 @@ async function activeAdminNames(store: Store): Promise<string[]> {
   return (await store.listUsers({ role: "admin" })).map((u) => u.name);
 }
 
+/** Admin first names for the login screen tiles (only names; no phones, no staff). */
+async function getLoginNames(ctx: ApiContext): Promise<Response> {
+  return json({ admins: await activeAdminNames(ctx.store) });
+}
+
+/** Password only (an old app may still send `user`; it is ignored). With a picked admin `name`, the token carries it. */
 async function postLogin(ctx: ApiContext, body: unknown): Promise<Response> {
-  const { user, password } = (body ?? {}) as { user?: unknown; password?: unknown };
-  if (typeof user !== "string" || typeof password !== "string") return json({ error: "ID aur password dono chahiye" }, 400);
+  const { password, name } = (body ?? {}) as { password?: unknown; name?: unknown };
+  if (typeof password !== "string" || password === "") return json({ error: "Password chahiye", code: "bad_request" }, 400);
   const ip = ctx.request.headers.get("CF-Connecting-IP") ?? "unknown";
-  const result = await login(ctx.env, ctx.store, ip, user, password, ctx.now);
+  const result = await login(ctx.env, ctx.store, ip, password, ctx.now);
   if (!result.ok) return json({ error: result.error, code: result.code }, result.status);
-  return json({ token: result.token, admins: await activeAdminNames(ctx.store), sessionDays: SESSION_DAYS });
+  const admins = await activeAdminNames(ctx.store);
+  const picked = typeof name === "string" && admins.includes(name) ? name : null;
+  const token = picked ? await issueToken(ctx.env, picked, ctx.now) : result.token;
+  return json({ token, admins, name: picked, sessionDays: SESSION_DAYS });
 }
 
 async function getMe(ctx: ApiContext): Promise<Response> {

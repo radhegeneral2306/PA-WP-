@@ -325,7 +325,7 @@ Run the `docs/TESTING-batch1.md` checklist sections A–G on real phones.
 - **Phase 1 done:** `cancelled` status (Section 6).
 - **Phase 2 done:** `/api/*` on the same Worker (`src/dashboard/`).
   - `POST /api/login {user, password}` → `{token, admins, sessionDays}`; `GET /api/me`; `POST /api/actor {name}` (pick "Aap kaun ho?" name, re-issues token)
-  - Shared login from secrets `DASHBOARD_USER` + `DASHBOARD_PASSWORD` (≥12 chars, else login disabled with 503). Constant-time digest compare.
+  - Shared login from secret `DASHBOARD_PASSWORD` (≥12 chars, else login disabled with 503). Constant-time digest compare. Since 12 Nov the login screen shows admin name tiles (`GET /api/login-names`) + password; no ID. `DASHBOARD_USER` is no longer checked (kept only in the token-signing seed so existing sessions stay valid).
   - Lockout: 5 wrong tries per client (hashed IP) → 15 min; 30 wrong tries from all clients in 15 min → everyone locked 15 min. Stored in Firestore `login_guards`.
   - Token: `base64url(JSON{name,iat,exp}).HMAC`, key derived from `WEBHOOK_SECRET` + dashboard credentials; 30 days; password change logs everyone out. Sent as `Authorization: Bearer`.
   - Route auth levels: `none` (login), `session`, `named` (data-changing routes need a picked admin name).

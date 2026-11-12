@@ -20,10 +20,13 @@
 
 ## Phase 2 (live)
 
+### `GET /api/login-names`  (auth: none, since 12 Nov)
+Response `{ "admins": string[] }`: active admin names for the login screen tiles (names only).
+
 ### `POST /api/login`  (auth: none)
-Request `{ "user": string, "password": string }`
-Response `{ "token": string, "admins": string[], "sessionDays": 30 }`
-The token has no name yet. The PWA then shows "Aap kaun ho?" with `admins`.
+Request `{ "password": string, "name"?: string }` (no ID since 12 Nov; an old `user` field is ignored)
+Response `{ "token": string, "admins": string[], "name": string | null, "sessionDays": 30 }`
+With a `name` that is an active admin, the token already carries it and the PWA opens straight away. Otherwise the token has no name and the PWA shows "Aap kaun ho?" with `admins`.
 
 ### `POST /api/actor`  (auth: session)
 Request `{ "name": string }` (must be one of `admins`)

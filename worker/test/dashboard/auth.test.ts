@@ -20,35 +20,36 @@ const later = (minutes: number) => new Date(NOW.getTime() + minutes * 60_000);
 describe("dashboard login", () => {
   it("is disabled until a long enough password is configured", async () => {
     const store = new MemoryStore();
-    expect(await login({ ...env, DASHBOARD_PASSWORD: undefined }, store, "1.1.1.1", "radhe", "x", NOW)).toMatchObject({ ok: false, status: 503 });
-    expect(await login({ ...env, DASHBOARD_PASSWORD: "short" }, store, "1.1.1.1", "radhe", "short", NOW)).toMatchObject({ ok: false, status: 503 });
+    expect(await login({ ...env, DASHBOARD_PASSWORD: undefined }, store, "1.1.1.1", "x", NOW)).toMatchObject({ ok: false, status: 503 });
+    expect(await login({ ...env, DASHBOARD_PASSWORD: "short" }, store, "1.1.1.1", "short", NOW)).toMatchObject({ ok: false, status: 503 });
   });
 
-  it("accepts the right ID and password only", async () => {
+  it("accepts the right password only (no ID since 12 Nov)", async () => {
     const store = new MemoryStore();
-    expect(await login(env, store, "1.1.1.1", "radhe", "wrong", NOW)).toMatchObject({ ok: false, status: 401 });
-    expect(await login(env, store, "1.1.1.1", "RADHE", "correct horse battery", NOW)).toMatchObject({ ok: false, status: 401 });
-    expect(await login(env, store, "1.1.1.1", "radhe", "correct horse battery", NOW)).toMatchObject({ ok: true });
+    expect(await login(env, store, "1.1.1.1", "wrong", NOW)).toMatchObject({ ok: false, status: 401, error: "Password galat hai." });
+    expect(await login(env, store, "1.1.1.1", "CORRECT HORSE BATTERY", NOW)).toMatchObject({ ok: false, status: 401 });
+    expect(await login(env, store, "1.1.1.1", "correct horse battery", NOW)).toMatchObject({ ok: true });
+    expect(await login({ ...env, DASHBOARD_USER: undefined }, store, "1.1.1.1", "correct horse battery", NOW)).toMatchObject({ ok: true });
   });
 
   it(`locks a client for ${LOCK_MINUTES} minutes after ${MAX_FAILS} wrong tries, even for the right password`, async () => {
     const store = new MemoryStore();
-    for (let i = 0; i < MAX_FAILS; i++) await login(env, store, "2.2.2.2", "radhe", "nope", NOW);
-    expect(await login(env, store, "2.2.2.2", "radhe", "correct horse battery", later(1))).toMatchObject({ ok: false, status: 429 });
+    for (let i = 0; i < MAX_FAILS; i++) await login(env, store, "2.2.2.2", "nope", NOW);
+    expect(await login(env, store, "2.2.2.2", "correct horse battery", later(1))).toMatchObject({ ok: false, status: 429 });
     // another client is not affected
-    expect(await login(env, store, "3.3.3.3", "radhe", "correct horse battery", later(1))).toMatchObject({ ok: true });
-    expect(await login(env, store, "2.2.2.2", "radhe", "correct horse battery", later(LOCK_MINUTES + 1))).toMatchObject({ ok: true });
+    expect(await login(env, store, "3.3.3.3", "correct horse battery", later(1))).toMatchObject({ ok: true });
+    expect(await login(env, store, "2.2.2.2", "correct horse battery", later(LOCK_MINUTES + 1))).toMatchObject({ ok: true });
   });
 
   it("locks everyone after too many failures from many clients", async () => {
     const store = new MemoryStore();
-    for (let i = 0; i < GLOBAL_MAX_FAILS; i++) await login(env, store, `10.0.0.${i}`, "radhe", "nope", NOW);
-    expect(await login(env, store, "9.9.9.9", "radhe", "correct horse battery", later(1))).toMatchObject({ ok: false, status: 429 });
+    for (let i = 0; i < GLOBAL_MAX_FAILS; i++) await login(env, store, `10.0.0.${i}`, "nope", NOW);
+    expect(await login(env, store, "9.9.9.9", "correct horse battery", later(1))).toMatchObject({ ok: false, status: 429 });
   });
 
   it("does not store raw IP addresses", async () => {
     const store = new MemoryStore();
-    await login(env, store, "2.2.2.2", "radhe", "nope", NOW);
+    await login(env, store, "2.2.2.2", "nope", NOW);
     expect(JSON.stringify([...store.guards.values()])).not.toContain("2.2.2.2");
   });
 });
@@ -96,6 +97,7 @@ describe("/api", () => {
     const store = new MemoryStore({ users: USERS });
     const bad = await call(store, "/api/login", { method: "POST", body: JSON.stringify({ user: "radhe", password: "x" }) });
     expect(bad.status).toBe(401);
+    expect((await call(store, "/api/login", { method: "POST", body: JSON.stringify({}) })).status).toBe(400);
 
     const res = await call(store, "/api/login", { method: "POST", body: JSON.stringify({ user: "radhe", password: "correct horse battery" }) });
     const { token, admins, sessionDays } = (await res.json()) as { token: string; admins: string[]; sessionDays: number };
@@ -107,6 +109,26 @@ describe("/api", () => {
     const picked = (await (await call(store, "/api/actor", { method: "POST", token, body: JSON.stringify({ name: "Bhaskar" }) })).json()) as { token: string };
     const me = (await (await call(store, "/api/me", { token: picked.token })).json()) as { name: string };
     expect(me.name).toBe("Bhaskar");
+  });
+
+  it("login screen: name tiles without a token, then password + name logs straight in", async () => {
+    const store = new MemoryStore({ users: USERS });
+    const names = (await (await call(store, "/api/login-names")).json()) as { admins: string[] };
+    expect(names).toEqual({ admins: [ADMIN.name, ADMIN2.name] });
+
+    const res = await call(store, "/api/login", { method: "POST", body: JSON.stringify({ password: "correct horse battery", name: "Bhaskar" }) });
+    const body = (await res.json()) as { token: string; name: string | null };
+    expect(body.name).toBe("Bhaskar");
+    const me = (await (await call(store, "/api/me", { token: body.token })).json()) as { name: string };
+    expect(me.name).toBe("Bhaskar");
+
+    // A name that is not an active admin is not put into the token (the app then asks "Aap kaun ho?").
+    const odd = (await (await call(store, "/api/login", { method: "POST", body: JSON.stringify({ password: "correct horse battery", name: "Hardware" }) })).json()) as { token: string; name: string | null };
+    expect(odd.name).toBeNull();
+    expect(((await (await call(store, "/api/me", { token: odd.token })).json()) as { name: string | null }).name).toBeNull();
+
+    const wrong = await call(store, "/api/login", { method: "POST", body: JSON.stringify({ password: "nope nope nope", name: "Bhaskar" }) });
+    expect(wrong.status).toBe(401);
   });
 
   it("requires a picked name for routes that change data", async () => {

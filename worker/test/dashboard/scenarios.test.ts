@@ -353,12 +353,12 @@ describe("paths, sessions, CORS", () => {
   it("lockout: tries while locked don't extend it; after it ends the count starts fresh", async () => {
     const store = new MemoryStore();
     const ip = "5.5.5.5";
-    for (let i = 0; i < MAX_FAILS; i++) await login(env, store, ip, "radhe", "nope", NOW);
-    for (let m = 1; m < LOCK_MINUTES; m += 3) expect(await login(env, store, ip, "radhe", "nope", later(m))).toMatchObject({ status: 429 });
-    expect(await login(env, store, ip, "radhe", "nope", later(LOCK_MINUTES + 1))).toMatchObject({ status: 401 });
-    expect(await login(env, store, ip, "radhe", "correct horse battery", later(LOCK_MINUTES + 2))).toMatchObject({ ok: true });
+    for (let i = 0; i < MAX_FAILS; i++) await login(env, store, ip, "nope", NOW);
+    for (let m = 1; m < LOCK_MINUTES; m += 3) expect(await login(env, store, ip, "nope", later(m))).toMatchObject({ status: 429 });
+    expect(await login(env, store, ip, "nope", later(LOCK_MINUTES + 1))).toMatchObject({ status: 401 });
+    expect(await login(env, store, ip, "correct horse battery", later(LOCK_MINUTES + 2))).toMatchObject({ ok: true });
     // a success resets the client's count: MAX_FAILS - 1 new failures do not lock
-    for (let i = 0; i < MAX_FAILS - 1; i++) await login(env, store, ip, "radhe", "nope", later(LOCK_MINUTES + 3));
-    expect(await login(env, store, ip, "radhe", "correct horse battery", later(LOCK_MINUTES + 4))).toMatchObject({ ok: true });
+    for (let i = 0; i < MAX_FAILS - 1; i++) await login(env, store, ip, "nope", later(LOCK_MINUTES + 3));
+    expect(await login(env, store, ip, "correct horse battery", later(LOCK_MINUTES + 4))).toMatchObject({ ok: true });
   });
 });

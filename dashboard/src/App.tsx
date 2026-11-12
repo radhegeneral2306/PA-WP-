@@ -97,7 +97,12 @@ function AuthGate() {
           notice={auth.notice}
           onLoggedIn={(r) => {
             setToken(r.token);
-            setAuth({ kind: "pick", admins: r.admins, error: null, current: null, canGoBack: false });
+            if (r.name) {
+              setName(r.name);
+              setAuth({ kind: "app", name: r.name });
+            } else {
+              setAuth({ kind: "pick", admins: r.admins, error: null, current: null, canGoBack: false });
+            }
           }}
         />
       );

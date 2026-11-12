@@ -1,5 +1,6 @@
-// Dashboard login: one shared ID + password (Cloudflare secrets), lockout after
-// repeated failures, and signed 30-day session tokens.
+// Dashboard login: one shared password (Cloudflare secret DASHBOARD_PASSWORD; the
+// login screen shows admin name tiles, so no ID is typed since 12 Nov), lockout
+// after repeated failures, and signed 30-day session tokens.
 //
 // Tokens are HMAC-signed with a key derived from WEBHOOK_SECRET + the dashboard
 // credentials, so changing the password logs every device out.
@@ -29,12 +30,13 @@ export type LoginResult = { ok: true; token: string } | { ok: false; status: num
 const enc = new TextEncoder();
 
 export function dashboardConfigured(env: Env): boolean {
-  return Boolean(env.DASHBOARD_USER && env.DASHBOARD_PASSWORD && env.DASHBOARD_PASSWORD.length >= MIN_PASSWORD_LENGTH);
+  return Boolean(env.DASHBOARD_PASSWORD && env.DASHBOARD_PASSWORD.length >= MIN_PASSWORD_LENGTH);
 }
 
-export async function login(env: Env, store: Store, clientIp: string, user: string, password: string, now: Date): Promise<LoginResult> {
+/** Checks the password; the token carries no name yet (see postLogin / postActor). */
+export async function login(env: Env, store: Store, clientIp: string, password: string, now: Date): Promise<LoginResult> {
   if (!dashboardConfigured(env)) {
-    return { ok: false, status: 503, code: "not_configured", error: "Dashboard login set nahi hai (DASHBOARD_USER / DASHBOARD_PASSWORD, kam se kam 12 characters)." };
+    return { ok: false, status: 503, code: "not_configured", error: "Dashboard login set nahi hai (DASHBOARD_PASSWORD, kam se kam 12 characters)." };
   }
   const ipKey = `ip-${(await sha256Hex(clientIp)).slice(0, 32)}`;
   for (const key of [ipKey, "global"]) {
@@ -44,13 +46,12 @@ export async function login(env: Env, store: Store, clientIp: string, user: stri
     }
   }
 
-  const userOk = await sameSecret(user, env.DASHBOARD_USER!);
   const passOk = await sameSecret(password, env.DASHBOARD_PASSWORD!);
-  if (!userOk || !passOk) {
+  if (!passOk) {
     await recordFailure(store, ipKey, MAX_FAILS, now);
     await recordFailure(store, "global", GLOBAL_MAX_FAILS, now);
     console.warn("Dashboard login failed", ipKey.slice(0, 11));
-    return { ok: false, status: 401, code: "bad_login", error: "ID ya password galat hai." };
+    return { ok: false, status: 401, code: "bad_login", error: "Password galat hai." };
   }
   await store.saveLoginGuard({ key: ipKey, fails: 0, windowStart: now.toISOString(), lockedUntil: null });
   return { ok: true, token: await issueToken(env, null, now) };
@@ -88,7 +89,8 @@ export async function verifyToken(env: Env, header: string | null, now: Date): P
 }
 
 async function sign(env: Env, data: string): Promise<string> {
-  const seed = `dashboard-session:${env.DASHBOARD_USER}:${env.DASHBOARD_PASSWORD}`;
+  // DASHBOARD_USER is no longer asked for, but stays in the seed so existing sessions remain valid.
+  const seed = `dashboard-session:${env.DASHBOARD_USER ?? ""}:${env.DASHBOARD_PASSWORD}`;
   const keyBytes = await hmac(enc.encode(env.WEBHOOK_SECRET), enc.encode(seed));
   return b64url(await hmac(keyBytes, enc.encode(data)));
 }

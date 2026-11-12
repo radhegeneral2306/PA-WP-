@@ -73,6 +73,8 @@ export interface TasksResponse {
 export interface LoginResponse {
   token: string;
   admins: string[];
+  /** The admin picked on the login screen, when it is still an active admin. */
+  name: string | null;
   sessionDays: number;
 }
 
