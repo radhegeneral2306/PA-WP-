@@ -71,6 +71,8 @@ export async function request<T>(path: string, opts: Options = {}): Promise<T> {
     throw new ApiError(403, apiMsg || "Pehle apna naam chuniye", code);
   }
   if (res.status === 404) throw new ApiError(404, apiMsg || "Nahi mila", code);
+  // Setup problems (e.g. password shorter than 12) come with a clear reason; show it instead of a generic error.
+  if (res.status === 503 && code === "not_configured") throw new ApiError(503, apiMsg || "Dashboard login set nahi hai.", code);
   if (res.status >= 500) throw new ApiError(res.status, "Server mein dikkat hai. Dobara try karein.", code);
   throw new ApiError(res.status, apiMsg || "Kuch gadbad ho gayi. Dobara try karein.", code);
 }
