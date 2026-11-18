@@ -37,7 +37,7 @@ const storeWith = (...tasks: Task[]) => new MemoryStore({ users: USERS, tasks: t
 
 describe("matchWriteRoute", () => {
   it("parses POST /api/tasks/<id>/<action>", () => {
-    for (const action of ["done", "remark", "due", "assign", "cancel", "reopen", "approve", "reject"]) {
+    for (const action of ["done", "remark", "due", "assign", "cancel", "reopen", "approve", "reject", "urgent", "delete", "restore", "purge"]) {
       const m = matchWriteRoute("POST", `/api/tasks/abc123/${action}`);
       expect(m?.id).toBe("abc123");
       expect(m?.route).toMatchObject({ method: "POST", auth: "named", path: `/api/tasks/abc123/${action}` });
@@ -66,6 +66,10 @@ describe("matchWriteRoute", () => {
       ["POST", "/api/tasks/:id/reopen", "named"],
       ["POST", "/api/tasks/:id/approve", "named"],
       ["POST", "/api/tasks/:id/reject", "named"],
+      ["POST", "/api/tasks/:id/urgent", "named"],
+      ["POST", "/api/tasks/:id/delete", "named"],
+      ["POST", "/api/tasks/:id/restore", "named"],
+      ["POST", "/api/tasks/:id/purge", "named"],
     ]);
   });
 });
@@ -346,5 +350,187 @@ describe("approve / reject date requests", () => {
     expect((await changed.getTask("task1"))?.dateRequest).toEqual(REQ);
     const done = await post(storeWith(task({ status: "done", dateRequest: REQ })), "/api/tasks/task1/reject", {}, ADMIN.name);
     expect([done.res.status, done.body.code, done.sent]).toEqual([409, "task_closed", []]);
+  });
+});
+
+describe("Round 3: urgent, delete (recycle bin), restore, purge", () => {
+  const PAST_DUE = "2026-10-20T04:30:00.000Z"; // 20 Oct 10:00 IST, before NOW
+  const binned = (overrides: Partial<Task> = {}) =>
+    task({
+      status: "deleted",
+      deletedFrom: "pending",
+      deletedAt: "2026-10-25T00:00:00.000Z",
+      deletedByName: "Bhaskar (dashboard)",
+      nextReminderAt: null,
+      ...overrides,
+    });
+
+  it("urgent on and off: remark, no WhatsApp, reminders untouched; same value is a no-op", async () => {
+    const store = storeWith();
+    const on = await post(store, "/api/tasks/task1/urgent", { urgent: true }, ADMIN2.name);
+    expect(on.res.status).toBe(200);
+    expect(on.sent).toEqual([]);
+    expect(on.body.task).toMatchObject({ urgent: true, nextReminderAt: "2026-10-27T04:30:00.000Z", status: "pending" });
+    expect(on.body.task?.lastRemark).toMatchObject({ byName: "Partner Two (dashboard)", text: "Urgent kiya" });
+    const again = await post(store, "/api/tasks/task1/urgent", { urgent: true });
+    expect(again.body.task?.remarks).toHaveLength(1);
+    const off = await post(store, "/api/tasks/task1/urgent", { urgent: false });
+    expect(off.body.task).toMatchObject({ urgent: false });
+    expect(off.body.task?.lastRemark?.text).toBe("Urgent hataya");
+    expect(off.sent).toEqual([]);
+  });
+
+  it("urgent: body must be a boolean; refused on deleted tasks; allowed on done ones", async () => {
+    expect((await post(storeWith(), "/api/tasks/task1/urgent", { urgent: "yes" })).body).toMatchObject({ code: "bad_request" });
+    expect((await post(storeWith(), "/api/tasks/task1/urgent", {})).res.status).toBe(400);
+    const del = await post(storeWith(binned()), "/api/tasks/task1/urgent", { urgent: true });
+    expect(del.res.status).toBe(409);
+    expect(del.body.code).toBe("task_closed");
+    const done = await post(storeWith(task({ status: "done", doneAt: NOW.toISOString(), nextReminderAt: null })), "/api/tasks/task1/urgent", { urgent: true });
+    expect(done.res.status).toBe(200);
+  });
+
+  it("delete: into the bin with deletedFrom, stops reminders and date requests, no WhatsApp", async () => {
+    const req = { dueAt: "2026-12-01T04:30:00.000Z", hasTime: false, remark: "r", byPhone: STAFF_DURG.phone, byName: STAFF_DURG.name, requestedAt: NOW.toISOString() };
+    const store = storeWith(task({ dateRequest: req }));
+    const { res, body, sent } = await post(store, "/api/tasks/task1/delete", {});
+    expect(res.status).toBe(200);
+    expect(sent).toEqual([]);
+    expect(body.task).toMatchObject({
+      status: "deleted",
+      deletedFrom: "pending",
+      deletedAt: NOW.toISOString(),
+      deletedByName: "Bhaskar (dashboard)",
+      nextReminderAt: null,
+      dateRequest: null,
+    });
+    expect(body.task?.lastRemark?.text).toBe("Recycle bin mein dala");
+    expect(body.next).toBeNull();
+    // Deleted tasks are closed for every other action.
+    for (const [action, b] of [["done", {}], ["remark", { text: "x" }], ["due", { date: "2026-11-02" }], ["cancel", {}], ["assign", { phone: STAFF_RAIPUR.phone }]] as const) {
+      const r = await post(store, `/api/tasks/task1/${action}`, b);
+      expect(r.res.status).toBe(409);
+      expect(r.body.code).toBe("task_closed");
+    }
+    expect((await post(store, "/api/tasks/task1/reopen", { date: "2026-11-02" })).res.status).toBe(409);
+  });
+
+  it("delete of done / cancelled / weekly tasks keeps the previous status; no next occurrence", async () => {
+    const store = storeWith(
+      task({ id: "d", status: "done", doneAt: "2026-10-25T00:00:00.000Z", nextReminderAt: null }),
+      task({ id: "c", status: "cancelled", cancelledAt: "2026-10-25T00:00:00.000Z", nextReminderAt: null }),
+      task({ id: "w", repeat: "weekly" }),
+    );
+    expect((await post(store, "/api/tasks/d/delete", {})).body.task?.deletedFrom).toBe("done");
+    expect((await post(store, "/api/tasks/c/delete", {})).body.task?.deletedFrom).toBe("cancelled");
+    expect((await post(store, "/api/tasks/w/delete", {})).body.next).toBeNull();
+    expect(store.tasks.size).toBe(3);
+  });
+
+  it("delete twice → 409 task_closed", async () => {
+    const r = await post(storeWith(binned()), "/api/tasks/task1/delete", {});
+    expect(r.res.status).toBe(409);
+    expect(r.body.code).toBe("task_closed");
+  });
+
+  it("restore of a pending task with a future due: reminders restart from the due date", async () => {
+    const store = storeWith(binned({ repeat: "every90", dueAt: "2026-10-27T15:30:00.000Z", dueHasTime: true })); // 27 Oct 9 PM IST
+    const { res, body, sent } = await post(store, "/api/tasks/task1/restore", {}, ADMIN2.name);
+    expect(res.status).toBe(200);
+    expect(sent).toEqual([]);
+    expect(body.task).toMatchObject({
+      status: "pending",
+      deletedAt: null,
+      deletedByName: null,
+      deletedFrom: null,
+      dueAt: "2026-10-27T15:30:00.000Z",
+      nextReminderAt: "2026-10-28T04:30:00.000Z", // every90 starts in working hours (10 AM next day)
+    });
+    expect(body.task?.lastRemark).toMatchObject({ byName: "Partner Two (dashboard)", text: "Recycle bin se wapas" });
+  });
+
+  it("restore of a pending task whose due has passed needs a new future date", async () => {
+    const store = storeWith(binned({ dueAt: PAST_DUE }));
+    const none = await post(store, "/api/tasks/task1/restore", {});
+    expect(none.res.status).toBe(400);
+    expect(none.body.code).toBe("need_date");
+    const past = await post(store, "/api/tasks/task1/restore", { date: "2026-10-25" });
+    expect(past.res.status).toBe(400);
+    expect(past.body.code).toBe("need_date");
+    expect((await post(store, "/api/tasks/task1/restore", { date: "2026-13-01" })).body.code).toBe("bad_request");
+    expect((await store.getTask("task1"))?.status).toBe("deleted");
+
+    const ok = await post(store, "/api/tasks/task1/restore", { date: "2026-10-30", time: "16:00" });
+    expect(ok.res.status).toBe(200);
+    expect(ok.sent).toEqual([]);
+    expect(ok.body.task).toMatchObject({
+      status: "pending",
+      dueAt: "2026-10-30T10:30:00.000Z",
+      dueHasTime: true,
+      nextReminderAt: "2026-10-30T10:30:00.000Z",
+      deletedFrom: null,
+    });
+    expect(ok.body.task?.lastRemark?.text).toMatch(/^Recycle bin se wapas, nayi date: 30 Oct, 4:00 PM$/);
+  });
+
+  it("restore of done / cancelled tasks puts the status back, no reminders, date ignored", async () => {
+    const store = storeWith(
+      binned({ id: "d", deletedFrom: "done", doneAt: "2026-10-20T00:00:00.000Z", dueAt: PAST_DUE }),
+      binned({ id: "c", deletedFrom: "cancelled", cancelledAt: "2026-10-20T00:00:00.000Z", dueAt: PAST_DUE }),
+    );
+    const d = await post(store, "/api/tasks/d/restore", {});
+    expect(d.body.task).toMatchObject({ status: "done", nextReminderAt: null, dueAt: PAST_DUE, deletedAt: null });
+    const c = await post(store, "/api/tasks/c/restore", { date: "2026-11-05" });
+    expect(c.body.task).toMatchObject({ status: "cancelled", nextReminderAt: null, dueAt: PAST_DUE });
+  });
+
+  it("restore of a task not in the bin → 409 not_deleted", async () => {
+    const r = await post(storeWith(), "/api/tasks/task1/restore", {});
+    expect(r.res.status).toBe(409);
+    expect(r.body.code).toBe("not_deleted");
+  });
+
+  it("purge: super admin only, only from the bin, removes the document", async () => {
+    const store = storeWith(binned(), task({ id: "live" }));
+    const other = await post(store, "/api/tasks/task1/purge", {}, ADMIN2.name);
+    expect(other.res.status).toBe(403);
+    expect(other.body.code).toBe("super_admin_only");
+    expect(store.tasks.has("task1")).toBe(true);
+
+    const live = await post(store, "/api/tasks/live/purge", {});
+    expect(live.res.status).toBe(409);
+    expect(live.body.code).toBe("not_deleted");
+    expect(store.tasks.has("live")).toBe(true);
+
+    const ok = await post(store, "/api/tasks/task1/purge", {});
+    expect(ok.res.status).toBe(200);
+    expect(ok.body).toEqual({ purged: true });
+    expect(ok.sent).toEqual([]);
+    expect(store.tasks.has("task1")).toBe(false);
+    expect((await post(store, "/api/tasks/task1/purge", {})).res.status).toBe(404);
+  });
+
+  it("all four need a named active admin", async () => {
+    for (const action of ["urgent", "delete", "restore", "purge"]) {
+      for (const name of [null, STAFF_DURG.name]) {
+        const r = await post(storeWith(binned()), `/api/tasks/task1/${action}`, { urgent: true }, name);
+        expect(r.res.status).toBe(403);
+        expect(r.body.code).toBe("need_name");
+      }
+    }
+  });
+});
+
+describe("restore of an old bin record without deletedFrom", () => {
+  it("guesses the status from doneAt / cancelledAt, else pending", async () => {
+    const base = { status: "deleted" as const, deletedAt: "2026-10-25T00:00:00.000Z", nextReminderAt: null };
+    const store = storeWith(
+      task({ id: "d", ...base, doneAt: "2026-10-20T00:00:00.000Z" }),
+      task({ id: "c", ...base, cancelledAt: "2026-10-20T00:00:00.000Z" }),
+      task({ id: "p", ...base }),
+    );
+    expect((await post(store, "/api/tasks/d/restore", {})).body.task?.status).toBe("done");
+    expect((await post(store, "/api/tasks/c/restore", {})).body.task?.status).toBe("cancelled");
+    expect((await post(store, "/api/tasks/p/restore", {})).body.task).toMatchObject({ status: "pending", nextReminderAt: "2026-10-27T04:30:00.000Z" });
   });
 });

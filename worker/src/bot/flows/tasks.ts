@@ -282,6 +282,7 @@ function detailBody(t: Task, now: Date): string {
   const overdue = t.status === "pending" && isOverdue(t.dueAt, now) ? " ⚠️ Overdue" : "";
   const lines = [
     `*${t.title}*`,
+    ...(t.urgent ? ["🔴 Urgent"] : []),
     `Kisko: ${t.assigneeName}`,
     `Diya: ${t.createdByName}`,
     `Due: ${formatDue(t.dueAt, t.dueHasTime, now)}${overdue}`,
@@ -321,7 +322,8 @@ const STATUS_LABEL: Record<Task["status"], string> = { pending: "Pending", done:
 /** Loads the task and checks the actor may touch it; returns a reply on failure. */
 async function loadOwned(ctx: BotContext, taskId: string | undefined): Promise<Task | Outgoing[]> {
   const t = taskId ? await ctx.store.getTask(taskId) : null;
-  if (!t) return finish(ctx, MSG.notFound);
+  // A task in the dashboard recycle bin doesn't exist for WhatsApp (old messages may still name it).
+  if (!t || t.status === "deleted") return finish(ctx, MSG.notFound);
   if (!canAct(ctx.user, t)) return finish(ctx, MSG.notYours);
   return t;
 }

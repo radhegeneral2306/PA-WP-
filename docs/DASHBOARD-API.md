@@ -155,3 +155,52 @@ PWA: "Naya task" button (floating on phone, top bar on desktop) opens a form: Ta
 | Phase | What |
 |---|---|
 | 7 | Extras: summary cards, history view, per-staff counts (to be decided with the owner). |
+
+---
+
+## Round 3 (18 Nov 2026): urgent, weekly, recycle bin, export
+
+See `docs/ROUND3-CONTRACT.md` for the owner rules.
+
+**`TaskDTO`** adds:
+- `urgent: boolean` (false for older tasks)
+- `deletedAt: string|null`, `deletedByName: string|null`, `deletedFrom: "pending"|"done"|"cancelled"|null`
+- `repeat` may be `"weekly"`; `status` may be `"deleted"`.
+
+**`GET /api/me`** adds `superAdmin: boolean`: the name is still an active admin and equals "Bhaskar" exactly.
+
+**`GET /api/tasks`**
+- `view=archive` reads done + cancelled only (never deleted).
+- `view=bin` returns deleted tasks, newest `deletedAt` first. `limit` as in archive (default 200, max 500).
+- Any other view: 400.
+
+**`POST /api/tasks`** also accepts `urgent?: boolean` (non-boolean → 400 `bad_request`) and `repeat: "weekly"`.
+
+**New task actions** (all `named` auth). None sends a WhatsApp message. Response `{ task, next: null }` (purge: `{ purged: true }`).
+
+| Action | Body | Notes / errors |
+|---|---|---|
+| `POST /api/tasks/:id/urgent` | `{ urgent: boolean }` | Remark "Urgent kiya" / "Urgent hataya". Non-boolean → 400. Deleted → 409 `task_closed`. |
+| `POST /api/tasks/:id/delete` | `{}` | Status `deleted`, keeps `deletedFrom`, clears reminder and date request, remark "Recycle bin mein dala". Already deleted → 409 `task_closed`. |
+| `POST /api/tasks/:id/restore` | `{ date?, time? }` | Back to `deletedFrom`. A pending task restarts its reminders. Past due with no or past new date → 400 `need_date`. Not deleted → 409 `not_deleted`. |
+| `POST /api/tasks/:id/purge` | `{}` | Super admin only (403 `super_admin_only`). Not in the bin → 409 `not_deleted`. |
+
+- Every other action on a deleted task → 409 `task_closed` ("Ye task recycle bin mein hai").
+- WhatsApp treats deleted tasks as not found.
+
+**`GET /api/export?from=YYYY-MM-DD&to=YYYY-MM-DD&status=all|pending|done|cancelled`** (session auth)
+
+Response:
+- Headers: `text/csv; charset=utf-8`, `Content-Disposition` with the filename, `Access-Control-Expose-Headers: Content-Disposition`.
+- Encoding: UTF-8 BOM, CRLF line endings, every field quoted.
+- Formula-looking fields get a leading `'`.
+
+Columns: Task, Kisko, Branch, Diya, Due, Status, Done date, Urgent, Repeat, Last remark.
+
+Rows:
+- Filtered by the due date's IST day, both ends inclusive.
+- Deleted tasks and phone numbers are never included.
+
+Errors: 400 `bad_request` for bad dates, `from > to`, a range over 366 days, or an unknown status.
+
+**Daily cleanup** also purges bin tasks with `deletedAt` older than 30 days (+1 query, +1 commit).

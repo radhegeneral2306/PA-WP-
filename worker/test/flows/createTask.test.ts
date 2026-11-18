@@ -4,6 +4,7 @@ import type { User } from "../../src/domain/types";
 import type { Inbound } from "../../src/bot/flow";
 import type { Outgoing } from "../../src/bot/outgoing";
 import { createTaskFlow } from "../../src/bot/flows/createTask";
+import { tasksFlow } from "../../src/bot/flows/tasks";
 import { ADMIN, ADMIN2, NOW, STAFF_DURG, STAFF_RAIPUR, USERS, makeCtx, say, tap } from "../helpers/bot";
 
 const F = "create_task";
@@ -64,7 +65,7 @@ describe("createTaskFlow", () => {
     const conf = await t.step(tap(`${F}:quick:tom10`));
     expect((await t.session())?.step).toBe("confirm");
     expect(conf[0].kind).toBe("buttons");
-    expect(ids(conf[0])).toEqual([`${F}:confirm:yes`, `${F}:confirm:repeat`, `${F}:confirm:no`]);
+    expect(ids(conf[0])).toEqual([`${F}:confirm:yes`, `${F}:confirm:edit`, `${F}:confirm:no`]);
     expect(body(conf[0])).toContain("🔔 Reminder: *Ek baar*");
     expect(body(conf[0])).toContain("*Sharma ji se payment lena*");
     expect(body(conf[0])).toContain("Hardware (Durg)");
@@ -260,7 +261,7 @@ describe("createTaskFlow", () => {
     await t.step(tap(`${F}:time:skip`));
     await t.step(tap(`${F}:repeat:none`));
     const confJunk = await t.step(say("ok"));
-    expect(ids(confJunk[0])).toEqual([`${F}:confirm:yes`, `${F}:confirm:repeat`, `${F}:confirm:no`]);
+    expect(ids(confJunk[0])).toEqual([`${F}:confirm:yes`, `${F}:confirm:edit`, `${F}:confirm:no`]);
     expect((await t.session())?.step).toBe("confirm");
   });
 
@@ -304,8 +305,8 @@ describe("createTaskFlow", () => {
     await adminToTitle(t);
     await t.step(say("Rent dena"));
     await t.step(say("28/10 4pm"));
-    const rep = await t.step(tap(`${F}:confirm:repeat`));
-    expect(body(rep[0])).toContain("Reminder kaise chahiye?");
+    const rep = await t.step(tap(`${F}:confirm:edit`));
+    expect(body(rep[0])).toContain("Reminder kaise chahiye");
     expect((await t.session())?.step).toBe("ask_repeat");
   }
 
@@ -376,11 +377,13 @@ describe("createTaskFlow", () => {
     await toRepeat(t);
     const typed = await t.step(say("har mahine"));
     expect(body(typed[0])).toContain("chuniye");
-    expect(ids(typed[0])).toEqual([`${F}:repeat:none`, `${F}:repeat:every90`, `${F}:repeat:monthly`]);
-    const stale = await t.step(tap(`${F}:repeat:weekly`));
+    expect(ids(typed[0])).toEqual([
+      `${F}:repeat:none`, `${F}:repeat:every90`, `${F}:repeat:monthly`, `${F}:repeat:weekly`, `${F}:urgent:on`,
+    ]);
+    const stale = await t.step(tap(`${F}:repeat:yearly`));
     expect(ids(stale[0])).toContain(`${F}:repeat:none`);
     const old = await t.step(tap(`${F}:confirm:yes`));
-    expect(old[0].kind).toBe("buttons");
+    expect(old[0].kind).toBe("list");
     expect((await t.session())?.step).toBe("ask_repeat");
     expect(await t.store.listTasks({})).toHaveLength(0);
   });
@@ -470,5 +473,148 @@ describe("createTaskFlow", () => {
       ...(await t.step(tap(`${F}:repeat:monthly`))),
     ];
     for (const o of outs) for (const id of ids(o)) expect(id.startsWith(`${F}:`)).toBe(true);
+  });
+});
+
+describe("createTaskFlow ⚙️ Badlo: repeat kinds and 🔴 Urgent (Round 3, F4/F5)", () => {
+  // NOW is Monday 26 Oct; "28/10 4pm" is a Wednesday (Budhvar).
+  async function toConfirm(t: ReturnType<typeof setup>) {
+    await adminToTitle(t);
+    await t.step(say("Rent dena"));
+    return t.step(say("28/10 4pm"));
+  }
+
+  function rows(o: Outgoing) {
+    if (o.kind !== "list") throw new Error("expected list");
+    return o.rows;
+  }
+
+  it("confirm has Haan / ⚙️ Badlo / Nahi and Badlo opens the options list", async () => {
+    const t = setup(ADMIN);
+    const conf = await toConfirm(t);
+    if (conf[0].kind !== "buttons") throw new Error("expected buttons");
+    expect(conf[0].buttons.map((b) => b.title)).toEqual(["Haan ✅", "⚙️ Badlo", "Nahi ❌"]);
+    for (const b of conf[0].buttons) {
+      expect(b.title.length).toBeLessThanOrEqual(20);
+      expect(b.title).not.toMatch(/cancel|stop/i);
+    }
+    const opt = await t.step(tap(`${F}:confirm:edit`));
+    expect((await t.session())?.step).toBe("ask_repeat");
+    const r = rows(opt[0]);
+    expect(r.map((x) => x.id)).toEqual([
+      `${F}:repeat:none`, `${F}:repeat:every90`, `${F}:repeat:monthly`, `${F}:repeat:weekly`, `${F}:urgent:on`,
+    ]);
+    expect(r.map((x) => x.title)).toEqual(["Ek baar ✓", "Har 90 min", "Har mahine", "Har hafte", "🔴 Urgent karo"]);
+    expect(r.every((x) => x.description && x.description.length <= 72 && x.title.length <= 24)).toBe(true);
+    expect(r[2].description).toBe("Har mahine 28 tareekh ko");
+    expect(r[3].description).toBe("Har Budhvar ko");
+  });
+
+  const kinds: [string, string][] = [
+    ["none", "Ek baar"],
+    ["every90", "Har 90 min"],
+    ["monthly", "Har mahine (28 tareekh)"],
+    ["weekly", "Har hafte (Budhvar)"],
+  ];
+  for (const [kind, label] of kinds) {
+    it(`Badlo -> ${kind}: back on confirm with "${label}" and saved`, async () => {
+      const t = setup(ADMIN);
+      await toConfirm(t);
+      await t.step(tap(`${F}:confirm:edit`));
+      const conf = await t.step(tap(`${F}:repeat:${kind}`));
+      expect((await t.session())?.step).toBe("confirm");
+      expect(conf[0].kind).toBe("buttons");
+      expect(body(conf[0])).toContain(`🔔 Reminder: *${label}*`);
+      const out = await t.step(tap(`${F}:confirm:yes`));
+      expect(body(out[0])).toContain(`🔔 Reminder: *${label}*`);
+      const [saved] = await t.store.listTasks({});
+      expect(saved.repeat).toBe(kind);
+      expect(saved.urgent).toBeUndefined();
+      if (kind === "weekly") {
+        expect(saved).toMatchObject({ repeatDay: null, cycleMonth: null, nextReminderAt: "2026-10-28T10:30:00.000Z" });
+        const tpl = out[1];
+        if (tpl.kind !== "template") throw new Error("expected template");
+        expect(tpl.bodyValues[4]).toBe("28 Oct, 4:00 PM (har hafte)");
+      }
+    });
+  }
+
+  it("Urgent karo / Urgent hatao toggles, shows 🔴 Urgent and saves urgent: true", async () => {
+    const t = setup(ADMIN);
+    await toConfirm(t);
+    const nonce = (await t.session())?.data.nonce;
+    expect(nonce).toBeTruthy();
+    await t.step(tap(`${F}:confirm:edit`));
+    const on = await t.step(tap(`${F}:urgent:on`));
+    expect(body(on[0])).toContain("\n🔴 Urgent\n");
+    expect((await t.session())?.data).toMatchObject({ urgent: "true", nonce });
+
+    const opt = await t.step(tap(`${F}:confirm:edit`));
+    const r = rows(opt[0]);
+    expect(r[4]).toMatchObject({ id: `${F}:urgent:off`, title: "Urgent hatao" });
+    const off = await t.step(tap(`${F}:urgent:off`));
+    expect(body(off[0])).not.toContain("Urgent");
+    expect((await t.session())?.data.urgent).toBeUndefined();
+
+    await t.step(tap(`${F}:confirm:edit`));
+    await t.step(tap(`${F}:urgent:on`));
+    await t.step(tap(`${F}:confirm:edit`));
+    await t.step(tap(`${F}:repeat:weekly`));
+    const out = await t.step(tap(`${F}:confirm:yes`));
+    expect(body(out[0])).toContain("🔴 Urgent");
+    const [saved] = await t.store.listTasks({});
+    expect(saved).toMatchObject({ urgent: true, repeat: "weekly" });
+  });
+
+  it("double tap on Haan after Badlo still creates one task", async () => {
+    const t = setup(ADMIN);
+    await toConfirm(t);
+    await t.step(tap(`${F}:confirm:edit`));
+    await t.step(tap(`${F}:urgent:on`));
+    const s = await t.session();
+    const first = await createTaskFlow.handle(t.ctx, s!, tap(`${F}:confirm:yes`));
+    const second = await createTaskFlow.handle(t.ctx, s!, tap(`${F}:confirm:yes`));
+    expect(first.length).toBeGreaterThan(0);
+    expect(second).toEqual([]);
+    expect(await t.store.listTasks({})).toHaveLength(1);
+  });
+
+  it("old ids: confirm:repeat opens the list; repeat:<kind> and urgent:on on the confirm step apply", async () => {
+    const t = setup(ADMIN);
+    await toConfirm(t);
+    const old = await t.step(tap(`${F}:confirm:repeat`));
+    expect(old[0].kind).toBe("list");
+    expect((await t.session())?.step).toBe("ask_repeat");
+    await t.step(tap(`${F}:repeat:none`));
+    // An earlier list / repeat button tapped while the confirm screen is open.
+    const conf = await t.step(tap(`${F}:repeat:weekly`));
+    expect((await t.session())?.step).toBe("confirm");
+    expect(body(conf[0])).toContain("Har hafte (Budhvar)");
+    const urg = await t.step(tap(`${F}:urgent:on`));
+    expect(body(urg[0])).toContain("🔴 Urgent");
+    const junk = await t.step(tap(`${F}:urgent:maybe`));
+    expect(body(junk[0])).toContain("Neeche diye option");
+    await t.step(tap(`${F}:confirm:yes`));
+    expect((await t.store.listTasks({}))[0]).toMatchObject({ repeat: "weekly", urgent: true });
+  });
+
+  it("weekly task made in the wizard: Done from Mere tasks creates next week's task", async () => {
+    const store = new MemoryStore({ users: USERS });
+    const admin = setup(ADMIN, store);
+    await toConfirm(admin);
+    await admin.step(tap(`${F}:confirm:edit`));
+    await admin.step(tap(`${F}:repeat:weekly`));
+    await admin.step(tap(`${F}:confirm:yes`));
+    const [made] = await store.listTasks({});
+
+    const staffCtx = makeCtx(STAFF_DURG, store);
+    await tasksFlow.start(staffCtx);
+    const session = await store.getSession(STAFF_DURG.phone);
+    const out = await tasksFlow.handle(staffCtx, session!, tap(`tasks:act:done:${made.id}`));
+    expect(out.some((o) => o.kind === "text" && o.body.includes("🔁 Agla task: *4 Nov, 4:00 PM*"))).toBe(true);
+    const pending = await store.listTasks({ status: "pending" });
+    expect(pending).toHaveLength(1);
+    expect(pending[0]).toMatchObject({ repeat: "weekly", dueAt: "2026-11-04T10:30:00.000Z", title: "Rent dena" });
+    expect((await store.getTask(made.id))?.status).toBe("done");
   });
 });

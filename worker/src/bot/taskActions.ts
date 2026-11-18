@@ -1,6 +1,7 @@
 // Task changes shared by the WhatsApp flows and the dashboard API, so both
 // apply the same rules (reminders, monthly repeat, notifications).
-// Callers check permissions; these functions refuse closed (done/cancelled) tasks.
+// Callers check permissions; these functions refuse closed (done/cancelled) and
+// deleted (recycle bin) tasks.
 
 import type { Store } from "../data/store";
 import { atIST, formatDateTime, formatDue, istDay, isValidDay, type ParsedDue } from "../domain/dates";
@@ -29,6 +30,7 @@ const fail = (status: number, code: string, error: string): ActionResult => ({ o
 function closed(t: Task): ActionResult | null {
   if (t.status === "done") return fail(409, "task_closed", "Ye task pehle hi done ho chuka hai");
   if (t.status === "cancelled") return fail(409, "task_closed", "Ye task cancel ho chuka hai");
+  if (t.status === "deleted") return fail(409, "task_closed", "Ye task recycle bin mein hai");
   return null;
 }
 
@@ -274,6 +276,80 @@ export async function reopenTask(store: Store, t: Task, actor: Actor, due: Parse
   const task = await reload(store, t.id);
   const outs = task.assigneePhone !== actor.phone ? [assignedNotice(task, actor.name, now)] : [];
   return { ok: true, task, outs };
+}
+
+// ---------- urgent + recycle bin (Round 3, F5 / F8; dashboard only, no WhatsApp messages) ----------
+
+/** 🔴 Urgent on/off: only a mark and the sort order, no extra reminders. Allowed on any task except deleted ones. */
+export async function setUrgent(store: Store, t: Task, actor: Actor, urgent: boolean, now: Date): Promise<ActionResult> {
+  if (t.status === "deleted") return fail(409, "task_closed", "Ye task recycle bin mein hai");
+  if (!!t.urgent === urgent) return { ok: true, task: t, outs: [] };
+  await store.updateTask(t.id, {
+    urgent,
+    remarks: [...t.remarks, remarkBy(actor, urgent ? "Urgent kiya" : "Urgent hataya", now)],
+    updatedAt: now.toISOString(),
+  });
+  return { ok: true, task: await reload(store, t.id), outs: [] };
+}
+
+/**
+ * Soft delete into the recycle bin (mistake / test / junk; Cancel is for work no longer needed).
+ * Reminders and date requests stop; restoreTask puts it back to `deletedFrom`. Weekly/monthly
+ * tasks get no next occurrence (only Done creates one).
+ */
+export async function deleteTask(store: Store, t: Task, actor: Actor, now: Date): Promise<ActionResult> {
+  if (t.status === "deleted") return fail(409, "task_closed", "Ye task pehle hi recycle bin mein hai");
+  const at = now.toISOString();
+  const by = remarkBy(actor, "Recycle bin mein dala", now);
+  await store.updateTask(t.id, {
+    status: "deleted",
+    deletedFrom: t.status,
+    deletedAt: at,
+    deletedByName: by.byName,
+    nextReminderAt: null,
+    dateRequest: null,
+    remarks: [...t.remarks, by],
+    updatedAt: at,
+  });
+  return { ok: true, task: await reload(store, t.id), outs: [] };
+}
+
+/** The status a deleted task goes back to (older records without deletedFrom: guessed from the close dates). */
+function restoredStatus(t: Task): Exclude<Task["status"], "deleted"> {
+  if (t.deletedFrom) return t.deletedFrom;
+  if (t.doneAt) return "done";
+  if (t.cancelledAt) return "cancelled";
+  return "pending";
+}
+
+/**
+ * Restore from the recycle bin to `deletedFrom`. A pending task restarts its reminders from its due
+ * date; if that has passed, a new future date is required (400 need_date). `due` is ignored for
+ * done/cancelled tasks. No WhatsApp message.
+ */
+export async function restoreTask(store: Store, t: Task, actor: Actor, due: ParsedDue | null, now: Date): Promise<ActionResult> {
+  if (t.status !== "deleted") return fail(409, "not_deleted", "Sirf recycle bin wala task wapas aa sakta hai");
+  const status = restoredStatus(t);
+  const at = now.toISOString();
+  const cleared = { status, deletedAt: null, deletedByName: null, deletedFrom: null, updatedAt: at };
+  if (status !== "pending") {
+    await store.updateTask(t.id, { ...cleared, remarks: [...t.remarks, remarkBy(actor, "Recycle bin se wapas", now)] });
+    return { ok: true, task: await reload(store, t.id), outs: [] };
+  }
+  const target = due ?? { dueAt: new Date(t.dueAt), hasTime: t.dueHasTime };
+  if (!(target.dueAt.getTime() > now.getTime())) {
+    return fail(400, "need_date", due ? "Ye date/time nikal chuka hai, aage ki date dijiye" : "Due date nikal chuki hai, nayi date dijiye");
+  }
+  const note = due ? `Recycle bin se wapas, nayi date: ${formatDue(due.dueAt, due.hasTime, now)}` : "Recycle bin se wapas";
+  await store.updateTask(t.id, {
+    ...cleared,
+    dueAt: target.dueAt.toISOString(),
+    dueHasTime: target.hasTime,
+    nextReminderAt: firstReminderAt(t.repeat, target.dueAt),
+    dateRequest: null,
+    remarks: [...t.remarks, remarkBy(actor, note, now)],
+  });
+  return { ok: true, task: await reload(store, t.id), outs: [] };
 }
 
 export type DateDecision = "approve" | "reject";

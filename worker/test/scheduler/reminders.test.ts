@@ -277,3 +277,21 @@ describe("free-tier limits (audit S1/S2)", () => {
     expect(out).toHaveLength(1);
   });
 });
+
+describe("urgent reminders (Round 3, F5)", () => {
+  it("prefixes 🔴 to the title value only, same parameter count", async () => {
+    const store = setup([
+      task({ id: "u", title: "Payment lena", urgent: true, nextReminderAt: PAST }),
+      task({ id: "n", title: "Normal kaam", nextReminderAt: PAST, dueAt: "2026-10-28T04:30:00.000Z" }),
+    ]);
+    const out = (await runReminders(store, NOW)).map(asTemplate);
+    const u = out.find((m) => m.bodyValues[1].includes("Payment"))!;
+    const n = out.find((m) => m.bodyValues[1].includes("Normal"))!;
+    expect(u.template).toBe("task_reminder_v1");
+    expect(u.bodyValues).toHaveLength(4);
+    expect(u.bodyValues[1]).toBe("🔴 Payment lena");
+    expect(u.fallbackText).toContain("Task: 🔴 Payment lena");
+    expect(n.bodyValues).toHaveLength(4);
+    expect(n.bodyValues[1]).toBe("Normal kaam");
+  });
+});

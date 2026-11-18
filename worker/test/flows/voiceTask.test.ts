@@ -303,7 +303,7 @@ describe("Badlo", () => {
     await t.send();
     const menu = await t.step(tap(`${F}:confirm:edit`, "Badlo ✏️"));
     expect(body(menu[0])).toBe("Kya badalna hai?");
-    expect(ids(menu[0])).toEqual(["title", "person", "date", "time", "repeat"].map((f) => `${F}:edit:${f}`));
+    expect(ids(menu[0])).toEqual(["title", "person", "date", "time", "repeat", "urgent"].map((f) => `${F}:edit:${f}`));
     const q = await t.step(tap(`${F}:edit:${field}`));
     return { t, q };
   }
@@ -362,7 +362,8 @@ describe("Badlo", () => {
 
   it("Repeat", async () => {
     const { t, q } = await toEdit("repeat");
-    expect(ids(q[0])).toEqual([`${F}:repeat:none`, `${F}:repeat:every90`, `${F}:repeat:monthly`]);
+    expect(q[0].kind).toBe("list");
+    expect(ids(q[0])).toEqual([`${F}:repeat:none`, `${F}:repeat:every90`, `${F}:repeat:monthly`, `${F}:repeat:weekly`]);
     const conf = await t.step(tap(`${F}:repeat:monthly`));
     expect(body(conf[0])).toContain("Repeat: Har mahine");
     await t.step(tap(`${F}:confirm:yes`));
@@ -534,5 +535,70 @@ describe("no opt-out words on buttons", () => {
     const titles = out.kind === "buttons" ? out.buttons.map((b) => b.title.toLowerCase()) : [];
     expect(titles.length).toBe(3);
     for (const title of titles) expect(title).not.toMatch(/\b(cancel|stop|unsubscribe)\b/);
+  });
+});
+
+describe("weekly + urgent (Round 3, F4/F5)", () => {
+  it("a weekly urgent draft shows 🔴 Urgent and Har hafte (weekday) and saves both", async () => {
+    // 27 Oct 2026 is a Tuesday (Mangalvar).
+    const t = setup({ result: ok({ person: "Pinky", title: "Stock check", repeat: "weekly", urgent: true }) });
+    const conf = await t.send();
+    expect(ids(conf[0])).toEqual(CONFIRM_IDS);
+    expect(body(conf[0])).toContain("Task: Stock check\n🔴 Urgent\n");
+    expect(body(conf[0])).toContain("Repeat: Har hafte (Mangalvar)");
+    const out = await t.step(tap(`${F}:confirm:yes`));
+    expect(body(out[0])).toContain("🔴 Urgent");
+    expect(body(out[0])).toContain("🔔 Reminder: *Har hafte (Mangalvar)*");
+    expect(body(out[0])).toContain("(har hafte)");
+    const [saved] = await t.store.listTasks({});
+    expect(saved).toMatchObject({ repeat: "weekly", urgent: true, source: "voice", repeatDay: null });
+  });
+
+  it("a draft without urgent shows no mark and saves no urgent field", async () => {
+    const t = setup({ result: ok({ person: "Pinky" }) });
+    const conf = await t.send();
+    expect(body(conf[0])).not.toContain("Urgent");
+    await t.step(tap(`${F}:confirm:yes`));
+    expect((await t.store.listTasks({}))[0].urgent).toBeUndefined();
+  });
+
+  it("edit menu Urgent row toggles urgent and returns to the confirmation", async () => {
+    const t = setup({ result: ok({ person: "Pinky" }) });
+    await t.send();
+    const menu = await t.step(tap(`${F}:confirm:edit`));
+    if (menu[0].kind !== "list") throw new Error("expected list");
+    expect(menu[0].rows[5]).toMatchObject({ id: `${F}:edit:urgent`, title: "🔴 Urgent karo" });
+    const on = await t.step(tap(`${F}:edit:urgent`));
+    expect(ids(on[0])).toEqual(CONFIRM_IDS);
+    expect(body(on[0])).toContain("🔴 Urgent");
+    expect((await t.session())?.step).toBe("confirm");
+
+    const menu2 = await t.step(tap(`${F}:confirm:edit`));
+    if (menu2[0].kind !== "list") throw new Error("expected list");
+    expect(menu2[0].rows[5].title).toBe("Urgent hatao");
+    const off = await t.step(tap(`${F}:edit:urgent`));
+    expect(body(off[0])).not.toContain("Urgent");
+
+    await t.step(tap(`${F}:confirm:edit`));
+    await t.step(tap(`${F}:edit:urgent`));
+    await t.step(tap(`${F}:confirm:yes`));
+    expect((await t.store.listTasks({}))[0].urgent).toBe(true);
+  });
+
+  it("edit menu Repeat -> Har hafte", async () => {
+    const t = setup({ result: ok({ person: "Pinky" }) });
+    await t.send();
+    await t.step(tap(`${F}:confirm:edit`));
+    await t.step(tap(`${F}:edit:repeat`));
+    const conf = await t.step(tap(`${F}:repeat:weekly`));
+    expect(body(conf[0])).toContain("Repeat: Har hafte (Mangalvar)");
+    const s = await t.session();
+    // Double tap on Haan creates one task.
+    await voiceTaskFlow.handle(t.ctx, s!, tap(`${F}:confirm:yes`));
+    const again = await voiceTaskFlow.handle(t.ctx, s!, tap(`${F}:confirm:yes`));
+    expect(again).toEqual([]);
+    const all = await t.store.listTasks({});
+    expect(all).toHaveLength(1);
+    expect(all[0].repeat).toBe("weekly");
   });
 });

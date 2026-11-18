@@ -1,16 +1,44 @@
-// Write routes: POST /api/tasks/:id/{done,remark,due,assign,cancel,reopen,approve,reject}.
+// Write routes: POST /api/tasks/:id/{done,remark,due,assign,cancel,reopen,approve,reject,
+// urgent,delete,restore,purge}.
 // Rules live in bot/taskActions (shared with WhatsApp); this module only resolves
 // the acting admin, validates the body and turns ActionResults into responses.
 // The router matches exact paths, so matchWriteRoute binds the :id into the handler.
 
-import { addRemark, cancelTask, changeDue, decideDateRequest, dueFromInput, markDone, reassign, reopenTask, REMARK_MAX, type ActionResult, type Actor } from "../../bot/taskActions";
+import {
+  addRemark,
+  cancelTask,
+  changeDue,
+  decideDateRequest,
+  deleteTask,
+  dueFromInput,
+  markDone,
+  reassign,
+  reopenTask,
+  restoreTask,
+  setUrgent,
+  REMARK_MAX,
+  type ActionResult,
+  type Actor,
+} from "../../bot/taskActions";
 import type { ParsedDue } from "../../domain/dates";
 import type { Task } from "../../domain/types";
 import { mask } from "../../numbers";
-import { json, type ApiContext, type Route } from "../api";
+import { isSuperAdmin, json, type ApiContext, type Route } from "../api";
 import { toTaskDTO } from "./read";
 
-export type WriteAction = "done" | "remark" | "due" | "assign" | "cancel" | "reopen" | "approve" | "reject";
+export type WriteAction =
+  | "done"
+  | "remark"
+  | "due"
+  | "assign"
+  | "cancel"
+  | "reopen"
+  | "approve"
+  | "reject"
+  | "urgent"
+  | "delete"
+  | "restore"
+  | "purge";
 
 /** Runs one action on a loaded task for a resolved actor. */
 type TaskAction = (ctx: ApiContext, body: Record<string, unknown>, task: Task, actor: Actor) => Promise<Response>;
@@ -91,6 +119,33 @@ const decideRequest =
     return respond(ctx, decision, actor, task, await decideDateRequest(ctx.store, task, actor, decision, ctx.now, expected));
   };
 
+// Round 3 (F5 / F8): no WhatsApp messages for any of these.
+
+const urgent: TaskAction = async (ctx, body, task, actor) => {
+  if (typeof body.urgent !== "boolean") return bad("urgent true ya false hona chahiye");
+  return respond(ctx, "urgent", actor, task, await setUrgent(ctx.store, task, actor, body.urgent, ctx.now));
+};
+
+const del: TaskAction = async (ctx, _body, task, actor) =>
+  respond(ctx, "delete", actor, task, await deleteTask(ctx.store, task, actor, ctx.now));
+
+/** Optional new date (needed when a pending task's due date has passed). */
+const restore: TaskAction = async (ctx, body, task, actor) => {
+  const hasDate = body.date !== undefined && body.date !== null && body.date !== "";
+  const due = hasDate ? dueFromInput(body.date, body.time) : null;
+  if (hasDate && !due) return bad("Date ya time galat hai");
+  return respond(ctx, "restore", actor, task, await restoreTask(ctx.store, task, actor, due, ctx.now));
+};
+
+/** Permanent delete: super admin only, and only from the recycle bin. */
+const purge: TaskAction = async (ctx, _body, task, actor) => {
+  if (!isSuperAdmin(actor.name)) return json({ error: "Hamesha ke liye sirf super admin hata sakte hain", code: "super_admin_only" }, 403);
+  if (task.status !== "deleted") return json({ error: "Pehle task recycle bin mein daliye", code: "not_deleted" }, 409);
+  await ctx.store.deleteTask(task.id);
+  console.log(`dashboard purge: task ${task.id} by ${mask(actor.phone)}`);
+  return json({ purged: true });
+};
+
 const ACTIONS: Record<WriteAction, TaskAction> = {
   done,
   remark,
@@ -100,6 +155,10 @@ const ACTIONS: Record<WriteAction, TaskAction> = {
   reopen,
   approve: decideRequest("approve"),
   reject: decideRequest("reject"),
+  urgent,
+  delete: del,
+  restore,
+  purge,
 };
 
 /** Common prelude: actor (403), task (404), then the action. */
@@ -111,7 +170,7 @@ async function runAction(ctx: ApiContext, body: unknown, id: string, action: Wri
   return ACTIONS[action](ctx, asObject(body), task, actor);
 }
 
-const PATH_RE = /^\/api\/tasks\/([^/]+)\/(done|remark|due|assign|cancel|reopen|approve|reject)$/;
+const PATH_RE = /^\/api\/tasks\/([^/]+)\/(done|remark|due|assign|cancel|reopen|approve|reject|urgent|delete|restore|purge)$/;
 
 function boundRoute(action: WriteAction, id: string, path: string): Route {
   return { method: "POST", path, auth: "named", handler: (ctx, body) => runAction(ctx, body, id, action) };

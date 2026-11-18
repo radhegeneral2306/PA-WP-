@@ -7,6 +7,7 @@ import type { Store } from "../data/store";
 import type { Outgoing } from "../bot/outgoing";
 import { SESSION_DAYS, issueToken, login, verifyToken, type DashSession } from "./auth";
 import { matchWriteRoute } from "./routes/write";
+import { SUPER_ADMIN_NAME } from "../scheduler/health";
 
 export type Deliver = (outs: Outgoing[]) => Promise<void>;
 
@@ -93,6 +94,11 @@ function corsHeaders(env: Env, origin: string | null): Record<string, string> | 
   };
 }
 
+/** The super admin (owner): only he may purge tasks from the recycle bin. Callers pass an active admin's name. */
+export function isSuperAdmin(name: string | null | undefined): boolean {
+  return !!name && name === SUPER_ADMIN_NAME;
+}
+
 async function activeAdminNames(store: Store): Promise<string[]> {
   return (await store.listUsers({ role: "admin" })).map((u) => u.name);
 }
@@ -120,7 +126,7 @@ async function getMe(ctx: ApiContext): Promise<Response> {
   const admins = await activeAdminNames(ctx.store);
   // A name picked before that admin was removed or renamed no longer counts: ask "Aap kaun ho?" again.
   const name = s.name && admins.includes(s.name) ? s.name : null;
-  return json({ name, expiresAt: new Date(s.exp * 1000).toISOString(), admins });
+  return json({ name, expiresAt: new Date(s.exp * 1000).toISOString(), admins, superAdmin: isSuperAdmin(name) });
 }
 
 /** "Aap kaun ho?": re-issues the token with the picked admin name. */
