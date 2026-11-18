@@ -124,6 +124,11 @@ Send **"Hi"** (or hello / menu / namaste / start) → menu as a WhatsApp list.
 - Real-phone test 28 Oct: names, dates, times and spoken repeats were understood correctly (including "Bhaarti" → Bharti).
 - Button text must **never be "Cancel"/"Stop"**: the company's Interakt customer automation replies to those words with a Hindi goodbye message.
 
+### 5.3b 🎤 Voice se task update (Round 4; Bhaskar only)
+- The same voice note path also understands notes about an **existing** task: "Pinky ka Sharma ji wala task done kar do", "payment wale task ki date parso kar do", "stock wala task Pooja ko de do", "Sharma ji wale task mein likh do ki customer kal aayega".
+- Allowed: Done, remark, change date/time, give to someone else. Never by voice: Cancel, Delete, staff add/remove, approvals.
+- With a task open (detail screen) the note applies only to that task. Otherwise the bot lists the matching tasks, you pick one, and it always asks to confirm in big words ("✅ DONE karna hai", "🕒 DATE BADALNI hai", …) with **Haan ✅ / Rehne do ❌**. Same notifications and rules as the menu; remarks are marked "(voice)".
+
 ### 5.4 📋 Mere tasks / 👥 Staff ke tasks
 - Pending tasks, earliest due first, ⚠️ marks overdue, 8 per page. Admin view: branch → person, or "everyone".
 - Admin "Staff ke tasks": **type a name** to jump straight to that person's tasks, or branch → person.

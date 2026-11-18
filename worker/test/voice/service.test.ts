@@ -36,6 +36,17 @@ function stubAll(over: { media?: () => Response; groq?: () => Response; gemini?:
 afterEach(() => vi.unstubAllGlobals());
 
 describe("createVoiceService", () => {
+  it("passes the whole ctx (incl. the open task) through to Gemini, still one Gemini call", async () => {
+    const f = stubAll({
+      gemini: () => Response.json({ candidates: [{ content: { parts: [{ text: JSON.stringify({ transcript: "ho gaya", intent: "update", action: "done" }) }] } }] }),
+    });
+    const r = await createVoiceService(env).understand(MEDIA, { ...ctx, task: { title: "Sharma ji payment", assignee: "Pinky" } });
+    expect(r).toMatchObject({ ok: true, draft: { intent: "update", action: "done", taskWords: [] } });
+    const gemCalls = f.mock.calls.filter((c) => c[0].includes("generativelanguage"));
+    expect(gemCalls).toHaveLength(1);
+    expect(JSON.parse(String(gemCalls[0][1].body)).systemInstruction.parts[0].text).toContain('"Sharma ji payment"');
+  });
+
   it("runs download -> Groq -> Gemini and returns the draft with Groq's duration", async () => {
     const f = stubAll();
     const r = await createVoiceService(env).understand(MEDIA, ctx);

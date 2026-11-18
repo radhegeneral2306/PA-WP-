@@ -602,3 +602,23 @@ describe("weekly + urgent (Round 3, F4/F5)", () => {
     expect(all[0].repeat).toBe("weekly");
   });
 });
+
+describe("Round 4: intent routing at handleVoice", () => {
+  for (const intent of ["create", null, undefined] as const) {
+    it(`intent ${String(intent)} (with update-only fields present) still creates, unchanged`, async () => {
+      const t = setup({ result: ok({ person: "Pinky", intent, action: "done", taskWords: ["sharma"] }) });
+      const out = await t.send();
+      expect(ids(out[0])).toEqual(CONFIRM_IDS);
+      expect((await t.session())?.flow).toBe(F);
+    });
+  }
+
+  it("intent update goes to the voice_update flow (and never creates a task)", async () => {
+    const t = setup({ result: ok({ person: "Pinky", intent: "update", action: "done", taskWords: ["zzzz"] }) });
+    const out = await t.send();
+    // The update flow answered (this store has no tasks): no create confirmation, no task made.
+    expect(body(out[0])).toBe("Pinky ke paas koi pending task nahi hai.");
+    expect(await t.session()).toBeNull();
+    expect(await t.store.listTasks({})).toHaveLength(0);
+  });
+});
