@@ -2,6 +2,8 @@ import { cleanEnv, type Env } from "./env";
 import { isAudioMessage, parseWebhook, type IncomingMessage } from "./interakt/parse";
 import { createVoiceService } from "./voice";
 import type { VoiceService } from "./voice/types";
+import { createChatService } from "./chat";
+import type { ChatService } from "./chat/types";
 import { createIfAbsent, type FirestoreConfig } from "./firebase/firestore";
 import { safeEqual, verifyInteraktSignature } from "./interakt/signature";
 import { statusReport } from "./status";
@@ -170,6 +172,8 @@ export interface Deps {
   store?: Store;
   /** Tests inject a fake voice service. */
   voice?: VoiceService;
+  /** Tests inject a fake chat (AI) service. */
+  chat?: ChatService;
   now?: Date;
 }
 
@@ -207,7 +211,7 @@ export async function processWebhook(env: Env, body: unknown, rawBody: string, d
     return;
   }
 
-  const ctx = { store, user, now: deps.now ?? new Date(), voice: deps.voice ?? createVoiceService(env) };
+  const ctx = { store, user, now: deps.now ?? new Date(), voice: deps.voice ?? createVoiceService(env), chat: deps.chat ?? createChatService(env) };
   try {
     const voice = isAudioMessage(msg) && msg.mediaUrl ? { mediaUrl: msg.mediaUrl } : null;
     const outs = await handleMessage(ctx, { text: msg.text, reply: msg.reply, form: msg.form, voice });

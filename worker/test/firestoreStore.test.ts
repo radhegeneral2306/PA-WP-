@@ -282,3 +282,35 @@ describe("FirestoreStore.deleteTask", () => {
     await expect(new FirestoreStore(cfg).deleteTask("t1")).rejects.toThrow(/500/);
   });
 });
+
+describe("FirestoreStore.bumpDailyCount", () => {
+  const NOW = new Date("2026-10-26T09:30:00Z");
+
+  it("first message: reads (404), writes count 1 with an ISO createdAt in the claims collection (hashed id)", async () => {
+    reply(404, {});
+    reply(200, {});
+    const n = await new FirestoreStore(cfg).bumpDailyCount("ai:919:2026-10-26", NOW);
+    expect(n).toBe(1);
+    expect(calls).toHaveLength(2);
+    expect(calls[0].method).toBe("GET");
+    expect(calls[0].url).toMatch(/\/claims\/[0-9a-f]{40}$/);
+    expect(calls[1].method).toBe("PATCH");
+    expect(calls[1].url).toBe(calls[0].url);
+    expect(fromFields(calls[1].body.fields)).toEqual({ createdAt: NOW.toISOString(), count: 1 });
+  });
+
+  it("next message: adds one and keeps the original createdAt", async () => {
+    reply(200, { name: `${NAME}/claims/x`, fields: toFields({ createdAt: "2026-10-26T03:00:00.000Z", count: 7 }) });
+    reply(200, {});
+    expect(await new FirestoreStore(cfg).bumpDailyCount("ai:919:2026-10-26", NOW)).toBe(8);
+    expect(fromFields(calls[1].body.fields)).toEqual({ createdAt: "2026-10-26T03:00:00.000Z", count: 8 });
+  });
+
+  it("an unreadable count starts again at 1; a read error propagates", async () => {
+    reply(200, { name: `${NAME}/claims/x`, fields: toFields({ createdAt: "2026-10-26T03:00:00.000Z" }) });
+    reply(200, {});
+    expect(await new FirestoreStore(cfg).bumpDailyCount("k", NOW)).toBe(1);
+    reply(500, "boom");
+    await expect(new FirestoreStore(cfg).bumpDailyCount("k", NOW)).rejects.toThrow(/500/);
+  });
+});

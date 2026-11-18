@@ -129,6 +129,12 @@ Send **"Hi"** (or hello / menu / namaste / start) → menu as a WhatsApp list.
 - Allowed: Done, remark, change date/time, give to someone else. Never by voice: Cancel, Delete, staff add/remove, approvals.
 - With a task open (detail screen) the note applies only to that task. Otherwise the bot lists the matching tasks, you pick one, and it always asks to confirm in big words ("✅ DONE karna hai", "🕒 DATE BADALNI hai", …) with **Haan ✅ / Rehne do ❌**. Same notifications and rules as the menu; remarks are marked "(voice)".
 
+### 5.3c 💬 Chat with the bot (Round 5; being tested by Bhaskar only)
+- Type normally, no menu button: "kal kya kaam hai", "Durg mein kitne overdue hain", "Pinky ke tasks dikhao", "Sharma ji wala task done kar do", "kal 5 baje stock check karna hai".
+- Common questions are answered straight from the database (no AI). Other messages go to one free Gemini call that only turns the sentence into a request; the code checks permissions and every change asks for Haan / Rehne do.
+- Staff see and change only their own tasks (date changes open the task so the 25-day rule applies). Admins can ask about anyone; staff add/remove, Delete, cancel and approvals stay in the menu/dashboard. Non-task questions get a polite refusal.
+- AI limit per person per day: staff 20, admins 50. Text typed inside an open step never goes to the AI.
+
 ### 5.4 📋 Mere tasks / 👥 Staff ke tasks
 - Pending tasks, earliest due first, ⚠️ marks overdue, 8 per page. Admin view: branch → person, or "everyone".
 - Admin "Staff ke tasks": **type a name** to jump straight to that person's tasks, or branch → person.

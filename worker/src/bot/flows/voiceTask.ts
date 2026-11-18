@@ -119,7 +119,11 @@ export async function failureReply(ctx: BotContext, result: Extract<VoiceResult,
   return [text(user.phone, msg + debug)];
 }
 
-async function startFromDraft(ctx: BotContext, draft: VoiceDraft, active: User[]): Promise<Outgoing[]> {
+/**
+ * `typed` (Round 5): the draft comes from a typed chat message, not a voice note. The confirm says
+ * "Aapne likha" and the task is marked as made in chat (data `src` "typed").
+ */
+export async function startFromDraft(ctx: BotContext, draft: VoiceDraft, active: User[], opts: { typed?: boolean } = {}): Promise<Outgoing[]> {
   const transcript = (draft.transcript ?? "").replace(/\s+/g, " ").trim();
   const title = (draft.title ?? "").replace(/\s+/g, " ").trim();
   const data: Data = {
@@ -129,6 +133,7 @@ async function startFromDraft(ctx: BotContext, draft: VoiceDraft, active: User[]
     time: validTime(draft.time) ? draft.time! : "",
     repeat: isRepeat(draft.repeat) ? draft.repeat : "none",
     ...(draft.urgent === true ? { urgent: "true" } : {}),
+    ...(opts.typed ? { src: "typed" } : {}),
   };
 
   // Person: the service's pick must be a real active user; otherwise resolve what was heard.
@@ -531,9 +536,10 @@ function confirmBody(ctx: BotContext, data: Data, hint?: string): string {
     "",
     "Ye task banau?",
   ].join("\n");
-  const fixed = withHint(hint, `Maine suna: ""\n\n${task}`);
+  const heard = data.src === "typed" ? "Aapne likha" : "Maine suna";
+  const fixed = withHint(hint, `${heard}: ""\n\n${task}`);
   const room = Math.max(40, BODY_MAX - fixed.length);
-  return withHint(hint, `Maine suna: "${clip(data.t || "—", room)}"\n\n${task}`);
+  return withHint(hint, `${heard}: "${clip(data.t || "—", room)}"\n\n${task}`);
 }
 
 async function showConfirm(ctx: BotContext, data: Data, hint?: string): Promise<Outgoing[]> {
@@ -628,8 +634,8 @@ async function save(ctx: BotContext, data: Data): Promise<Outgoing[]> {
       due,
       repeat: repeatOf(data),
       urgent: isUrgent(data),
-      source: "voice",
-      note: `Voice se banaya. Maine suna: "${data.t}"`,
+      ...(data.src === "typed" ? {} : { source: "voice" as const }),
+      note: data.src === "typed" ? `Chat se banaya. Aapne likha: "${data.t}"` : `Voice se banaya. Maine suna: "${data.t}"`,
     },
     now,
   );
@@ -658,7 +664,7 @@ async function save(ctx: BotContext, data: Data): Promise<Outgoing[]> {
     `🕒 Due: *${dueStr}*`,
     `🔔 Reminder: *${repeatText}*`,
     `⏰ Pehla reminder: *${first}${REPEAT_SUFFIX[repeat]}*`,
-    "🎤 Voice se banaya",
+    data.src === "typed" ? "💬 Chat se banaya" : "🎤 Voice se banaya",
   ].join("\n");
   return [text(user.phone, `${VOICE_MSG.created}\n\n${summary}`), ...result.outs];
 }

@@ -37,7 +37,16 @@ export const UPDATE_MSG = {
   gone: "Ye task ab nahi mila (delete ho gaya).",
   cancelled: "Theek hai, kuch nahi badla.",
   broken: "Kuch gadbad hui, voice note dobara bhejiye ya *Hi* bhejiye.",
+  notYours: "Ye task aapka nahi hai.",
+  staffLimit: "Aap yahan sirf Done ya remark kar sakte hain. Baaki ke liye *Hi* bhejiye aur menu use kijiye.",
+  noOwn: "Aapke koi pending task nahi hain.",
 };
+
+/** Session data `src` for a message typed in chat (Round 5): "Aapne likha" instead of "Maine suna", staff allowed. */
+export const TYPED = "typed";
+const isStaffAction = (a: unknown): boolean => a === "done" || a === "remark";
+/** Same rule as the `tasks` flow: an admin, or the assignee / creator. */
+const mayAct = (u: User, t: Task): boolean => u.role === "admin" || t.assigneePhone === u.phone || t.createdByPhone === u.phone;
 
 type Action = "done" | "remark" | "due" | "reassign";
 const ACTIONS: readonly Action[] = ["done", "remark", "due", "reassign"];
@@ -81,8 +90,18 @@ async function withNewPerson(draft: VoiceDraft, data: Data, active: User[]): Pro
 }
 
 /** Free mode: the voice note named a task (words + maybe a person) and an action. Called by voiceTask.handleVoice. */
-export async function startUpdateFromDraft(ctx: BotContext, draft: VoiceDraft, active: User[]): Promise<Outgoing[]> {
-  let data = await withNewPerson(draft, baseData(draft, "free"), active);
+export async function startUpdateFromDraft(
+  ctx: BotContext,
+  draft: VoiceDraft,
+  active: User[],
+  opts: { typed?: boolean } = {},
+): Promise<Outgoing[]> {
+  // Round 5: the same flow also confirms updates that were typed (src "typed"). Staff only get their own tasks.
+  const base = opts.typed ? { ...baseData(draft, "free"), src: TYPED } : baseData(draft, "free");
+  if (opts.typed && ctx.user.role !== "admin") {
+    return isStaffAction(base.action) ? search(ctx, base) : finish(ctx, UPDATE_MSG.staffLimit);
+  }
+  let data = await withNewPerson(draft, base, active);
 
   const picked = draft.person ? active.filter((u) => same(u.name, draft.person!)) : [];
   if (picked.length === 1) return search(ctx, { ...data, owner: picked[0].phone });
@@ -121,7 +140,8 @@ export const voiceUpdateFlow: Flow = {
   },
 
   async handle(ctx, session, input) {
-    if (ctx.user.role !== "admin") return broken(ctx);
+    // Staff only get here through a typed chat message (done / remark on their own tasks).
+    if (ctx.user.role !== "admin" && session.data.src !== TYPED) return broken(ctx);
     const data = session.data;
     switch (session.step) {
       case "pick_person":
@@ -168,6 +188,7 @@ async function loadPending(ctx: BotContext, taskId: string | undefined): Promise
   if (!t || t.status === "deleted") return finish(ctx, UPDATE_MSG.gone);
   if (t.status === "done") return finish(ctx, `*${t.title}* pehle hi done ho chuka hai ✅`);
   if (t.status === "cancelled") return finish(ctx, `*${t.title}* cancel ho chuka hai ❌`);
+  if (!mayAct(ctx.user, t)) return finish(ctx, UPDATE_MSG.notYours);
   return t;
 }
 
@@ -177,14 +198,31 @@ function dueLine(ctx: BotContext, t: Task): string {
   return `${t.assigneeName} · Due ${formatDue(t.dueAt, t.dueHasTime, ctx.now)}`;
 }
 
+/** Staff: only their own pending tasks (assigned to them or created by them). */
+async function ownPending(ctx: BotContext): Promise<Task[]> {
+  const phone = ctx.user.phone;
+  const [mine, made] = await Promise.all([
+    ctx.store.listTasks({ assigneePhone: phone, status: "pending" }),
+    ctx.store.listTasks({ createdByPhone: phone, status: "pending" }),
+  ]);
+  const byId = new Map<string, Task>();
+  for (const t of [...mine, ...made]) if (t.status === "pending" && mayAct(ctx.user, t)) byId.set(t.id, t);
+  return [...byId.values()];
+}
+
 async function search(ctx: BotContext, data: Data): Promise<Outgoing[]> {
-  const owner = data.owner;
-  const cands = (await ctx.store.listTasks(owner ? { assigneePhone: owner, status: "pending" } : { status: "pending" })).filter(
-    (t) => t.status === "pending",
-  );
+  const staff = ctx.user.role !== "admin";
+  const owner = staff ? undefined : data.owner;
+  const cands = staff
+    ? await ownPending(ctx)
+    : (await ctx.store.listTasks(owner ? { assigneePhone: owner, status: "pending" } : { status: "pending" })).filter((t) => t.status === "pending");
   const words = (data.words ?? "").split("|").filter(Boolean);
   const found = matchTasks(cands, words, { limit: MAX_TASKS }).map((m) => m.task);
   if (found.length > 0) return showTasks(ctx, data, found, UPDATE_MSG.which);
+  if (staff) {
+    const some = shortlist(cands, MAX_TASKS);
+    return some.length > 0 ? showTasks(ctx, data, some, UPDATE_MSG.noExact) : finish(ctx, UPDATE_MSG.noOwn);
+  }
   if (owner) {
     const some = shortlist(cands, MAX_TASKS);
     if (some.length > 0) return showTasks(ctx, data, some, UPDATE_MSG.noExact);
@@ -363,18 +401,19 @@ function clearNew(data: Data): Data {
 
 async function askAction(ctx: BotContext, data: Data, hint?: string): Promise<Outgoing[]> {
   await setStep(ctx, ID, "pick_action", data);
-  const rows = [
+  const all = [
     { id: `${ID}:action:done`, title: "Done ✅", description: "Task complete ho gaya" },
     { id: `${ID}:action:remark`, title: "Remark likho 📝", description: "Task mein update likhna hai" },
     { id: `${ID}:action:due`, title: "Date badlo 🕒", description: "Nayi due date / time" },
     { id: `${ID}:action:reassign`, title: "Kisi aur ko do 👤", description: "Task dusre ko dena hai" },
   ];
+  const rows = ctx.user.role === "admin" ? all : all.slice(0, 2);
   return [list(ctx.user.phone, withHint(hint, UPDATE_MSG.action), "Chuniye", rows, "Kya karna hai")];
 }
 
 async function pickAction(ctx: BotContext, data: Data, input: Inbound): Promise<Outgoing[]> {
   const action = replyValue(input, ID, "action");
-  if (!isAction(action)) return askAction(ctx, data, UPDATE_MSG.tapHint);
+  if (!isAction(action) || (ctx.user.role !== "admin" && !isStaffAction(action))) return askAction(ctx, data, UPDATE_MSG.tapHint);
   return next(ctx, { ...data, action });
 }
 
@@ -455,9 +494,10 @@ function confirmLines(ctx: BotContext, data: Data, t: Task): string[] {
 
 function confirmBody(ctx: BotContext, data: Data, t: Task, hint?: string): string {
   const task = [...confirmLines(ctx, data, t), "", "Sahi hai?"].join("\n");
-  const fixed = withHint(hint, `Maine suna: ""\n\n${task}`);
+  const heard = data.src === TYPED ? "Aapne likha" : "Maine suna";
+  const fixed = withHint(hint, `${heard}: ""\n\n${task}`);
   const room = Math.max(40, BODY_MAX - fixed.length);
-  return withHint(hint, `Maine suna: "${clip(data.t || "—", room)}"\n\n${task}`);
+  return withHint(hint, `${heard}: "${clip(data.t || "—", room)}"\n\n${task}`);
 }
 
 async function showConfirm(ctx: BotContext, data: Data, t: Task, hint?: string): Promise<Outgoing[]> {
@@ -495,6 +535,7 @@ async function apply(ctx: BotContext, data: Data): Promise<Outgoing[]> {
   if (Array.isArray(t)) return t;
   const action = data.action;
   if (!isAction(action)) return broken(ctx);
+  if (ctx.user.role !== "admin" && !isStaffAction(action)) return finish(ctx, UPDATE_MSG.staffLimit);
   // Someone gave the task to another person since the admin looked at it: don't act on a stale screen.
   if (data.ow && t.assigneePhone !== data.ow) {
     return finish(ctx, `*${t.title}* ab *${t.assigneeName}* ke paas hai (assign badal gaya). Dobara voice note bhejiye.`);
@@ -515,7 +556,7 @@ async function apply(ctx: BotContext, data: Data): Promise<Outgoing[]> {
   // A second tap on the same "Haan" (or a duplicate delivery) must act only once.
   if (!(await firstTap(ctx, ID, data))) return [];
 
-  const actor: Actor = { phone: user.phone, name: user.name, viaVoice: true };
+  const actor: Actor = { phone: user.phone, name: user.name, viaVoice: data.src !== TYPED };
   let result: ActionResult;
   switch (action) {
     case "done":

@@ -6,6 +6,7 @@ import type { Session, User } from "../domain/types";
 import type { Reply } from "../interakt/parse";
 import type { Outgoing } from "./outgoing";
 import type { VoiceService } from "../voice/types";
+import type { ChatService } from "../chat/types";
 
 export interface Inbound {
   /** Trimmed text; for list/button taps this is the option title. */
@@ -24,6 +25,8 @@ export interface BotContext {
   now: Date;
   /** Batch 4: transcription + understanding. Absent when not configured (and in most tests). */
   voice?: VoiceService;
+  /** Round 5: understands typed free text with AI. Absent when not configured (and in most tests). */
+  chat?: ChatService;
 }
 
 export interface Flow {

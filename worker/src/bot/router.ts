@@ -12,6 +12,7 @@ import { approvalsFlow } from "./flows/approvals";
 import { handleTaskForm, taskFormFlow } from "./flows/createTaskForm";
 import { handleVoice, voiceTaskFlow } from "./flows/voiceTask";
 import { handleVoiceInContext, voiceUpdateFlow } from "./flows/voiceUpdate";
+import { handleChat } from "./flows/chat";
 
 interface MenuEntry {
   key: string;
@@ -33,6 +34,14 @@ export const VOICE_TESTERS: ReadonlySet<string> = new Set(["Bhaskar"]);
 
 export function canUseVoice(user: User): boolean {
   return user.role === "admin" && (VOICE_LIVE || VOICE_TESTERS.has(user.name));
+}
+
+/** Round 5: typed free text that nothing else recognised goes to the chat (rules, then AI). Admins and staff. */
+export const CHAT_LIVE = false;
+export const CHAT_TESTERS: ReadonlySet<string> = new Set(["Bhaskar"]);
+
+export function canUseChat(user: User): boolean {
+  return CHAT_LIVE || CHAT_TESTERS.has(user.name);
 }
 
 export function expiredText(minutes: number): string {
@@ -163,12 +172,21 @@ export async function handleMessage(ctx: BotContext, input: Inbound): Promise<Ou
 
   const session = await store.getSession(user.phone);
   const fresh = session && isFresh(session, ctx.now);
+  // A typed message (no tap, voice or form) that nothing above recognised, and nothing is open
+  // (or only a task list that the chat itself showed): the chat answers it.
+  const typedText = !input.reply && !input.voice && !input.form && input.text.trim().length > 0;
+  const chatList = !!session && !!fresh && session.flow === tasksFlow.id && session.data.chat === "1";
   const expired = !!session && !fresh;
   if (expired) await store.clearSession(user.phone);
 
   // A chat that went quiet: say so instead of silently treating the message as something else.
   // This includes Done / Approve buttons on older messages (owner decision 2 Nov: they expire too).
   if (expired) return [text(user.phone, expiredText(sessionTtlMinutes(session)))];
+
+  if (typedText && chatList && canUseChat(user)) {
+    await store.clearSession(user.phone);
+    return handleChat(ctx, input.text);
+  }
 
   // While a chat is open, buttons that name their own task (task actions, approvals) act on that
   // task even from an older message or from another flow's chat.
@@ -196,6 +214,7 @@ export async function handleMessage(ctx: BotContext, input: Inbound): Promise<Ou
 
   // A tap on a list/button whose chat already ended (no session left).
   if (input.reply) return [text(user.phone, EXPIRED)];
+  if (typedText && canUseChat(user)) return handleChat(ctx, input.text);
   return [mainMenu(ctx)];
 }
 

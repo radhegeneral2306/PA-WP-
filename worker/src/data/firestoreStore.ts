@@ -152,6 +152,16 @@ export class FirestoreStore implements Store {
     return true;
   }
 
+  async bumpDailyCount(key: string, now: Date): Promise<number> {
+    // Same collection and hashed id as claimOnce; createdAt (ISO) lets the daily cleanup remove old counters.
+    const id = await sha256Hex(key);
+    const doc = await getDoc(this.cfg, CLAIMS, id);
+    const was = Number(doc?.data.count);
+    const count = (Number.isFinite(was) && was > 0 ? Math.floor(was) : 0) + 1;
+    await setDoc(this.cfg, CLAIMS, id, { createdAt: doc && typeof doc.data.createdAt === "string" ? doc.data.createdAt : now.toISOString(), count });
+    return count;
+  }
+
   async getLoginGuard(key: string): Promise<LoginGuard | null> {
     const doc = await getDoc(this.cfg, LOGIN_GUARDS, key);
     return doc ? (doc.data as unknown as LoginGuard) : null;
