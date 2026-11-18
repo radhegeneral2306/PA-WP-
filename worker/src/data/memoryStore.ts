@@ -61,6 +61,10 @@ export class MemoryStore implements Store {
     this.tasks.set(id, { ...t, ...structuredClone(patch) });
   }
 
+  async deleteTask(id: string) {
+    this.tasks.delete(id);
+  }
+
   async listDueTasks(now: Date, limit: number) {
     const at = now.toISOString();
     return [...this.tasks.values()]

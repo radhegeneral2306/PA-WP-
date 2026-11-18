@@ -18,9 +18,11 @@ import { handleUsersEndpoint } from "./admin";
 import { addRoutes, handleApi } from "./dashboard/api";
 import { createRoutes } from "./dashboard/routes/create";
 import { readRoutes } from "./dashboard/routes/read";
+import { exportRoutes } from "./dashboard/routes/export";
 
 addRoutes(readRoutes);
 addRoutes(createRoutes);
+addRoutes(exportRoutes);
 import { runReminders } from "./scheduler/reminders";
 import { runDailySummary } from "./scheduler/daily";
 

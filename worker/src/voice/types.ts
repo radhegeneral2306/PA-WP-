@@ -20,6 +20,8 @@ export interface VoiceDraft {
   time: string | null;
   /** null if no repeat was said (the flow then uses "none"). */
   repeat: TaskRepeat | null;
+  /** 🔴 Urgent ("urgent hai", "jaldi", "zaroori"). Missing = false. */
+  urgent?: boolean;
 }
 
 export type VoiceFailure =

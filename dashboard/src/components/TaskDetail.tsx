@@ -1,11 +1,14 @@
 import { CalendarDots, Microphone, X } from "@phosphor-icons/react";
 import { useEffect } from "react";
-import { formatDateTime, formatDue } from "../lib/format";
-import { branchLabel, isVoiceTask } from "../lib/filters";
+import { binDaysLeftText, formatDateTime, formatDue, repeatText, STATUS_LABELS } from "../lib/format";
+import { branchLabel, isUrgent, isVoiceTask } from "../lib/filters";
 import type { Branch, TaskDTO, UserDTO } from "../lib/types";
-import { repeatText } from "./TaskRow";
+import { BinActions } from "./BinActions";
+import { DeleteAction } from "./DeleteAction";
+import { UrgentMark } from "./TaskRow";
 import { Sheet } from "./Sheet";
 import { ReopenAction, TaskActions } from "./TaskActions";
+import { UrgentToggle } from "./UrgentToggle";
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -19,12 +22,15 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 function StatusText({ t }: { t: TaskDTO }) {
   if (t.status === "done") return <span className="font-medium text-ok">Done</span>;
   if (t.status === "cancelled") return <span className="font-medium text-danger">Cancelled</span>;
+  if (t.status === "deleted") return <span className="font-medium text-danger">Recycle bin mein</span>;
   if (t.overdue) return <span className="font-medium text-danger">Pending, Overdue</span>;
   if (t.dueToday) return <span className="font-medium text-warn">Pending, aaj due</span>;
   return <span>Pending</span>;
 }
 
-function DetailBody({ t, branches }: { t: TaskDTO; branches: Branch[] }) {
+type UrgentEdit = { onSaved: (t: TaskDTO) => void; onStale: () => void } | null;
+
+function DetailBody({ t, branches, urgentEdit }: { t: TaskDTO; branches: Branch[]; urgentEdit: UrgentEdit }) {
   const remarks = t.remarks ?? [];
   return (
     <div>
@@ -32,6 +38,18 @@ function DetailBody({ t, branches }: { t: TaskDTO; branches: Branch[] }) {
         <Row label="Status">
           <StatusText t={t} />
         </Row>
+        {urgentEdit && t.status === "pending" ? (
+          <Row label="Urgent">
+            <UrgentToggle task={t} onSaved={urgentEdit.onSaved} onStale={urgentEdit.onStale} />
+          </Row>
+        ) : isUrgent(t) ? (
+          <Row label="Urgent">
+            <span className="flex items-center gap-1.5 font-medium text-danger">
+              <UrgentMark decorative />
+              Haan
+            </span>
+          </Row>
+        ) : null}
         <Row label="Kiska task">
           {t.assigneeName} · {branchLabel(t.branch, branches)}
         </Row>
@@ -54,6 +72,16 @@ function DetailBody({ t, branches }: { t: TaskDTO; branches: Branch[] }) {
             {formatDateTime(t.cancelledAt)}
             {t.cancelledByName ? `, by ${t.cancelledByName}` : ""}
           </Row>
+        ) : null}
+        {t.status === "deleted" ? (
+          <>
+            <Row label="Delete hua">
+              {t.deletedAt ? formatDateTime(t.deletedAt) : "-"}
+              {t.deletedByName ? `, by ${t.deletedByName}` : ""}
+            </Row>
+            <Row label="Pehle tha">{t.deletedFrom ? STATUS_LABELS[t.deletedFrom] : "-"}</Row>
+            <Row label="Auto safai">{binDaysLeftText(t.deletedAt)}</Row>
+          </>
         ) : null}
       </dl>
 
@@ -113,26 +141,38 @@ interface Props {
   onStale?: () => void;
   /** Archive: a cancelled task was reopened (it is pending again). */
   onReopened?: (task: TaskDTO) => void;
+  /** Archive and recycle bin: the task left this list (deleted, restored or purged). */
+  onRemoved?: () => void;
+  /** Recycle bin: show "Hamesha ke liye hatao". */
+  superAdmin?: boolean;
 }
 
-export function TaskDetail({ task, branches, users, counts, onClose, variant, onSaved, onDone, onStale, onReopened }: Props) {
-  const footer =
-    task.status === "pending" && onSaved && onDone && onStale ? (
-      <TaskActions task={task} branches={branches} users={users ?? []} counts={counts ?? new Map()} onSaved={onSaved} onDone={onDone} onStale={onStale} />
-    ) : task.status === "cancelled" && onReopened && onStale ? (
-      <ReopenAction task={task} onReopened={onReopened} onStale={onStale} />
-    ) : null;
+export function TaskDetail({ task, branches, users, counts, onClose, variant, onSaved, onDone, onStale, onReopened, onRemoved, superAdmin = false }: Props) {
+  let footer: React.ReactNode = null;
+  if (task.status === "pending" && onSaved && onDone && onStale) {
+    footer = <TaskActions task={task} branches={branches} users={users ?? []} counts={counts ?? new Map()} onSaved={onSaved} onDone={onDone} onStale={onStale} />;
+  } else if ((task.status === "done" || task.status === "cancelled") && onStale && (onReopened || onRemoved)) {
+    footer = (
+      <div className="pb-3">
+        {task.status === "cancelled" && onReopened ? <ReopenAction task={task} onReopened={onReopened} onStale={onStale} /> : null}
+        {onRemoved ? <DeleteAction task={task} onDeleted={onRemoved} onStale={onStale} /> : null}
+      </div>
+    );
+  } else if (task.status === "deleted" && onRemoved && onStale) {
+    footer = <BinActions task={task} superAdmin={superAdmin} onRemoved={onRemoved} onStale={onStale} />;
+  }
+  const urgentEdit: UrgentEdit = task.status === "pending" && onSaved && onStale ? { onSaved, onStale } : null;
   if (variant === "sheet") {
     return (
       <Sheet title={task.title} onClose={onClose} footer={footer}>
-        <DetailBody t={task} branches={branches} />
+        <DetailBody t={task} branches={branches} urgentEdit={urgentEdit} />
       </Sheet>
     );
   }
-  return <Panel task={task} branches={branches} onClose={onClose} footer={footer} />;
+  return <Panel task={task} branches={branches} onClose={onClose} footer={footer} urgentEdit={urgentEdit} />;
 }
 
-function Panel({ task, branches, onClose, footer }: { task: TaskDTO; branches: Branch[]; onClose: () => void; footer: React.ReactNode }) {
+function Panel({ task, branches, onClose, footer, urgentEdit }: { task: TaskDTO; branches: Branch[]; onClose: () => void; footer: React.ReactNode; urgentEdit: UrgentEdit }) {
   // Not modal on desktop (the list stays usable), so no focus trap. Esc still closes
   // (an open form or dialog on top stops the Esc first, see useFocusTrap).
   useEffect(() => {
@@ -151,7 +191,7 @@ function Panel({ task, branches, onClose, footer }: { task: TaskDTO; branches: B
         </button>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-4">
-        <DetailBody t={task} branches={branches} />
+        <DetailBody t={task} branches={branches} urgentEdit={urgentEdit} />
       </div>
       {footer ? <div className="border-t border-line px-5 pt-3">{footer}</div> : null}
     </aside>

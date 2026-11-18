@@ -111,6 +111,18 @@ describe("/api", () => {
     expect(me.name).toBe("Bhaskar");
   });
 
+  it("/api/me superAdmin: true only for the active super admin's name", async () => {
+    const store = new MemoryStore({ users: USERS });
+    const me = async (name: string | null) => (await (await call(store, "/api/me", { token: await issueToken(env, name, NOW) })).json()) as { name: string | null; superAdmin: boolean };
+    expect(await me("Bhaskar")).toMatchObject({ name: "Bhaskar", superAdmin: true });
+    expect(await me(ADMIN2.name)).toMatchObject({ name: ADMIN2.name, superAdmin: false });
+    expect(await me(null)).toMatchObject({ name: null, superAdmin: false });
+    expect(await me("bhaskar")).toMatchObject({ name: null, superAdmin: false });
+    // Bhaskar removed as admin: an old token no longer counts as super admin.
+    await store.saveUser({ ...ADMIN, active: false });
+    expect(await me("Bhaskar")).toMatchObject({ name: null, superAdmin: false });
+  });
+
   it("login screen: name tiles without a token, then password + name logs straight in", async () => {
     const store = new MemoryStore({ users: USERS });
     const names = (await (await call(store, "/api/login-names")).json()) as { admins: string[] };

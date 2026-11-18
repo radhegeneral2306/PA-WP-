@@ -2,6 +2,7 @@ import { useState } from "react";
 import { DeviceMobile, SignOut, UserCircle, AndroidLogo, AppleLogo } from "@phosphor-icons/react";
 import { applyTheme, getTheme, type ThemeChoice } from "../lib/theme";
 import { TopBar } from "../components/ui";
+import { ExportSection } from "../components/ExportSection";
 
 interface Props {
   name: string | null;
@@ -49,6 +50,10 @@ export default function Settings({ name, onChangeName, onLogout }: Props) {
             Naam badlein
           </button>
         </div>
+      </Section>
+
+      <Section title="Excel download">
+        <ExportSection />
       </Section>
 
       <Section title="Theme">

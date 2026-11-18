@@ -48,8 +48,10 @@ describe("Gemini request", () => {
     expect(body.generationConfig.temperature).toBe(0);
     expect(body.generationConfig.responseMimeType).toBe("application/json");
     const schema = body.generationConfig.responseSchema;
-    expect(Object.keys(schema.properties)).toEqual(["transcript", "title", "person", "personHeard", "date", "time", "repeat"]);
-    expect(schema.properties.repeat.enum).toEqual(["none", "every90", "monthly"]);
+    expect(Object.keys(schema.properties)).toEqual(["transcript", "title", "person", "personHeard", "date", "time", "repeat", "urgent"]);
+    expect(schema.properties.repeat.enum).toEqual(["none", "every90", "monthly", "weekly"]);
+    expect(schema.properties.urgent.type).toBe("BOOLEAN");
+    expect(schema.required).toContain("urgent");
     expect(schema.properties.person.enum).toEqual(people.map((p) => p.name));
 
     const sys: string = body.systemInstruction.parts[0].text;
@@ -265,5 +267,45 @@ describe("owner's 8 test sentences (mocked Gemini replies)", () => {
     stub(() => geminiReply({ transcript: "t", title: "Jagdalpur ka karegi", person: "Isha", date: null }));
     const r = await understandTranscript(cases[4].said, ctx, opts);
     expect(r.ok && r.draft.date).toBeNull();
+  });
+});
+
+describe("weekly + urgent (Round 3, F4/F5)", () => {
+  it("prompt explains weekly and urgent", () => {
+    const f = stub(() => geminiReply({ transcript: "x", title: "t" }));
+    return understandTranscript("x", ctx, opts).then(() => {
+      const sys: string = JSON.parse(String(f.mock.calls[0][1].body)).systemInstruction.parts[0].text;
+      expect(sys).toContain('"weekly" for "har hafte"');
+      expect(sys).toContain("har Somvar");
+      expect(sys).toContain("urgent hai");
+      expect(sys).toContain("zaroori");
+    });
+  });
+
+  it("parses repeat weekly and urgent true from a mocked reply", async () => {
+    // "Pinky ko bolo har Somvar stock check karna, urgent hai" -> next Monday 2 Nov.
+    stub(() =>
+      geminiReply({
+        transcript: "Pinky ko bolo har Somvar stock check karna, urgent hai",
+        title: "Stock check karna",
+        person: "Pinky",
+        personHeard: "Pinky",
+        date: "2026-11-02",
+        time: null,
+        repeat: "weekly",
+        urgent: true,
+      }),
+    );
+    const r = await understandTranscript("Pinky ko bolo har Somvar stock check karna, urgent hai", ctx, opts);
+    expect(r).toMatchObject({ ok: true, draft: { repeat: "weekly", urgent: true, date: "2026-11-02", person: "Pinky" } });
+  });
+
+  it("urgent is only true for a real boolean true", () => {
+    const base = { transcript: "t", title: "x", person: "Pinky" };
+    expect(validateDraft({ ...base, urgent: true }, "f", people)?.urgent).toBe(true);
+    expect(validateDraft({ ...base, urgent: false }, "f", people)?.urgent).toBeUndefined();
+    expect(validateDraft({ ...base, urgent: "true" }, "f", people)?.urgent).toBeUndefined();
+    expect(validateDraft({ ...base, repeat: "weekly" }, "f", people)?.repeat).toBe("weekly");
+    expect(validateDraft({ ...base, repeat: "yearly" }, "f", people)?.repeat).toBeNull();
   });
 });

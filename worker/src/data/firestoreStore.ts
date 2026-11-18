@@ -100,6 +100,12 @@ export class FirestoreStore implements Store {
     await patchDoc(this.cfg, TASKS, id, fields);
   }
 
+  async deleteTask(id: string): Promise<void> {
+    // "" would address the collection itself.
+    if (!id) return;
+    await deleteDoc(this.cfg, TASKS, id);
+  }
+
   async listDueTasks(now: Date, limit: number): Promise<Task[]> {
     // nextReminderAt is always stored as toISOString(), so string order = time order; null (done,
     // cancelled, stopped) never matches a range filter.

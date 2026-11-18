@@ -28,6 +28,8 @@ export interface Store {
   getTask(id: string): Promise<Task | null>;
   /** Shallow merge of the given fields. Callers set updatedAt themselves. */
   updateTask(id: string, patch: Partial<NewTask>): Promise<void>;
+  /** Removes the task for good (recycle bin purge). A missing task is not an error. */
+  deleteTask(id: string): Promise<void>;
   /** Sorted by dueAt ascending. */
   listTasks(filter: TaskFilter): Promise<Task[]>;
   /**

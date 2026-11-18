@@ -137,3 +137,36 @@ export function nextMonthlyTask(task: Task, now: Date): NewTask {
     doneAt: null,
   };
 }
+
+/** Next occurrence of a weekly task: same IST weekday and time, 7 days after this one's due. */
+export function nextWeeklyDue(task: Pick<Task, "dueAt">): Date {
+  return new Date(new Date(task.dueAt).getTime() + 7 * 86_400_000);
+}
+
+/** The next occurrence of a weekly task that was just marked done. */
+export function nextWeeklyTask(task: Task, now: Date): NewTask {
+  const { id: _id, ...rest } = task;
+  const due = nextWeeklyDue(task);
+  const stamp = now.toISOString();
+  return {
+    ...rest,
+    dueAt: due.toISOString(),
+    status: "pending",
+    nextReminderAt: reminderSlot(task, due).toISOString(),
+    repeatDay: null,
+    cycleMonth: null,
+    dateRequest: null,
+    lastReminderAt: null,
+    remarks: [],
+    createdAt: stamp,
+    updatedAt: stamp,
+    doneAt: null,
+  };
+}
+
+/** Next occurrence for repeating kinds (monthly, weekly) when one is marked done; null for the others. */
+export function nextRepeatTask(task: Task, now: Date): NewTask | null {
+  if (task.repeat === "monthly") return nextMonthlyTask(task, now);
+  if (task.repeat === "weekly") return nextWeeklyTask(task, now);
+  return null;
+}

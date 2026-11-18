@@ -1,13 +1,13 @@
 // "Naya task" wizard: pick assignee (admins only; typing a name skips the branch list),
-// title, due date + time in one tap, confirm (reminder type defaults to Ek baar and can
-// be changed from the confirm screen), then save and notify the assignee.
+// title, due date + time in one tap, confirm (reminder type defaults to Ek baar; it and
+// 🔴 Urgent are changed from the confirm screen's "⚙️ Badlo" list), then save and notify the assignee.
 
 import { BRANCHES, branchName, type BranchId, type Role, type TaskRepeat, type User } from "../../domain/types";
 import { addDays, dueOnDay, formatDue, istDay, parseDue, type ISTDay, type ParsedDue } from "../../domain/dates";
 import { monthKey, reminderSlot } from "../../domain/schedule";
 import { endFlow, firstTap, isReply, replyValue, setStep, withNonce, type BotContext, type Flow, type Inbound } from "../flow";
 import type { Outgoing } from "../outgoing";
-import { branchList, buttons, matchUsers, quickDue, quickDueList, text, timeButtons, userList } from "../ui";
+import { branchList, buttons, list, matchUsers, quickDue, quickDueList, text, timeButtons, userList, weekdayHi } from "../ui";
 
 const ID = "create_task";
 const TITLE_MAX = 200;
@@ -22,18 +22,15 @@ const DUE_PROMPT = "Task ki due date kab hai?";
 const TIME_PROMPT = "Time bhi dena hai? Likhiye jaise *4pm* ya *11:30 am*. Time nahi hai toh Skip dabaiye (10 AM default).";
 const CUSTOM_DUE_PROMPT = "Date likhiye, jaise *28/10*, *28/10 4pm* ya *kal 11am*";
 const BROKEN = "Kuch gadbad hui, dobara *Hi* bhejiye.";
-const REPEAT_PROMPT = [
-  "Reminder kaise chahiye?",
-  "• *Ek baar*: due time pe ek reminder",
-  "• *Har 90 min*: jab tak jawab na mile, har 90 min (10 AM–8 PM)",
-  "• *Har mahine*: har mahine isi tareekh ko",
-].join("\n");
+const OPTIONS_PROMPT = "Kya badalna hai? Reminder kaise chahiye, ya task Urgent karna hai? 👇";
+const REPEATS: readonly TaskRepeat[] = ["none", "every90", "monthly", "weekly"];
 
-const REPEAT_LABELS: Record<TaskRepeat, string> = { none: "Ek baar", every90: "Har 90 min", monthly: "Har mahine" };
+const REPEAT_LABELS: Record<TaskRepeat, string> = { none: "Ek baar", every90: "Har 90 min", monthly: "Har mahine", weekly: "Har hafte" };
 const REPEAT_SUFFIX: Record<TaskRepeat, string> = {
   none: "",
   every90: " (phir har 90 min, jab tak jawab na mile)",
   monthly: " (har mahine)",
+  weekly: " (har hafte)",
 };
 
 export const createTaskFlow: Flow = {
@@ -231,24 +228,67 @@ function dueList(ctx: BotContext, body: string): Outgoing {
   return quickDueList(ctx.user.phone, ID, body, ctx.now);
 }
 
-/** ids: `${ID}:confirm:yes|repeat|no`. Reminder type is changed from here instead of a separate step. */
+/**
+ * ids: `${ID}:confirm:yes|edit|no`. Reminder type and Urgent are changed from "⚙️ Badlo" instead of
+ * separate steps. Messages sent before Round 3 carry `confirm:repeat`, handled like `edit`.
+ * Never title a button "Cancel" / "Stop" (an Interakt automation answers those words).
+ */
 function confirmMessage(ctx: BotContext, data: Data, hint?: string): Outgoing {
   return buttons(ctx.user.phone, withHint(hint, `${summary(ctx, data)}\n\nTask bana du?`), [
     { id: `${ID}:confirm:yes`, title: "Haan ✅" },
-    { id: `${ID}:confirm:repeat`, title: "🔔 Reminder badlo" },
+    { id: `${ID}:confirm:edit`, title: "⚙️ Badlo" },
     { id: `${ID}:confirm:no`, title: "Nahi ❌" },
   ]);
 }
 
-function repeatButtons(to: string, body: string): Outgoing {
-  return buttons(to, body, (Object.keys(REPEAT_LABELS) as TaskRepeat[]).map((r) => ({
+function repeatDescription(r: TaskRepeat, data: Data): string {
+  switch (r) {
+    case "none":
+      return "Due time pe ek reminder";
+    case "every90":
+      return "Jab tak jawab na mile (10 AM–8 PM)";
+    case "monthly":
+      return data.dueAt ? `Har mahine ${dueDay(data)} tareekh ko` : "Har mahine isi tareekh ko";
+    case "weekly":
+      return data.dueAt ? `Har ${weekdayHi(data.dueAt)} ko` : "Har hafte isi din";
+  }
+}
+
+/** "⚙️ Badlo" list. ids: `${ID}:repeat:none|every90|monthly|weekly` and `${ID}:urgent:on|off`. */
+function optionsList(to: string, data: Data, hint?: string): Outgoing {
+  const current = repeatOf(data);
+  const rows = REPEATS.map((r) => ({
     id: `${ID}:repeat:${r}`,
-    title: REPEAT_LABELS[r],
-  })));
+    title: REPEAT_LABELS[r] + (r === current ? " ✓" : ""),
+    description: repeatDescription(r, data),
+  }));
+  rows.push(
+    isUrgent(data)
+      ? { id: `${ID}:urgent:off`, title: "Urgent hatao", description: "Normal task ban jayega" }
+      : { id: `${ID}:urgent:on`, title: "🔴 Urgent karo", description: "List mein sabse upar, 🔴 ke saath" },
+  );
+  return list(to, withHint(hint, OPTIONS_PROMPT), "Chuniye", rows, "Badlo");
 }
 
 function isRepeat(s: string | null | undefined): s is TaskRepeat {
-  return s === "none" || s === "every90" || s === "monthly";
+  return s === "none" || s === "every90" || s === "monthly" || s === "weekly";
+}
+
+function isUrgent(data: Data): boolean {
+  return data.urgent === "true";
+}
+
+/** A repeat or urgent pick (from the Badlo list, or an older repeat message); null if the tap is neither. */
+function applyOption(data: Data, input: Inbound): Data | null {
+  const repeat = replyValue(input, ID, "repeat");
+  if (isRepeat(repeat)) return { ...data, repeat };
+  const urgent = replyValue(input, ID, "urgent");
+  if (urgent === "on") return { ...data, urgent: "true" };
+  if (urgent === "off") {
+    const { urgent: _u, ...rest } = data;
+    return rest;
+  }
+  return null;
 }
 
 /** Sessions started before the repeat step existed default to a single reminder. */
@@ -259,9 +299,8 @@ function repeatOf(data: Data): TaskRepeat {
 async function askRepeat(ctx: BotContext, data: Data, input: Inbound): Promise<Outgoing[]> {
   const to = ctx.user.phone;
   if (!data.title || !data.dueAt) return broken(ctx);
-  const repeat = replyValue(input, ID, "repeat");
-  if (!isRepeat(repeat)) return [repeatButtons(to, withHint(TAP_HINT, REPEAT_PROMPT))];
-  const next = { ...data, repeat };
+  const next = applyOption(data, input);
+  if (!next) return [optionsList(to, data, TAP_HINT)];
   await setStep(ctx, ID, "confirm", next);
   return [confirmMessage(ctx, next)];
 }
@@ -279,6 +318,7 @@ function summary(ctx: BotContext, data: Data): string {
   const who = data.assigneePhone === ctx.user.phone ? "Aap khud" : `${data.assigneeName} (${assigneeLabel(data)})`;
   return [
     `📝 Task: *${data.title}*`,
+    ...(isUrgent(data) ? ["🔴 Urgent"] : []),
     `👤 Kisko: *${who}*`,
     `🕒 Due: *${dueText(ctx, data)}*`,
     `🔔 Reminder: *${repeatText(data)}*`,
@@ -292,7 +332,9 @@ function dueDay(data: Data): number {
 function repeatText(data: Data): string {
   const repeat = repeatOf(data);
   const label = REPEAT_LABELS[repeat];
-  return repeat === "monthly" ? `${label} (${dueDay(data)} tareekh)` : label;
+  if (repeat === "monthly") return `${label} (${dueDay(data)} tareekh)`;
+  if (repeat === "weekly") return `${label} (${weekdayHi(data.dueAt)})`;
+  return label;
 }
 
 /** First reminder (at the due time) plus how it repeats. */
@@ -312,9 +354,15 @@ async function confirm(ctx: BotContext, data: Data, input: Inbound): Promise<Out
     await endFlow(ctx);
     return [text(to, "Theek hai, task cancel kar diya.")];
   }
-  if (answer === "repeat") {
+  if (answer === "edit" || answer === "repeat") {
     await setStep(ctx, ID, "ask_repeat", data);
-    return [repeatButtons(to, REPEAT_PROMPT)];
+    return [optionsList(to, data)];
+  }
+  // A row of an earlier Badlo list (or an old repeat button) tapped while confirm is open.
+  const changed = answer === null ? applyOption(data, input) : null;
+  if (changed) {
+    await setStep(ctx, ID, "confirm", changed);
+    return [confirmMessage(ctx, changed)];
   }
   if (answer !== "yes") return [confirmMessage(ctx, data, TAP_HINT)];
   return save(ctx, data);
@@ -353,6 +401,7 @@ async function save(ctx: BotContext, data: Data): Promise<Outgoing[]> {
     nextReminderAt: reminderSlot({ repeat }, new Date(data.dueAt)).toISOString(),
     repeatDay: repeat === "monthly" ? dueDay(data) : null,
     cycleMonth: repeat === "monthly" ? monthKey(new Date(data.dueAt)) : null,
+    ...(isUrgent(data) ? { urgent: true } : {}),
     dateRequest: null,
     lastReminderAt: null,
     remarks: [],

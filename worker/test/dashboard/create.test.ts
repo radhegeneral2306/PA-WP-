@@ -106,3 +106,32 @@ describe("POST /api/tasks", () => {
     expect([r.res.status, r.body.code]).toEqual([403, "need_name"]);
   });
 });
+
+describe("POST /api/tasks: Round 3 urgent + weekly", () => {
+  it("stores urgent: true and returns it; default and false store no urgent mark", async () => {
+    const store = fresh();
+    const { res, body } = await create(store, { ...base, urgent: true });
+    expect(res.status).toBe(201);
+    expect(body.task).toMatchObject({ urgent: true });
+    expect((await store.listTasks({}))[0].urgent).toBe(true);
+
+    const plain = fresh();
+    expect((await create(plain, base)).body.task).toMatchObject({ urgent: false });
+    expect((await create(plain, { ...base, urgent: false })).body.task).toMatchObject({ urgent: false });
+    for (const t of await plain.listTasks({})) expect(t.urgent).toBeUndefined();
+  });
+
+  it("refuses a non-boolean urgent", async () => {
+    for (const urgent of ["yes", 1, {}]) {
+      const r = await create(fresh(), { ...base, urgent });
+      expect([r.res.status, r.body.code]).toEqual([400, "bad_request"]);
+    }
+  });
+
+  it("accepts repeat weekly", async () => {
+    const store = fresh();
+    const { res, body } = await create(store, { ...base, repeat: "weekly" });
+    expect(res.status).toBe(201);
+    expect(body.task).toMatchObject({ repeat: "weekly", repeatDay: null, nextReminderAt: "2026-10-28T10:30:00.000Z" });
+  });
+});

@@ -82,7 +82,29 @@ export function userList(
   return list(to, body, "Naam chuno", rows, "Staff");
 }
 
-/** Task picker. ids: `${flow}:task:<taskId>`, `${flow}:page:<n>`. */
+/** 🔴 Urgent (Round 3, F5): a mark in front of the task title. */
+export const URGENT_MARK = "🔴 ";
+
+/** Urgent pending tasks first, then by due date (stable for equal keys). */
+export function sortUrgentFirst(tasks: Task[]): Task[] {
+  const rank = (t: Task) => (t.urgent && t.status === "pending" ? 0 : 1);
+  return [...tasks].sort((a, b) => rank(a) - rank(b) || a.dueAt.localeCompare(b.dueAt));
+}
+
+/** Row title: "🔴 " + title for urgent tasks, clipped to the 24-char row limit. */
+export function taskRowTitle(t: Task): string {
+  return clip(t.urgent ? URGENT_MARK + t.title : t.title, TITLE_MAX);
+}
+
+const WEEKDAYS_HI = ["Ravivar", "Somvar", "Mangalvar", "Budhvar", "Guruvar", "Shukravar", "Shanivar"];
+const IST_OFFSET_MS = 330 * 60_000;
+
+/** IST weekday name in Hinglish ("Somvar"), e.g. for "Har hafte (Somvar)". */
+export function weekdayHi(d: Date | string): string {
+  return WEEKDAYS_HI[new Date(new Date(d).getTime() + IST_OFFSET_MS).getUTCDay()];
+}
+
+/** Task picker (urgent first, then by due). ids: `${flow}:task:<taskId>`, `${flow}:page:<n>`. */
 export function taskList(
   to: string,
   flow: string,
@@ -90,10 +112,10 @@ export function taskList(
   body: string,
   opts: { page?: number; now: Date; showAssignee?: boolean },
 ): Outgoing {
-  const pg = paginate(tasks, opts.page ?? 0, pageSize(0));
+  const pg = paginate(sortUrgentFirst(tasks), opts.page ?? 0, pageSize(0));
   const rows: ListRow[] = pg.items.map((t) => ({
     id: `${flow}:task:${t.id}`,
-    title: clip(t.title, TITLE_MAX),
+    title: taskRowTitle(t),
     description: clip(taskSubtitle(t, opts.now, opts.showAssignee ?? false), DESC_MAX),
   }));
   rows.push(...navRows(flow, pg));

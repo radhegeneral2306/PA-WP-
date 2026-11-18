@@ -1,4 +1,4 @@
-// Phase 3 read-only routes: users list and task lists (pending / archive).
+// Phase 3 read-only routes: users list and task lists (pending / archive / recycle bin).
 // Filtering by branch, staff and text happens in the PWA on these lists.
 
 import { BRANCHES, type BranchId, type DateRequest, type Remark, type Task, type TaskRepeat, type TaskStatus } from "../../domain/types";
@@ -33,6 +33,12 @@ export interface TaskDTO {
   doneAt: string | null;
   cancelledAt: string | null;
   cancelledByName: string | null;
+  /** 🔴 Urgent (Round 3, F5); false for older tasks. */
+  urgent: boolean;
+  /** Recycle bin (Round 3, F8): set while status is "deleted". */
+  deletedAt: string | null;
+  deletedByName: string | null;
+  deletedFrom: "pending" | "done" | "cancelled" | null;
   overdue: boolean;
   dueToday: boolean;
   closedAt: string | null;
@@ -73,6 +79,10 @@ export function toTaskDTO(task: Task, now: Date): TaskDTO {
     doneAt,
     cancelledAt,
     cancelledByName: task.cancelledByName ?? null,
+    urgent: task.urgent === true,
+    deletedAt: task.deletedAt ?? null,
+    deletedByName: task.deletedByName ?? null,
+    deletedFrom: task.deletedFrom ?? null,
     overdue: pending && isOverdue(task.dueAt, now),
     dueToday: pending && sameIstDay(new Date(task.dueAt), now),
     closedAt: doneAt ?? cancelledAt,
@@ -101,6 +111,14 @@ async function archiveTasks(ctx: ApiContext, limit: number): Promise<Task[]> {
   return [...done, ...cancelled].sort(newestClosedFirst).slice(0, limit);
 }
 
+/** Recycle bin: newest deletedAt first. */
+async function binTasks(ctx: ApiContext, limit: number): Promise<Task[]> {
+  const deleted = await ctx.store.listTasks({ status: "deleted" });
+  return deleted
+    .sort((a, b) => (b.deletedAt ?? "").localeCompare(a.deletedAt ?? "") || b.updatedAt.localeCompare(a.updatedAt))
+    .slice(0, limit);
+}
+
 async function getUsers(ctx: ApiContext): Promise<Response> {
   const users = (await ctx.store.listUsers()).map(({ phone, name, role, branch }) => ({ phone, name, role, branch: branch ?? null }));
   return json({ users, branches: BRANCHES });
@@ -111,8 +129,10 @@ async function getTasks(ctx: ApiContext): Promise<Response> {
   const view = params.get("view");
   let tasks: Task[];
   if (view === "pending") tasks = await ctx.store.listTasks({ status: "pending" });
+  // Archive reads only done + cancelled, so deleted tasks never show there.
   else if (view === "archive") tasks = await archiveTasks(ctx, archiveLimit(params.get("limit")));
-  else return json({ error: "view pending ya archive hona chahiye" }, 400);
+  else if (view === "bin") tasks = await binTasks(ctx, archiveLimit(params.get("limit")));
+  else return json({ error: "view pending, archive ya bin hona chahiye" }, 400);
   return json({ now: ctx.now.toISOString(), tasks: tasks.map((t) => toTaskDTO(t, ctx.now)) });
 }
 

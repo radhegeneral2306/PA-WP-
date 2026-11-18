@@ -5,7 +5,7 @@ import type { TaskRepeat } from "../../domain/types";
 import { json, type Route } from "../api";
 import { asObject, bad, dateBody, resolveActor, respond } from "./write";
 
-const REPEATS: readonly TaskRepeat[] = ["none", "every90", "monthly"];
+const REPEATS: readonly TaskRepeat[] = ["none", "every90", "monthly", "weekly"];
 
 export const createRoutes: Route[] = [
   {
@@ -20,11 +20,13 @@ export const createRoutes: Route[] = [
       if (typeof body.assigneePhone !== "string" || !body.assigneePhone) return bad("Kisko dena hai, chuniye");
       const repeat = body.repeat ?? "none";
       if (!REPEATS.includes(repeat as TaskRepeat)) return bad("Reminder ka option galat hai");
+      const urgent = body.urgent ?? false;
+      if (typeof urgent !== "boolean") return bad("urgent true ya false hona chahiye");
       const input = dateBody({ date: body.date, time: body.time });
       if (input instanceof Response) return input;
       const assignee = await ctx.store.getUser(body.assigneePhone);
       if (!assignee || !assignee.active) return bad("Ye user ab active nahi hai");
-      const result = await createTaskFor(ctx.store, actor, { title: body.title, assignee, due: input.due, repeat: repeat as TaskRepeat }, ctx.now);
+      const result = await createTaskFor(ctx.store, actor, { title: body.title, assignee, due: input.due, repeat: repeat as TaskRepeat, urgent }, ctx.now);
       if (!result.ok) return json({ error: result.error, code: result.code }, result.status);
       const res = await respond(ctx, "create", actor, result.task, result);
       return new Response(res.body, { status: 201, headers: res.headers });

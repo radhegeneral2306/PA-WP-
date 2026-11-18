@@ -10,7 +10,7 @@ import type { VoiceDraft, VoiceFailure, VoicePerson, VoiceResult } from "../../v
 import { createTaskFor, TITLE_MAX } from "../taskActions";
 import { endFlow, firstTap, replyValue, setStep, withNonce, type BotContext, type Flow, type Inbound } from "../flow";
 import type { Outgoing } from "../outgoing";
-import { branchList, buttons, clip, list, text, userList } from "../ui";
+import { branchList, buttons, clip, list, text, userList, weekdayHi } from "../ui";
 
 const ID = "voice_task";
 const ADMINS = "ADMINS";
@@ -39,7 +39,9 @@ export const VOICE_MSG = {
   datePast: "Ye date/time nikal chuka hai, aage ki date dijiye.",
   customDate: "Date likhiye, jaise *28/10*, *28/10 4pm* ya *kal 11am*",
   time: "Time likhiye, jaise *4pm*, *11:30 am* ya *shaam 6*. Time nahi hai toh *10 baje* dabaiye.",
-  repeat: "Reminder kaise chahiye?\n• *Ek baar*: due time pe ek reminder\n• *Har 90 min*: jab tak jawab na mile (10 AM–8 PM)\n• *Har mahine*: har mahine isi tareekh ko",
+  repeat:
+    "Reminder kaise chahiye?\n• *Ek baar*: due time pe ek reminder\n• *Har 90 min*: jab tak jawab na mile (10 AM–8 PM)\n" +
+    "• *Har mahine*: har mahine isi tareekh ko\n• *Har hafte*: har hafte isi din",
   editMenu: "Kya badalna hai?",
   cancelled: "Theek hai, task nahi banaya.",
   created: "✅ Task ban gaya!",
@@ -47,11 +49,12 @@ export const VOICE_MSG = {
   broken: "Kuch gadbad hui, voice note dobara bhejiye ya *Hi* bhejiye.",
 };
 
-const REPEAT_LABELS: Record<TaskRepeat, string> = { none: "Ek baar", every90: "Har 90 min", monthly: "Har mahine" };
+const REPEAT_LABELS: Record<TaskRepeat, string> = { none: "Ek baar", every90: "Har 90 min", monthly: "Har mahine", weekly: "Har hafte" };
 const REPEAT_SUFFIX: Record<TaskRepeat, string> = {
   none: "",
   every90: " (phir har 90 min, jab tak jawab na mile)",
   monthly: " (har mahine)",
+  weekly: " (har hafte)",
 };
 const FAILURE_TEXT: Record<VoiceFailure, string> = {
   too_long: VOICE_MSG.tooLong,
@@ -67,7 +70,7 @@ const HEALTH_FAILURES: ReadonlySet<VoiceFailure> = new Set(["limit", "download",
 /**
  * Session data (strings only):
  * t transcript · title · phone/name/label assignee · heard spoken name · cands candidate phones (comma)
- * date "YYYY-MM-DD" · time "HH:MM" or "" (10 AM) · repeat
+ * date "YYYY-MM-DD" · time "HH:MM" or "" (10 AM) · repeat · urgent "true" when 🔴 Urgent (absent otherwise)
  */
 type Data = Record<string, string>;
 type Field = "person" | "title" | "date" | "time" | "repeat";
@@ -117,6 +120,7 @@ async function startFromDraft(ctx: BotContext, draft: VoiceDraft, active: User[]
     date: validDate(draft.date) ? draft.date! : "",
     time: validTime(draft.time) ? draft.time! : "",
     repeat: isRepeat(draft.repeat) ? draft.repeat : "none",
+    ...(draft.urgent === true ? { urgent: "true" } : {}),
   };
 
   // Person: the service's pick must be a real active user; otherwise resolve what was heard.
@@ -221,7 +225,7 @@ async function ask(ctx: BotContext, data: Data, field: Field, hint?: string): Pr
       return [timeButtons(to, withHint(hint, VOICE_MSG.time))];
     case "repeat":
       await setStep(ctx, ID, "ask_repeat", data);
-      return [repeatButtons(to, withHint(hint, VOICE_MSG.repeat))];
+      return [repeatList(to, withHint(hint, VOICE_MSG.repeat))];
   }
 }
 
@@ -395,7 +399,11 @@ function validTime(s: string | null | undefined): boolean {
 }
 
 function isRepeat(s: string | null | undefined): s is TaskRepeat {
-  return s === "none" || s === "every90" || s === "monthly";
+  return s === "none" || s === "every90" || s === "monthly" || s === "weekly";
+}
+
+function isUrgent(data: Data): boolean {
+  return data.urgent === "true";
 }
 
 function dueOf(data: Data): ParsedDue | null {
@@ -434,8 +442,12 @@ function timeButtons(to: string, body: string): Outgoing {
   ]);
 }
 
-function repeatButtons(to: string, body: string): Outgoing {
-  return buttons(to, body, (Object.keys(REPEAT_LABELS) as TaskRepeat[]).map((r) => ({ id: `${ID}:repeat:${r}`, title: REPEAT_LABELS[r] })));
+const REPEATS: readonly TaskRepeat[] = ["none", "every90", "monthly", "weekly"];
+
+/** A list, not buttons: four kinds don't fit in three buttons. ids: `${ID}:repeat:<kind>` (unchanged). */
+function repeatList(to: string, body: string): Outgoing {
+  const rows = REPEATS.map((r) => ({ id: `${ID}:repeat:${r}`, title: REPEAT_LABELS[r] }));
+  return list(to, body, "Chuniye", rows, "Reminder");
 }
 
 async function answerDate(ctx: BotContext, data: Data, input: Inbound): Promise<Outgoing[]> {
@@ -479,7 +491,7 @@ async function answerTime(ctx: BotContext, data: Data, input: Inbound): Promise<
 
 async function answerRepeat(ctx: BotContext, data: Data, input: Inbound): Promise<Outgoing[]> {
   const repeat = replyValue(input, ID, "repeat");
-  if (!isRepeat(repeat)) return [repeatButtons(ctx.user.phone, withHint(VOICE_MSG.tapHint, VOICE_MSG.repeat))];
+  if (!isRepeat(repeat)) return [repeatList(ctx.user.phone, withHint(VOICE_MSG.tapHint, VOICE_MSG.repeat))];
   return next(ctx, { ...data, repeat });
 }
 
@@ -494,12 +506,20 @@ function dueText(ctx: BotContext, data: Data): string {
   return due ? formatDue(due.dueAt, due.hasTime, ctx.now) : "—";
 }
 
+/** "Har hafte (Somvar)" for weekly (weekday of the due date), else the plain label. */
+function repeatLabel(data: Data): string {
+  const repeat = repeatOf(data);
+  const due = dueOf(data);
+  return repeat === "weekly" && due ? `${REPEAT_LABELS.weekly} (${weekdayHi(due.dueAt)})` : REPEAT_LABELS[repeat];
+}
+
 function confirmBody(ctx: BotContext, data: Data, hint?: string): string {
   const task = [
     `Task: ${data.title}`,
+    ...(isUrgent(data) ? ["🔴 Urgent"] : []),
     `Kisko: ${data.name} (${data.label})`,
     `Kab: ${dueText(ctx, data)}`,
-    `Repeat: ${REPEAT_LABELS[repeatOf(data)]}`,
+    `Repeat: ${repeatLabel(data)}`,
     "",
     "Ye task banau?",
   ].join("\n");
@@ -556,7 +576,12 @@ function editList(ctx: BotContext, data: Data, hint?: string): Outgoing {
     { id: `${ID}:edit:person`, title: "Kisko", description: clip(`${data.name} (${data.label})`, 72) },
     { id: `${ID}:edit:date`, title: "Date", description: dueText(ctx, data) },
     { id: `${ID}:edit:time`, title: "Time", description: data.time ? dueText(ctx, data) : "10 AM (default)" },
-    { id: `${ID}:edit:repeat`, title: "Repeat", description: REPEAT_LABELS[repeatOf(data)] },
+    { id: `${ID}:edit:repeat`, title: "Repeat", description: repeatLabel(data) },
+    {
+      id: `${ID}:edit:urgent`,
+      title: isUrgent(data) ? "Urgent hatao" : "🔴 Urgent karo",
+      description: isUrgent(data) ? "Abhi: 🔴 Urgent" : "Abhi: normal",
+    },
   ];
   return list(ctx.user.phone, withHint(hint, VOICE_MSG.editMenu), "Chuniye", rows, "Badlo");
 }
@@ -565,6 +590,11 @@ async function answerEdit(ctx: BotContext, data: Data, input: Inbound): Promise<
   const field = replyValue(input, ID, "edit");
   if (field === "title" || field === "person" || field === "date" || field === "time" || field === "repeat") {
     return ask(ctx, data, field);
+  }
+  if (field === "urgent") {
+    // One tap toggles it and goes back to the confirmation.
+    const { urgent: _u, ...rest } = data;
+    return showConfirm(ctx, isUrgent(data) ? rest : { ...rest, urgent: "true" });
   }
   return [editList(ctx, data, VOICE_MSG.tapHint)];
 }
@@ -589,6 +619,7 @@ async function save(ctx: BotContext, data: Data): Promise<Outgoing[]> {
       assignee: person,
       due,
       repeat: repeatOf(data),
+      urgent: isUrgent(data),
       source: "voice",
       note: `Voice se banaya. Maine suna: "${data.t}"`,
     },
@@ -606,9 +637,15 @@ async function save(ctx: BotContext, data: Data): Promise<Outgoing[]> {
   const dueStr = formatDue(t.dueAt, t.dueHasTime, now);
   const first = t.nextReminderAt && t.nextReminderAt !== t.dueAt ? formatDateTime(t.nextReminderAt, now) : dueStr;
   const who = t.assigneePhone === user.phone ? "Aap khud" : `${t.assigneeName} (${labelOf(person)})`;
-  const repeatText = repeat === "monthly" ? `${REPEAT_LABELS[repeat]} (${istDay(new Date(t.dueAt)).day} tareekh)` : REPEAT_LABELS[repeat];
+  const repeatText =
+    repeat === "monthly"
+      ? `${REPEAT_LABELS[repeat]} (${istDay(new Date(t.dueAt)).day} tareekh)`
+      : repeat === "weekly"
+        ? `${REPEAT_LABELS[repeat]} (${weekdayHi(t.dueAt)})`
+        : REPEAT_LABELS[repeat];
   const summary = [
     `📝 Task: *${t.title}*`,
+    ...(t.urgent ? ["🔴 Urgent"] : []),
     `👤 Kisko: *${who}*`,
     `🕒 Due: *${dueStr}*`,
     `🔔 Reminder: *${repeatText}*`,

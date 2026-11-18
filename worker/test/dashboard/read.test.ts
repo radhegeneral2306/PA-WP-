@@ -151,13 +151,44 @@ describe("GET /api/tasks?view=archive", () => {
   });
 });
 
+describe("GET /api/tasks?view=bin (recycle bin)", () => {
+  const binStore = () =>
+    new MemoryStore({
+      users: USERS,
+      tasks: [
+        task({ id: "p1" }),
+        task({ id: "d1", status: "done", doneAt: "2026-10-20T00:00:00.000Z", nextReminderAt: null }),
+        task({ id: "c1", status: "cancelled", cancelledAt: "2026-10-21T00:00:00.000Z", nextReminderAt: null }),
+        task({ id: "x1", status: "deleted", deletedFrom: "pending", deletedAt: "2026-10-22T00:00:00.000Z", nextReminderAt: null }),
+        task({ id: "x2", status: "deleted", deletedFrom: "done", doneAt: "2026-10-01T00:00:00.000Z", deletedAt: "2026-10-25T00:00:00.000Z", nextReminderAt: null }),
+        task({ id: "x3", status: "deleted", deletedFrom: "cancelled", deletedAt: "2026-10-24T00:00:00.000Z", nextReminderAt: null }),
+      ],
+    });
+
+  it("archive excludes deleted tasks, pending excludes them too", async () => {
+    expect((await tasksOf(binStore(), "view=archive")).tasks.map((t) => t.id).sort()).toEqual(["c1", "d1"]);
+    expect((await tasksOf(binStore(), "view=pending")).tasks.map((t) => t.id)).toEqual(["p1"]);
+  });
+
+  it("bin lists only deleted tasks, newest deletedAt first, with the limit", async () => {
+    const { tasks } = await tasksOf(binStore(), "view=bin");
+    expect(tasks.map((t) => t.id)).toEqual(["x2", "x3", "x1"]);
+    expect(tasks[0]).toMatchObject({ status: "deleted", deletedFrom: "done", deletedAt: "2026-10-25T00:00:00.000Z" });
+    expect((await tasksOf(binStore(), "view=bin&limit=1")).tasks.map((t) => t.id)).toEqual(["x2"]);
+  });
+
+  it("needs a session", async () => {
+    expect((await call(binStore(), "/api/tasks?view=bin", false)).status).toBe(401);
+  });
+});
+
 describe("GET /api/tasks bad view", () => {
   it("returns 400 for a missing or unknown view", async () => {
     const store = new MemoryStore();
     for (const path of ["/api/tasks", "/api/tasks?view=all"]) {
       const res = await call(store, path);
       expect(res.status).toBe(400);
-      expect(await res.json()).toEqual({ error: "view pending ya archive hona chahiye" });
+      expect(await res.json()).toEqual({ error: "view pending, archive ya bin hona chahiye" });
     }
   });
 });
@@ -207,8 +238,18 @@ describe("toTaskDTO", () => {
         "id", "title", "assigneePhone", "assigneeName", "branch", "createdByPhone", "createdByName", "dueAt", "dueHasTime",
         "status", "repeat", "repeatDay", "nextReminderAt", "lastReminderAt", "dateRequest", "source", "remarks", "createdAt", "updatedAt",
         "doneAt", "cancelledAt", "cancelledByName", "overdue", "dueToday", "closedAt", "lastRemark",
+        "urgent", "deletedAt", "deletedByName", "deletedFrom",
       ].sort(),
     );
     expect(Object.values(dto)).not.toContain(undefined);
+    expect(dto).toMatchObject({ urgent: false, deletedAt: null, deletedByName: null, deletedFrom: null });
+  });
+
+  it("carries urgent and the recycle-bin fields", () => {
+    const dto = toTaskDTO(
+      task({ urgent: true, status: "deleted", deletedAt: "2026-10-25T00:00:00.000Z", deletedByName: "Bhaskar (dashboard)", deletedFrom: "done", nextReminderAt: null }),
+      NOW,
+    );
+    expect(dto).toMatchObject({ urgent: true, status: "deleted", deletedAt: "2026-10-25T00:00:00.000Z", deletedByName: "Bhaskar (dashboard)", deletedFrom: "done", overdue: false, dueToday: false });
   });
 });

@@ -226,6 +226,15 @@ describe("task detail", () => {
     expect(bodies(out)).toContain("Status: Done ✅");
   });
 
+  it("a task in the recycle bin is 'not found' on WhatsApp, also from an old button", async () => {
+    const ctx = setup(STAFF_DURG);
+    await openMine(ctx, "d2");
+    await ctx.store.updateTask("d2", { status: "deleted", deletedFrom: "pending", nextReminderAt: null });
+    const out = await send(ctx, tap("tasks:act:done:d2"));
+    expect(bodies(out)).toContain("Ye task nahi mila");
+    expect((await ctx.store.getTask("d2"))?.status).toBe("deleted");
+  });
+
   it("unknown task", async () => {
     const ctx = setup(STAFF_DURG);
     await tasksFlow.start(ctx, "mine");
@@ -759,5 +768,62 @@ describe("date badlo", () => {
     expect(last(out)?.kind).toBe("list");
     expect(await step(ctx)).toBe("ask_due");
     expect((await ctx.store.getTask("d2"))?.status).toBe("pending");
+  });
+});
+
+describe("urgent in lists and detail (Round 3, F5/F4)", () => {
+  function urgentCtx(): BotContext {
+    return makeCtx(
+      STAFF_DURG,
+      new MemoryStore({
+        users: USERS,
+        tasks: [
+          task({ id: "early", title: "Pehle wala", dueAt: "2026-10-25T04:30:00.000Z" }),
+          task({ id: "late", title: "Bahut lamba urgent task ka naam", urgent: true, dueAt: "2026-10-30T04:30:00.000Z" }),
+          task({ id: "mid", title: "Beech wala", dueAt: "2026-10-27T04:30:00.000Z" }),
+          task({ id: "u2", title: "Chhota urgent", urgent: true, dueAt: "2026-10-28T04:30:00.000Z" }),
+        ],
+      }),
+    );
+  }
+
+  it("sorts urgent first (then by due) and marks rows with 🔴 within 24 chars", async () => {
+    const ctx = urgentCtx();
+    const [out] = await tasksFlow.start(ctx);
+    if (out.kind !== "list") throw new Error("expected list");
+    expect(out.rows.map((r) => r.id)).toEqual(["tasks:task:u2", "tasks:task:late", "tasks:task:early", "tasks:task:mid"]);
+    expect(out.rows[0].title).toBe("🔴 Chhota urgent");
+    expect(out.rows[1].title.startsWith("🔴 Bahut lamba")).toBe(true);
+    expect(out.rows[1].title.length).toBeLessThanOrEqual(24);
+    expect(out.rows[1].title.endsWith("…")).toBe(true);
+    expect(out.rows[2].title).toBe("Pehle wala");
+  });
+
+  it("detail shows 🔴 Urgent and the weekly reminder label", async () => {
+    const ctx = makeCtx(STAFF_DURG, new MemoryStore({ users: USERS, tasks: [task({ id: "w", urgent: true, repeat: "weekly" })] }));
+    await tasksFlow.start(ctx);
+    const [d] = await send(ctx, tap("tasks:task:w"));
+    if (d.kind !== "buttons") throw new Error("expected buttons");
+    expect(d.body).toContain("\n🔴 Urgent\n");
+    expect(d.body).toContain("Reminder: Har hafte");
+    const plain = makeCtx(STAFF_DURG, new MemoryStore({ users: USERS, tasks: [task({ id: "p" })] }));
+    await tasksFlow.start(plain);
+    const [pd] = await send(plain, tap("tasks:task:p"));
+    expect(pd.kind === "buttons" && pd.body).not.toContain("Urgent");
+  });
+
+  it("Done on a weekly task creates next week's task (same weekday and time, urgent kept)", async () => {
+    const ctx = makeCtx(
+      STAFF_DURG,
+      new MemoryStore({ users: USERS, tasks: [task({ id: "w", title: "Weekly report", repeat: "weekly", urgent: true })] }),
+    );
+    await tasksFlow.start(ctx);
+    await send(ctx, tap("tasks:task:w"));
+    const out = await send(ctx, tap("tasks:act:done:w"));
+    expect(out.some((o) => o.kind === "text" && o.body.includes("🔁 Agla task: *3 Nov*"))).toBe(true);
+    expect((await ctx.store.getTask("w"))?.status).toBe("done");
+    const pending = await ctx.store.listTasks({ status: "pending" });
+    expect(pending).toHaveLength(1);
+    expect(pending[0]).toMatchObject({ title: "Weekly report", repeat: "weekly", dueAt: "2026-11-03T04:30:00.000Z", status: "pending", urgent: true });
   });
 });

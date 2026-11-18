@@ -262,3 +262,23 @@ describe("FirestoreStore sessions", () => {
     await expect(new FirestoreStore(cfg).getSession("919")).rejects.toThrow(/500: boom/);
   });
 });
+
+describe("FirestoreStore.deleteTask", () => {
+  it("deletes the task document; a missing one is fine; an empty id makes no request", async () => {
+    const store = new FirestoreStore(cfg);
+    reply(200, {});
+    reply(404, {});
+    await store.deleteTask("t1");
+    await store.deleteTask("gone");
+    await store.deleteTask("");
+    expect(calls.map((c) => [c.method, c.url])).toEqual([
+      ["DELETE", `${BASE}/tasks/t1`],
+      ["DELETE", `${BASE}/tasks/gone`],
+    ]);
+  });
+
+  it("throws on other errors", async () => {
+    reply(500, "boom");
+    await expect(new FirestoreStore(cfg).deleteTask("t1")).rejects.toThrow(/500/);
+  });
+});

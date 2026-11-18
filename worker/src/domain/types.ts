@@ -28,8 +28,12 @@ export interface User {
   createdAt: string; // ISO UTC
 }
 
-/** cancelled: stopped from the dashboard; never reminded, never listed as pending (kept in the archive). */
-export type TaskStatus = "pending" | "done" | "cancelled";
+/**
+ * cancelled: stopped from the dashboard; never reminded, never listed as pending (kept in the archive).
+ * deleted: put in the dashboard recycle bin (Round 3, F8); never reminded or listed outside the bin;
+ * restorable to `deletedFrom`; purged for good after 30 days or by the super admin.
+ */
+export type TaskStatus = "pending" | "done" | "cancelled" | "deleted";
 
 /**
  * none: reminder at the due time, then daily at 11 AM IST while still pending.
@@ -37,8 +41,10 @@ export type TaskStatus = "pending" | "done" | "cancelled";
  *   hours (10 AM to 8 PM IST) until the assignee responds.
  * monthly: due on the same day every month (overdue: daily at 11 AM like none);
  *   marking it Done creates next month's task.
+ * weekly: due on the same weekday every week (Round 3, F4; overdue: daily at 11 AM like none);
+ *   marking it Done creates next week's task (due + 7 days, same time).
  */
-export type TaskRepeat = "none" | "every90" | "monthly";
+export type TaskRepeat = "none" | "every90" | "monthly" | "weekly";
 
 /** A staff request to move a due date beyond the 25-day limit, waiting for an admin. */
 export interface DateRequest {
@@ -94,6 +100,13 @@ export interface Task {
   cancelledByName?: string | null;
   /** How the task was created, when not the usual way. "voice" = Batch 4 voice note. */
   source?: "voice" | null;
+  /** 🔴 Urgent (Round 3, F5): shown first and marked in lists; no extra reminders. Older tasks lack it. */
+  urgent?: boolean;
+  /** Recycle bin (Round 3, F8): set when status becomes "deleted". */
+  deletedAt?: string | null;
+  deletedByName?: string | null;
+  /** The status the task had before it was deleted; restore puts it back. */
+  deletedFrom?: Exclude<TaskStatus, "deleted"> | null;
 }
 
 export type NewTask = Omit<Task, "id">;
@@ -112,6 +125,8 @@ export interface Session {
 
 /** An open chat (session) expires after this much silence; owner decision 2 Nov (was 30). */
 export const SESSION_TTL_MINUTES = 2;
+/** Steps where the user types (title, remark, reason, a date, a name/number) get longer (owner 17 Nov, F15). */
+export const TYPING_TTL_MINUTES = 5;
 
 /** Failed dashboard logins, per client (hashed IP) and one "global" record. */
 export interface LoginGuard {

@@ -58,14 +58,16 @@ function lastRemark(task: Task): string {
 export function reminderMessage(task: Task, user: User, now: Date): Outgoing {
   const due = dueText(task, now);
   const remark = lastRemark(task);
+  // 🔴 Urgent rides inside the title value: the template's parameter count stays the same.
+  const title = task.urgent ? `🔴 ${task.title}` : task.title;
   return {
     to: user.phone,
     kind: "template",
     template: "task_reminder_v1",
-    bodyValues: [user.name, task.title, due, remark],
+    bodyValues: [user.name, title, due, remark],
     fallbackText:
       `⏰ Reminder: ${user.name} ji, ye task pending hai.\n\n` +
-      `Task: ${task.title}\nDue date: ${due}\nLast remark: ${remark}\n\n` +
+      `Task: ${title}\nDue date: ${due}\nLast remark: ${remark}\n\n` +
       "Update ke liye *Mere tasks* likhiye.",
   };
 }

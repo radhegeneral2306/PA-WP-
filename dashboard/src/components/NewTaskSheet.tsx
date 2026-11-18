@@ -1,24 +1,31 @@
 import { useId, useRef, useState } from "react";
 import { CaretRight } from "@phosphor-icons/react";
 import { api, errorText } from "../lib/api";
-import { TITLE_MAX, todayIst, validateNewTask, type NewTaskErrors } from "../lib/due";
+import { istInstant, TITLE_MAX, todayIst, validateNewTask, type NewTaskErrors } from "../lib/due";
 import { branchLabel } from "../lib/filters";
+import { istWeekday } from "../lib/format";
 import { useOnline } from "../lib/hooks";
 import type { Branch, TaskDTO, TaskRepeat, UserDTO } from "../lib/types";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { Counter, describedBy, FormError, SaveButton, textareaClass } from "./formParts";
 import { Sheet } from "./Sheet";
 import { StaffPicker } from "./StaffPicker";
+import { UrgentMark } from "./TaskRow";
 import { useToast } from "./Toast";
 import { inputClass } from "./ui";
 
-const REPEATS: { key: TaskRepeat; label: string; hint: (day: number | null) => string }[] = [
+const REPEATS: { key: TaskRepeat; label: string; hint: (day: number | null, weekday: string | null) => string }[] = [
   { key: "none", label: "Ek baar", hint: () => "Due time pe reminder. Done na ho toh roz subah 11 baje yaad dilayega." },
   { key: "every90", label: "Har 90 min", hint: () => "Due time se har 90 min (10 AM se 8 PM). Jawab aane par agle din tak rukega." },
   {
     key: "monthly",
     label: "Har mahine",
     hint: (day) => `Har mahine ${day ? `${day} tareekh` : "isi tareekh"} ko. Done karne par agle mahine ka task apne aap banega.`,
+  },
+  {
+    key: "weekly",
+    label: "Har hafte",
+    hint: (_day, weekday) => `Har hafte ${weekday ?? "isi din"} ko. Done karne par agle hafte ka task apne aap banega.`,
   },
 ];
 
@@ -48,6 +55,7 @@ export function NewTaskSheet({ users, branches, counts, initialAssignee, onClose
   const [date, setDate] = useState("");
   const [time, setTime] = useState("");
   const [repeat, setRepeat] = useState<TaskRepeat>("none");
+  const [urgent, setUrgent] = useState(false);
   const [errors, setErrors] = useState<FieldErrors>({});
   const [serverError, setServerError] = useState<string | null>(null);
   const [picking, setPicking] = useState(false);
@@ -56,8 +64,10 @@ export function NewTaskSheet({ users, branches, counts, initialAssignee, onClose
   const inFlight = useRef(false);
 
   const person = assignee ? users.find((u) => u.phone === assignee) ?? null : null;
-  const dirty = title.trim() !== "" || date !== "" || time !== "" || repeat !== "none" || assignee !== (initialAssignee ?? null);
+  const dirty = title.trim() !== "" || date !== "" || time !== "" || repeat !== "none" || urgent || assignee !== (initialAssignee ?? null);
   const day = date ? Number(date.slice(8, 10)) : null;
+  const dateAt = date ? istInstant(date, null) : null;
+  const weekday = dateAt !== null ? istWeekday(new Date(dateAt).toISOString()) : null;
 
   function close() {
     if (busy) return;
@@ -80,7 +90,7 @@ export function NewTaskSheet({ users, branches, counts, initialAssignee, onClose
     inFlight.current = true;
     setBusy(true);
     try {
-      const res = await api.createTask({ title: t, assigneePhone: person.phone, date, time: time || null, repeat });
+      const res = await api.createTask({ title: t, assigneePhone: person.phone, date, time: time || null, repeat, urgent });
       toast(`Task ban gaya: ${res.task.assigneeName || person.name}`);
       onCreated(res.task);
     } catch (err) {
@@ -93,7 +103,7 @@ export function NewTaskSheet({ users, branches, counts, initialAssignee, onClose
 
   const dateErr = errors.due?.field === "date" ? errors.due.message : null;
   const timeErr = errors.due?.field === "time" ? errors.due.message : null;
-  const repeatHint = REPEATS.find((r) => r.key === repeat)!.hint(day);
+  const repeatHint = REPEATS.find((r) => r.key === repeat)!.hint(day, weekday);
 
   return (
     <>
@@ -216,7 +226,7 @@ export function NewTaskSheet({ users, branches, counts, initialAssignee, onClose
 
           <fieldset>
             <legend className="mb-1.5 text-body font-medium">Reminder</legend>
-            <div className="grid grid-cols-3 gap-2" aria-describedby={`${id}-repeat-help`}>
+            <div className="grid grid-cols-2 gap-2" aria-describedby={`${id}-repeat-help`}>
               {REPEATS.map((r) => (
                 <label
                   key={r.key}
@@ -233,6 +243,34 @@ export function NewTaskSheet({ users, branches, counts, initialAssignee, onClose
               {repeatHint}
             </p>
           </fieldset>
+
+          <div>
+            <div className="flex items-center justify-between gap-3">
+              <span id={`${id}-urgent-label`} className="flex items-center gap-1.5 text-body font-medium">
+                <UrgentMark decorative />
+                Urgent
+              </span>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={urgent}
+                aria-labelledby={`${id}-urgent-label`}
+                aria-describedby={`${id}-urgent-help`}
+                onClick={() => setUrgent((u) => !u)}
+                className="press -my-1 flex h-11 w-16 shrink-0 items-center justify-center"
+              >
+                <span className={`relative h-7 w-12 rounded-full border transition-colors ${urgent ? "border-danger bg-danger" : "border-line bg-bg"}`}>
+                  <span
+                    className={`absolute top-0.5 left-0.5 h-5.5 w-5.5 rounded-full shadow-sm transition-transform ${urgent ? "translate-x-5 bg-on-accent" : "bg-muted"}`}
+                    aria-hidden="true"
+                  />
+                </span>
+              </button>
+            </div>
+            <p id={`${id}-urgent-help`} className="mt-1 text-meta text-muted">
+              {urgent ? "Haan. List mein sabse upar, laal nishaan ke saath." : "Urgent task list mein sabse upar dikhta hai. Extra reminder nahi jata."}
+            </p>
+          </div>
 
           <FormError message={serverError ?? (!online ? "Internet nahi hai. Net aane par banaiye." : null)} />
           <SaveButton busy={busy} disabled={busy || !online} label="Task banao" busyLabel="Task ban raha hai…" />

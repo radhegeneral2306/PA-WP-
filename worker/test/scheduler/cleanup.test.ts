@@ -59,10 +59,16 @@ afterEach(() => {
 });
 
 describe("runCleanup", () => {
-  it("queries all three collections with LESS_THAN filters (claims: 2-day cutoff)", async () => {
+  it("queries all four collections with LESS_THAN filters (claims: 2-day cutoff)", async () => {
     await runCleanup(cfg, NOW);
     const q = calls.filter((c) => c.url === `${BASE}:runQuery`).map((c) => c.body.structuredQuery);
-    expect(q).toHaveLength(3);
+    expect(q).toHaveLength(4);
+    expect(q[3]).toMatchObject({
+      from: [{ collectionId: "tasks" }],
+      where: { fieldFilter: { field: { fieldPath: "deletedAt" }, op: "LESS_THAN", value: { stringValue: CUTOFF } } },
+      select: { fields: [{ fieldPath: "status" }, { fieldPath: "deletedAt" }] },
+      limit: 500,
+    });
     expect(q[2]).toMatchObject({
       from: [{ collectionId: "claims" }],
       where: { fieldFilter: { field: { fieldPath: "createdAt" }, op: "LESS_THAN", value: { stringValue: new Date(NOW.getTime() - 2 * 86_400_000).toISOString() } } },
@@ -82,8 +88,8 @@ describe("runCleanup", () => {
 
   it("makes no commit when nothing is old enough", async () => {
     const res = await runCleanup(cfg, NOW);
-    expect(res).toEqual({ webhookLogs: 0, loginGuards: 0, claims: 0 });
-    expect(calls).toHaveLength(3);
+    expect(res).toEqual({ webhookLogs: 0, loginGuards: 0, claims: 0, binTasks: 0 });
+    expect(calls).toHaveLength(4);
     expect(calls.some((c) => c.url.endsWith(":commit"))).toBe(false);
   });
 
@@ -102,7 +108,7 @@ describe("runCleanup", () => {
       return json({ writeResults: [] });
     };
     const res = await runCleanup(cfg, NOW);
-    expect(res).toEqual({ webhookLogs: 2, loginGuards: 2, claims: 0 });
+    expect(res).toEqual({ webhookLogs: 2, loginGuards: 2, claims: 0, binTasks: 0 });
 
     const commits = calls.filter((c) => c.url === `${BASE}:commit`);
     expect(commits).toHaveLength(2);
@@ -114,7 +120,7 @@ describe("runCleanup", () => {
       { delete: `${NAME}/login_guards/ip-old` },
       { delete: `${NAME}/login_guards/ip-expired-lock` },
     ]);
-    expect(calls.length).toBeLessThanOrEqual(6);
+    expect(calls.length).toBeLessThanOrEqual(8);
   });
 
   it("makes no guard commit when only global and locked guards are stale", async () => {
@@ -144,6 +150,44 @@ describe("runCleanup", () => {
     expect(calls.find((c) => isCommit(c, "claims"))?.body.writes).toEqual([{ delete: `${NAME}/claims/c1` }]);
   });
 
+  it("purges recycle-bin tasks deleted over 30 days ago, re-checking the status", async () => {
+    handler = (c) => {
+      if (isQuery(c, "tasks"))
+        return json(
+          rows("tasks", [
+            { id: "old-bin", fields: { status: { stringValue: "deleted" }, deletedAt: { stringValue: "2026-09-01T00:00:00.000Z" } } },
+            { id: "restored", fields: { status: { stringValue: "pending" }, deletedAt: { stringValue: "2026-09-01T00:00:00.000Z" } } },
+          ]),
+        );
+      return json(c.url.endsWith(":commit") ? {} : []);
+    };
+    const res = await runCleanup(cfg, NOW);
+    expect(res.binTasks).toBe(1);
+    const commits = calls.filter((c) => isCommit(c, "tasks"));
+    expect(commits).toHaveLength(1);
+    expect(commits[0].body.writes).toEqual([{ delete: `${NAME}/tasks/old-bin` }]);
+    expect(calls).toHaveLength(5);
+  });
+
+  it("makes no tasks commit when no old bin task is found", async () => {
+    handler = (c) =>
+      isQuery(c, "tasks") ? json(rows("tasks", [{ id: "p", fields: { status: { stringValue: "done" } } }])) : json([]);
+    const res = await runCleanup(cfg, NOW);
+    expect(res.binTasks).toBe(0);
+    expect(calls.some((c) => c.url.endsWith(":commit"))).toBe(false);
+  });
+
+  it("a failing bin purge does not stop the other parts", async () => {
+    handler = (c) => {
+      if (isQuery(c, "webhook_log")) return json(rows("webhook_log", [{ id: "a" }]));
+      if (isQuery(c, "tasks")) return new Response("boom", { status: 500 });
+      return json(c.url.endsWith(":commit") ? {} : []);
+    };
+    const res = await runCleanup(cfg, NOW);
+    expect(res).toEqual({ webhookLogs: 1, loginGuards: 0, claims: 0, binTasks: 0 });
+    expect(console.error).toHaveBeenCalledWith(expect.stringContaining("tasks bin: Firestore query tasks"));
+  });
+
   it("never addresses any other collection", async () => {
     handler = (c) => {
       if (isQuery(c, "webhook_log")) return json(rows("webhook_log", [{ id: "a" }]));
@@ -155,11 +199,12 @@ describe("runCleanup", () => {
       expect(c.method).toBe("POST");
       expect([`${BASE}:runQuery`, `${BASE}:commit`]).toContain(c.url);
       if (c.url.endsWith(":runQuery")) {
-        expect(["webhook_log", "login_guards", "claims"]).toContain(c.body.structuredQuery.from[0].collectionId);
+        expect(["webhook_log", "login_guards", "claims", "tasks"]).toContain(c.body.structuredQuery.from[0].collectionId);
       } else {
         expect(isCommit(c, "webhook_log") || isCommit(c, "login_guards") || isCommit(c, "claims")).toBe(true);
       }
     }
+    // Tasks are only queried here (nothing old in the bin), never written.
     expect(JSON.stringify(calls)).not.toMatch(/\/(users|tasks|sessions|system)\//);
   });
 
@@ -170,7 +215,7 @@ describe("runCleanup", () => {
       return json({});
     };
     const res = await runCleanup(cfg, NOW);
-    expect(res).toEqual({ webhookLogs: 0, loginGuards: 1, claims: 0 });
+    expect(res).toEqual({ webhookLogs: 0, loginGuards: 1, claims: 0, binTasks: 0 });
     expect(console.error).toHaveBeenCalledWith(expect.stringContaining("webhook_log: Firestore query webhook_log"));
   });
 
@@ -182,14 +227,14 @@ describe("runCleanup", () => {
       return json({});
     };
     const res = await runCleanup(cfg, NOW);
-    expect(res).toEqual({ webhookLogs: 1, loginGuards: 0, claims: 0 });
+    expect(res).toEqual({ webhookLogs: 1, loginGuards: 0, claims: 0, binTasks: 0 });
     expect(console.error).toHaveBeenCalledWith(expect.stringContaining("login_guards: Firestore delete"));
   });
 
   it("logs a one-line summary", async () => {
     await runCleanup(cfg, NOW);
     expect(console.log).toHaveBeenCalledWith(
-      `Cleanup: deleted 0 webhook_log, 0 login_guards, 0 claims (cutoff ${CUTOFF})`,
+      `Cleanup: deleted 0 webhook_log, 0 login_guards, 0 claims, 0 bin tasks (cutoff ${CUTOFF})`,
     );
   });
 });

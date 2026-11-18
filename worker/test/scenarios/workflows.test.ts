@@ -442,10 +442,10 @@ describe("duplicate deliveries and double cron", () => {
     expect((await s.getTask("p"))?.dateRequest).not.toBeNull();
   });
 
-  it("old Done button after 2 quiet minutes says expired", async () => {
+  it("old Done button after the open task went quiet (5 min: typing a remark is allowed there) says expired", async () => {
     const s = store([task({ id: "m" }), task({ id: "n" })]);
     await openTask(s, STAFF_DURG, "m");
-    const late = await chat(s, STAFF_DURG, at("2026-10-26T09:32:30Z"))(tap("tasks:act:done:m"));
+    const late = await chat(s, STAFF_DURG, at("2026-10-26T09:35:30Z"))(tap("tasks:act:done:m"));
     expect(all(late)).toContain("Session expire ho gaya");
     expect((await s.getTask("m"))?.status).toBe("pending");
   });

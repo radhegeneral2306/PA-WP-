@@ -47,6 +47,29 @@ export function applyFilters(tasks: TaskDTO[], f: TaskFilters, users: UserDTO[])
   });
 }
 
+/** F5: true only when the Worker says so (older workers send nothing). */
+export function isUrgent(t: Pick<TaskDTO, "urgent">): boolean {
+  return t.urgent === true;
+}
+
+/** Pending lists: urgent first, then by due (earliest first, so overdue comes first). Ties keep the older task first. */
+export function sortPending(tasks: TaskDTO[]): TaskDTO[] {
+  return tasks.slice().sort((a, b) => {
+    const u = Number(isUrgent(b)) - Number(isUrgent(a));
+    if (u !== 0) return u;
+    const d = (Date.parse(a.dueAt) || 0) - (Date.parse(b.dueAt) || 0);
+    if (d !== 0) return d;
+    return a.createdAt.localeCompare(b.createdAt);
+  });
+}
+
+/** Recycle bin: newest delete first (the Worker sends this order too). */
+export function sortBin(tasks: TaskDTO[]): TaskDTO[] {
+  return tasks
+    .filter((t) => t.status === "deleted")
+    .sort((a, b) => (Date.parse(b.deletedAt ?? b.updatedAt) || 0) - (Date.parse(a.deletedAt ?? a.updatedAt) || 0));
+}
+
 export function applySummary(tasks: TaskDTO[], s: SummaryFilter): TaskDTO[] {
   if (s === "overdue") return tasks.filter((t) => t.overdue);
   if (s === "today") return tasks.filter((t) => t.dueToday);
@@ -96,7 +119,9 @@ export function approvalCount(pending: TaskDTO[]): number {
 }
 
 export function filterArchive(tasks: TaskDTO[], kind: ArchiveKind): TaskDTO[] {
-  const list = kind === "all" ? tasks.slice() : tasks.filter((t) => t.status === kind);
+  // The Worker already leaves deleted tasks out of the archive; this guards against an older one.
+  const closed = tasks.filter((t) => t.status === "done" || t.status === "cancelled");
+  const list = kind === "all" ? closed : closed.filter((t) => t.status === kind);
   return list.sort((a, b) => Date.parse(b.closedAt ?? b.updatedAt) - Date.parse(a.closedAt ?? a.updatedAt));
 }
 
