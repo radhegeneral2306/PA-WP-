@@ -4,7 +4,7 @@
 // understood task (Haan / Badlo / Rehne do) and creates the task only on Haan, via createTaskFor.
 
 import { BRANCHES, branchName, type BranchId, type TaskRepeat, type User } from "../../domain/types";
-import { addDays, atIST, formatDateTime, formatDue, istDay, isValidDay, parseDue, parseTime, type ISTDay, type ParsedDue } from "../../domain/dates";
+import { addDays, atIST, dueOnDay, formatDateTime, formatDue, istDay, isValidDay, parseDue, parseTime, type ISTDay, type ParsedDue } from "../../domain/dates";
 import { recordProblems, SUPER_ADMIN_NAME } from "../../scheduler/health";
 import type { VoiceDraft, VoiceFailure, VoicePerson, VoiceResult } from "../../voice/types";
 import { createTaskFor, TITLE_MAX } from "../taskActions";
@@ -463,6 +463,12 @@ async function answerTime(ctx: BotContext, data: Data, input: Inbound): Promise<
   if (input.reply?.id === `${ID}:edit:date`) return ask(ctx, data, "date");
   if (input.reply?.id === `${ID}:time:default`) return next(ctx, { ...data, time: "" });
   if (!input.reply && input.text.trim()) {
+    // On the chosen day, so "raat 12" lands at the end of that day (dueOnDay moves it), not its start.
+    if (validDate(data.date)) {
+      const [year, month, day] = data.date.split("-").map(Number);
+      const onDay = dueOnDay({ year, month, day }, input.text);
+      if (onDay?.hasTime) return next(ctx, fromTyped(onDay, data));
+    }
     const clock = parseTime(input.text);
     if (clock) return next(ctx, { ...data, time: clockKey(clock.hour, clock.minute) });
     const typed = parseDue(input.text, ctx.now);
