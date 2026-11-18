@@ -72,10 +72,9 @@ describe("chat scenarios", () => {
     expect(body(out[0])).toContain("Session expire ho gaya");
   });
 
-  it("the same words from a non-tester get the plain menu", async () => {
+  it("the same words from an admin who is not on the tester list are answered too (chat is open to everyone)", async () => {
     const w = world(ADMIN2);
     const out = await w.send(say("mere pending tasks dikhao"));
-    expect(out[0].kind).toBe("list");
-    expect(body(out[0])).toContain("Namaste");
+    expect(body(out[0])).not.toContain("Namaste");
   });
 });

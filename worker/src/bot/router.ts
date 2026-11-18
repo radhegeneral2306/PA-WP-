@@ -37,7 +37,7 @@ export function canUseVoice(user: User): boolean {
 }
 
 /** Round 5: typed free text that nothing else recognised goes to the chat (rules, then AI). Admins and staff. */
-export const CHAT_LIVE = false;
+export const CHAT_LIVE = true;
 export const CHAT_TESTERS: ReadonlySet<string> = new Set(["Bhaskar"]);
 
 export function canUseChat(user: User): boolean {

@@ -329,17 +329,16 @@ describe("router hook", () => {
     added.push(u.name);
   };
 
-  it("the flag is off for everyone but the tester by default", () => {
-    expect(CHAT_LIVE).toBe(false);
+  it("chat is open to everyone (owner 18 Nov); the tester list is only used while CHAT_LIVE is false", () => {
+    expect(CHAT_LIVE).toBe(true);
     expect([...CHAT_TESTERS]).toEqual(["Bhaskar"]);
   });
 
-  it("not a tester: typed text still gets the plain menu, no AI", async () => {
+  it("any user (not only a tester): typed text reaches the chat", async () => {
     const w = setup(ADMIN2, ok({ kind: "other" }));
     const out = await handleMessage(w.ctx, say("GST kya hai"));
-    expect(out[0].kind).toBe("list");
-    expect(first(out)).toContain("Namaste");
-    expect(w.chat.understand).not.toHaveBeenCalled();
+    expect(first(out)).toContain("Main sirf tasks");
+    expect(w.chat.understand).toHaveBeenCalledOnce();
   });
 
   it("a tester: typed text reaches the chat", async () => {
