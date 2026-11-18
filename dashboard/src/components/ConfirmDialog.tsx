@@ -18,7 +18,7 @@ interface Props {
   error?: string | null;
 }
 
-/** Used by Assign badlo (Phase 4) and Cancel (Phase 5). "Nahi" gets the default focus so a stray Enter does nothing harmful. */
+/** Used by Done, Assign badlo (Phase 4) and Cancel (Phase 5). "Nahi" gets the default focus so a stray Enter does nothing harmful. */
 export function ConfirmDialog({ title, body, confirmLabel, cancelLabel = "Nahi", danger = false, onConfirm, onCancel, busy = false, busyLabel, error }: Props) {
   const ref = useRef<HTMLDivElement>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);

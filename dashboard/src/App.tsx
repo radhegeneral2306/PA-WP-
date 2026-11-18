@@ -1,8 +1,9 @@
-import { lazy, Suspense, useCallback, useEffect, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { SpinnerGap } from "@phosphor-icons/react";
 import { api, errorText, setAuthHandlers } from "./lib/api";
-import { approvalCount } from "./lib/filters";
-import { useIsDesktop, useOnline, useResource } from "./lib/hooks";
+import { approvalCount, overdueCount, withLiveStatus } from "./lib/filters";
+import { useAutoRefresh, useIsDesktop, useOnline, useResource, type Resource } from "./lib/hooks";
+import type { TasksResponse } from "./lib/types";
 import { clearToken, getItem, getToken, setItem, setToken } from "./lib/storage";
 import { syncThemeColor } from "./lib/theme";
 import { Login } from "./screens/Login";
@@ -150,14 +151,25 @@ function initialTab(): Tab {
 function Shell({ name, onChangeName, onLogout }: { name: string; onChangeName: () => void; onLogout: () => void }) {
   const isDesktop = useIsDesktop();
   const [tab, setTab] = useState<Tab>(initialTab);
-  const pending = useResource(() => api.tasks("pending"));
+  const fetched = useResource(() => api.tasks("pending"));
   const users = useResource(() => api.users());
-  const approvals = approvalCount(pending.data?.tasks ?? []);
+  // Silent refresh on return to the tab and every 5 min while visible (budget in lib/refresh.ts).
+  const maybeReload = useAutoRefresh(fetched);
+  // Overdue / aaj due are recomputed against the clock on every render (per minute), not only per fetch.
+  const minute = Math.floor(Date.now() / 60_000);
+  const { liveData, overdue } = useMemo(() => {
+    const now = new Date();
+    const data: TasksResponse | null = fetched.data ? { ...fetched.data, tasks: withLiveStatus(fetched.data.tasks, now) } : null;
+    return { liveData: data, overdue: overdueCount(data?.tasks ?? [], now) };
+  }, [fetched.data, minute]); // `minute` re-runs it as the clock moves
+  const pending: Resource<TasksResponse> = { ...fetched, data: liveData };
+  const approvals = approvalCount(liveData?.tasks ?? []);
 
   function change(t: Tab) {
     setTab(t);
     setItem(TAB_KEY, t);
-    if (t === "tasks" && !pending.loading) pending.reload();
+    // Same 60 s floor as the auto refresh; the Refresh button on the screen is never throttled.
+    if (t === "tasks") maybeReload();
     window.scrollTo({ top: 0 });
   }
 
@@ -173,7 +185,7 @@ function Shell({ name, onChangeName, onLogout }: { name: string; onChangeName: (
   if (isDesktop) {
     return (
       <div className="flex min-h-[100dvh]">
-        <SideRail tab={tab} onChange={change} approvals={approvals} />
+        <SideRail tab={tab} onChange={change} approvals={approvals} overdue={overdue} />
         <div className="min-w-0 flex-1">
           <ConnectionBanners />
           <main>{screen}</main>
@@ -186,7 +198,7 @@ function Shell({ name, onChangeName, onLogout }: { name: string; onChangeName: (
     <div className="min-h-[100dvh] pb-[calc(64px+env(safe-area-inset-bottom))]">
       <ConnectionBanners />
       <main>{screen}</main>
-      <BottomTabs tab={tab} onChange={change} approvals={approvals} />
+      <BottomTabs tab={tab} onChange={change} approvals={approvals} overdue={overdue} />
     </div>
   );
 }

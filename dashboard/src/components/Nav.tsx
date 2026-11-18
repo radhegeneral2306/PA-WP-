@@ -22,26 +22,36 @@ interface Props {
   tab: Tab;
   onChange: (t: Tab) => void;
   approvals: number;
+  /** Overdue pending tasks, shown as a badge on Tasks. */
+  overdue: number;
 }
 
-export function BottomTabs({ tab, onChange, approvals }: Props) {
+/** Badge count for a tab and its spoken suffix ("3 overdue", "2 pending"). */
+function badgeFor(key: Tab, approvals: number, overdue: number): { count: number; text: string } | null {
+  if (key === "tasks" && overdue > 0) return { count: overdue, text: `${overdue} overdue` };
+  if (key === "approvals" && approvals > 0) return { count: approvals, text: `${approvals} pending` };
+  return null;
+}
+
+export function BottomTabs({ tab, onChange, approvals, overdue }: Props) {
   return (
     <nav aria-label="Main" className="pb-safe fixed inset-x-0 bottom-0 z-30 border-t border-line bg-surface/95 backdrop-blur">
       <ul className="mx-auto grid max-w-lg grid-cols-4">
         {TABS.map(({ key, label, icon: I }) => {
           const active = key === tab;
+          const badge = badgeFor(key, approvals, overdue);
           return (
             <li key={key}>
               <button
                 type="button"
                 onClick={() => onChange(key)}
                 aria-current={active ? "page" : undefined}
-                aria-label={key === "approvals" && approvals > 0 ? `${label}, ${approvals} pending` : undefined}
+                aria-label={badge ? `${label}, ${badge.text}` : undefined}
                 className={`press flex h-16 w-full flex-col items-center justify-center gap-0.5 text-[12px] font-medium ${active ? "text-accent" : "text-muted"}`}
               >
                 <span className="relative">
                   <I size={24} weight={active ? "fill" : "regular"} aria-hidden="true" />
-                  {key === "approvals" ? <Badge count={approvals} /> : null}
+                  {badge ? <Badge count={badge.count} /> : null}
                 </span>
                 {label}
               </button>
@@ -53,7 +63,7 @@ export function BottomTabs({ tab, onChange, approvals }: Props) {
   );
 }
 
-export function SideRail({ tab, onChange, approvals }: Props) {
+export function SideRail({ tab, onChange, approvals, overdue }: Props) {
   return (
     <nav aria-label="Main" className="sticky top-0 flex h-[100dvh] w-56 shrink-0 flex-col border-r border-line bg-surface px-3 py-4">
       <div className="mb-6 flex items-center gap-2 px-2">
@@ -63,19 +73,21 @@ export function SideRail({ tab, onChange, approvals }: Props) {
       <ul className="space-y-1">
         {TABS.map(({ key, label, icon: I }) => {
           const active = key === tab;
+          const badge = badgeFor(key, approvals, overdue);
           return (
             <li key={key}>
               <button
                 type="button"
                 onClick={() => onChange(key)}
                 aria-current={active ? "page" : undefined}
+                aria-label={badge ? `${label}, ${badge.text}` : undefined}
                 className={`press flex min-h-11 w-full items-center gap-3 rounded-lg px-3 text-body font-medium ${active ? "bg-accent-soft text-accent" : "text-text hover:bg-bg"}`}
               >
                 <I size={22} weight={active ? "fill" : "regular"} aria-hidden="true" />
                 <span className="flex-1 text-left">{label}</span>
-                {key === "approvals" && approvals > 0 ? (
-                  <span className="tnum rounded-full bg-danger px-2 text-meta font-semibold text-on-accent" aria-label={`${approvals} pending`}>
-                    {approvals}
+                {badge ? (
+                  <span className="tnum rounded-full bg-danger px-2 text-meta font-semibold text-on-accent" aria-hidden="true">
+                    {badge.count > 99 ? "99+" : badge.count}
                   </span>
                 ) : null}
               </button>
