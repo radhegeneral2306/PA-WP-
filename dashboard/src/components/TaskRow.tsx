@@ -1,10 +1,11 @@
-import { ArrowsClockwise, CalendarDots, Microphone, Repeat } from "@phosphor-icons/react";
-import { formatDateTime, formatDue } from "../lib/format";
-import { branchLabel, isVoiceTask } from "../lib/filters";
+import { ArrowsClockwise, CalendarDots, Circle, Microphone, Repeat, RepeatOnce } from "@phosphor-icons/react";
+import { binDaysLeftText, deletedText, formatDateTime, formatDue, STATUS_LABELS } from "../lib/format";
+import { branchLabel, isUrgent, isVoiceTask } from "../lib/filters";
 import type { Branch, TaskDTO } from "../lib/types";
 
 export function RepeatIcon({ repeat, size = 16 }: { repeat: TaskDTO["repeat"]; size?: number }) {
   if (repeat === "monthly") return <Repeat size={size} role="img" aria-label="Har mahine repeat" className="shrink-0 text-muted" />;
+  if (repeat === "weekly") return <RepeatOnce size={size} role="img" aria-label="Har hafte repeat" className="shrink-0 text-muted" />;
   if (repeat === "every90") return <ArrowsClockwise size={size} role="img" aria-label="Har 90 min reminder" className="shrink-0 text-muted" />;
   return null;
 }
@@ -17,18 +18,24 @@ export function VoiceIcon({ size = 16 }: { size?: number }) {
   );
 }
 
-export function repeatText(t: TaskDTO): string {
-  if (t.repeat === "monthly") return t.repeatDay ? `Har mahine, ${t.repeatDay} tareekh` : "Har mahine";
-  if (t.repeat === "every90") return "Har 90 min reminder (10 AM se 8 PM)";
-  return "Ek baar";
+/** F5 urgent mark: a filled red dot (the dashboard uses Phosphor icons, not emoji), with a text label for screen readers. */
+export function UrgentMark({ size = 12, decorative = false }: { size?: number; decorative?: boolean }) {
+  if (decorative) return <Circle size={size} weight="fill" aria-hidden="true" className="shrink-0 text-danger" />;
+  return (
+    <span title="Urgent" className="inline-flex shrink-0">
+      <Circle size={size} weight="fill" role="img" aria-label="Urgent" className="text-danger" />
+    </span>
+  );
 }
+
+export { repeatText } from "../lib/format";
 
 interface Props {
   task: TaskDTO;
   branches: Branch[];
   selected: boolean;
   onOpen: (t: TaskDTO) => void;
-  mode: "pending" | "archive";
+  mode: "pending" | "archive" | "bin";
 }
 
 export function TaskRow({ task: t, branches, selected, onOpen, mode }: Props) {
@@ -37,13 +44,19 @@ export function TaskRow({ task: t, branches, selected, onOpen, mode }: Props) {
   if (mode === "pending") {
     if (t.overdue) statusLabel = { text: "Overdue", cls: "text-danger" };
     else if (t.dueToday) statusLabel = { text: "Aaj", cls: "text-warn" };
+  } else if (mode === "bin") {
+    statusLabel = t.deletedFrom ? { text: `${STATUS_LABELS[t.deletedFrom]} se`, cls: "text-muted" } : null;
   } else {
     statusLabel = t.status === "done" ? { text: "Done", cls: "text-ok" } : { text: "Cancelled", cls: "text-danger" };
   }
 
   let third: string | null = null;
+  let fourth: string | null = null;
   if (mode === "pending") {
     third = t.lastRemark ? `${t.lastRemark.byName}: ${t.lastRemark.text}` : null;
+  } else if (mode === "bin") {
+    third = deletedText(t);
+    fourth = binDaysLeftText(t.deletedAt);
   } else {
     const when = t.closedAt ? formatDateTime(t.closedAt) : "";
     third = t.status === "cancelled" && t.cancelledByName ? `${when} · by ${t.cancelledByName}` : when;
@@ -60,6 +73,7 @@ export function TaskRow({ task: t, branches, selected, onOpen, mode }: Props) {
         {mode === "pending" && t.overdue ? <span className="absolute inset-y-2 left-0 w-1 rounded-r bg-danger" aria-hidden="true" /> : null}
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
+            {isUrgent(t) ? <UrgentMark /> : null}
             <p className="min-w-0 truncate text-title font-medium">{t.title}</p>
             <RepeatIcon repeat={t.repeat} />
             {isVoiceTask(t) ? <VoiceIcon /> : null}
@@ -69,6 +83,7 @@ export function TaskRow({ task: t, branches, selected, onOpen, mode }: Props) {
           </div>
           <p className="truncate text-body text-muted">{person}</p>
           {third ? <p className="truncate text-meta text-muted">{third}</p> : null}
+          {fourth ? <p className="truncate text-meta text-muted">{fourth}</p> : null}
         </div>
         <div className="tnum shrink-0 text-right">
           {mode === "pending" ? <p className={`text-meta ${t.overdue ? "text-danger" : "text-text"}`}>{formatDue(t.dueAt, t.dueHasTime)}</p> : null}

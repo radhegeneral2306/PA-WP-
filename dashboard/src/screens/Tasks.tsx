@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { ArrowClockwise, CaretDown, ClipboardText, MagnifyingGlass, Plus, X } from "@phosphor-icons/react";
-import { ADMINS, ALL, applyFilters, applySummary, summaryCounts, type SummaryFilter } from "../lib/filters";
+import { ADMINS, ALL, applyFilters, applySummary, sortPending, summaryCounts, type SummaryFilter } from "../lib/filters";
 import { formatClock } from "../lib/format";
 import { useIsDesktop, type Resource } from "../lib/hooks";
 import type { TaskDTO, TasksResponse, UsersResponse } from "../lib/types";
@@ -31,7 +31,8 @@ export function Tasks({ pending, users }: Props) {
   const userList = users.data?.users ?? [];
   const branches = users.data?.branches ?? [];
 
-  const base = useMemo(() => applyFilters(allTasks, { branch, staffPhone, query }, userList), [allTasks, branch, staffPhone, query, userList]);
+  // F5: urgent first, then by due.
+  const base = useMemo(() => sortPending(applyFilters(allTasks, { branch, staffPhone, query }, userList)), [allTasks, branch, staffPhone, query, userList]);
   const counts = useMemo(() => summaryCounts(base), [base]);
   const visible = useMemo(() => applySummary(base, summary), [base, summary]);
   const perStaff = useMemo(() => {

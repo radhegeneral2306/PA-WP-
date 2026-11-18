@@ -1,6 +1,8 @@
 export type BranchId = string;
-export type TaskStatus = "pending" | "done" | "cancelled";
-export type TaskRepeat = "none" | "every90" | "monthly";
+export type TaskStatus = "pending" | "done" | "cancelled" | "deleted";
+export type TaskRepeat = "none" | "every90" | "monthly" | "weekly";
+/** The status a task had before it went to the recycle bin (restore goes back to it). */
+export type DeletedFrom = "pending" | "done" | "cancelled";
 
 export interface Remark {
   at: string;
@@ -36,6 +38,12 @@ export interface TaskDTO {
   dateRequest: DateRequest | null;
   /** "voice" when the bot made this task from a WhatsApp voice note. Older workers may omit it. */
   source?: "voice" | null;
+  /** Round 3 (F5): sorted first, red mark. Older workers omit it (treat as false). */
+  urgent?: boolean;
+  /** Round 3 (F8): set while the task is in the recycle bin. Older workers omit them. */
+  deletedAt?: string | null;
+  deletedByName?: string | null;
+  deletedFrom?: DeletedFrom | null;
   remarks: Remark[];
   createdAt: string;
   updatedAt: string;
@@ -87,10 +95,18 @@ export interface MeResponse {
   name: string | null;
   expiresAt: string;
   admins: string[];
+  /** Round 3: only the super admin may empty the recycle bin for good. Older workers omit it. */
+  superAdmin?: boolean;
 }
 
 export interface TaskActionResponse {
   task: TaskDTO;
-  /** Only for Done on a monthly task: the newly created next-month task. */
+  /** Only for Done on a monthly or weekly task: the newly created next task. */
   next: TaskDTO | null;
 }
+
+export interface PurgeResponse {
+  purged: true;
+}
+
+export type ExportStatus = "all" | "pending" | "done" | "cancelled";

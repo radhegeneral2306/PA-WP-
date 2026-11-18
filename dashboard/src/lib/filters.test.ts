@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ADMINS, ALL, applyFilters, applySummary, approvalCount, isVoiceTask, filterArchive, groupUsers, overdueCount, summaryCounts, withLiveStatus } from "./filters";
+import { ADMINS, ALL, applyFilters, applySummary, approvalCount, isUrgent, isVoiceTask, filterArchive, groupUsers, overdueCount, sortBin, sortPending, summaryCounts, withLiveStatus } from "./filters";
 import type { Branch, TaskDTO, UserDTO } from "./types";
 
 const branches: Branch[] = [
@@ -107,5 +107,46 @@ describe("live overdue", () => {
     expect(overdueCount(live, now)).toBe(2);
     expect(overdueCount(live, new Date("2026-10-01T00:00:00Z"))).toBe(0);
     expect(overdueCount([], now)).toBe(0);
+  });
+});
+
+describe("urgent sorting (F5)", () => {
+  const list = [
+    task({ id: "late", dueAt: "2026-11-20T04:30:00Z" }),
+    task({ id: "urgentLate", urgent: true, dueAt: "2026-11-25T04:30:00Z" }),
+    task({ id: "early", dueAt: "2026-11-01T04:30:00Z", overdue: true }),
+    task({ id: "urgentEarly", urgent: true, dueAt: "2026-11-10T04:30:00Z" }),
+  ];
+  it("puts urgent first, then sorts by due", () => {
+    expect(sortPending(list).map((t) => t.id)).toEqual(["urgentEarly", "urgentLate", "early", "late"]);
+  });
+  it("does not change the input array", () => {
+    sortPending(list);
+    expect(list[0].id).toBe("late");
+  });
+  it("breaks a due tie by the older createdAt", () => {
+    const a = task({ id: "new", createdAt: "2026-10-05T00:00:00Z" });
+    const b = task({ id: "old", createdAt: "2026-10-02T00:00:00Z" });
+    expect(sortPending([a, b]).map((t) => t.id)).toEqual(["old", "new"]);
+  });
+  it("treats a missing urgent field as not urgent", () => {
+    expect(isUrgent(task({}))).toBe(false);
+    expect(isUrgent(task({ urgent: false }))).toBe(false);
+    expect(isUrgent(task({ urgent: true }))).toBe(true);
+  });
+});
+
+describe("recycle bin (F8)", () => {
+  it("sorts newest delete first and keeps only deleted tasks", () => {
+    const list = [
+      task({ id: "old", status: "deleted", deletedAt: "2026-11-01T00:00:00Z" }),
+      task({ id: "pending" }),
+      task({ id: "new", status: "deleted", deletedAt: "2026-11-10T00:00:00Z" }),
+    ];
+    expect(sortBin(list).map((t) => t.id)).toEqual(["new", "old"]);
+  });
+  it("never shows a deleted task in the archive", () => {
+    const list = [task({ id: "d", status: "done", closedAt: "2026-11-01T00:00:00Z" }), task({ id: "x", status: "deleted" })];
+    expect(filterArchive(list, "all").map((t) => t.id)).toEqual(["d"]);
   });
 });

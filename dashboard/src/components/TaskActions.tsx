@@ -6,6 +6,7 @@ import { formatDue } from "../lib/format";
 import { useOnline } from "../lib/hooks";
 import type { Branch, TaskActionResponse, TaskDTO, UserDTO } from "../lib/types";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { DeleteAction } from "./DeleteAction";
 import { Sheet } from "./Sheet";
 import { StaffPicker } from "./StaffPicker";
 import { useToast } from "./Toast";
@@ -27,7 +28,7 @@ interface Props {
   onStale: () => void;
 }
 
-/** Done, Remark, Date badlo, Assign badlo (Phase 4) and Cancel (Phase 5). Done, Assign and Cancel ask "Pakka?" first. */
+/** Done, Remark, Date badlo, Assign badlo (Phase 4), Cancel (Phase 5) and Delete (Round 3). Done, Assign, Cancel and Delete ask "Pakka?" first. */
 export function TaskActions({ task, branches, users, counts, onSaved, onDone, onStale }: Props) {
   const online = useOnline();
   const toast = useToast();
@@ -175,6 +176,8 @@ export function TaskActions({ task, branches, users, counts, onSaved, onDone, on
         <XCircle size={18} aria-hidden="true" />
         Cancel
       </button>
+
+      <DeleteAction task={task} disabled={disabled} onDeleted={onDone} onStale={onStale} />
 
       {form === "remark" ? (
         <RemarkSheet
@@ -350,12 +353,13 @@ function RemarkSheet({ task, busy, online, onClose, onSubmit }: { task: TaskDTO;
 interface DueSheetText {
   title: string;
   subtitle: string;
-  remarkLabel: string;
+  /** null hides the remark field (restore from the recycle bin takes no remark). */
+  remarkLabel: string | null;
   saveLabel?: string;
   busyLabel?: string;
 }
 
-function DueSheet({
+export function DueSheet({
   task,
   busy,
   online,
@@ -457,23 +461,25 @@ function DueSheet({
             </p>
           ) : null}
         </div>
-        <div>
-          <div className="mb-1.5 flex items-baseline justify-between gap-3">
-            <label htmlFor={`${id}-remark`} className="text-body font-medium">
-              {text?.remarkLabel ?? "Remark (kyun badli?)"}
-            </label>
-            <Counter id={`${id}-count`} length={remark.length} />
+        {text?.remarkLabel === null ? null : (
+          <div>
+            <div className="mb-1.5 flex items-baseline justify-between gap-3">
+              <label htmlFor={`${id}-remark`} className="text-body font-medium">
+                {text?.remarkLabel ?? "Remark (kyun badli?)"}
+              </label>
+              <Counter id={`${id}-count`} length={remark.length} />
+            </div>
+            <textarea
+              id={`${id}-remark`}
+              rows={2}
+              maxLength={REMARK_MAX}
+              value={remark}
+              onChange={(e) => setRemark(e.target.value)}
+              aria-describedby={`${id}-count`}
+              className={textareaClass}
+            />
           </div>
-          <textarea
-            id={`${id}-remark`}
-            rows={2}
-            maxLength={REMARK_MAX}
-            value={remark}
-            onChange={(e) => setRemark(e.target.value)}
-            aria-describedby={`${id}-count`}
-            className={textareaClass}
-          />
-        </div>
+        )}
         <FormError message={serverError ?? (!online ? "Internet nahi hai. Net aane par save karein." : null)} />
         <SaveButton busy={busy} disabled={busy || !online} label={text?.saveLabel} busyLabel={text?.busyLabel} />
       </form>
