@@ -140,9 +140,17 @@ async function sendReminders(env: Env, store: Store, now: Date): Promise<void> {
   }
 }
 
+/**
+ * Webhook security settings that are not set. Without them the signature / organization checks
+ * are skipped; the bot keeps running (owner decision 17 Nov, audit X1) and the health check alerts.
+ */
+function missingSecurity(env: Env): string[] {
+  return (["INTERAKT_WEBHOOK_KEY", "INTERAKT_ORG_ID"] as const).filter((k) => !env[k]);
+}
+
 /** 10:15 AM IST, its own run (own subrequest budget). Never throws. */
 async function runHealthAndCleanup(env: Env, store: Store, now: Date, deps: Deps): Promise<void> {
-  const alerts = await runHealthCheck(store, now);
+  const alerts = await runHealthCheck(store, now, { missingSecurity: missingSecurity(env) });
   await sendAndRecord(env, store, onlyAllowed(alerts, testNumbers(env)), now);
   // Old webhook_log / stale login_guards; only against real Firestore (tests pass their own store).
   if (!deps.store) await runCleanup(firestoreConfig(env), now).catch((err) => console.error("Cleanup failed", err));
@@ -170,7 +178,8 @@ export async function processWebhook(env: Env, body: unknown, rawBody: string, d
     return;
   }
   const msg = parsed.message;
-  console.log("Message received", { from: mask(msg.phone), type: msg.contentType, text: msg.text.slice(0, 40) });
+  // No message text in logs: customers write to the same number (audit X1).
+  console.log("Message received", { from: mask(msg.phone), type: msg.contentType, chars: msg.text.length });
 
   if (env.INTERAKT_ORG_ID && msg.organizationId !== env.INTERAKT_ORG_ID) {
     console.warn("Ignoring webhook from unknown organization", msg.organizationId);

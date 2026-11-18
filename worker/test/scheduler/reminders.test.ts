@@ -62,6 +62,21 @@ describe("runReminders", () => {
     expect(m2.bodyValues[3]).toBe("pehla");
   });
 
+  it("never shows the voice transcript note as the last remark", async () => {
+    const voice = { at: PAST, byPhone: STAFF_DURG.phone, byName: STAFF_DURG.name, text: 'Voice se banaya. Maine suna: "Sharma ji se payment"' };
+    const update = { at: PAST, byPhone: STAFF_DURG.phone, byName: STAFF_DURG.name, text: "kal milenge" };
+    const only = setup([task({ nextReminderAt: PAST, remarks: [voice] })]);
+    const [m] = (await runReminders(only, NOW)).map(asTemplate);
+    expect(m.bodyValues[3]).toBe("-");
+    expect(m.fallbackText).not.toContain("Maine suna");
+
+    const later = setup([task({ nextReminderAt: PAST, remarks: [voice, update] })]);
+    expect((await runReminders(later, NOW)).map(asTemplate)[0].bodyValues[3]).toBe("kal milenge");
+    // Even if the note were somehow last, the earlier real remark is shown.
+    const noteLast = setup([task({ nextReminderAt: PAST, remarks: [update, voice] })]);
+    expect((await runReminders(noteLast, NOW)).map(asTemplate)[0].bodyValues[3]).toBe("kal milenge");
+  });
+
   it("marks overdue only when more than 5 minutes past due", async () => {
     const store = setup([
       task({ id: "late", dueAt: PAST, dueHasTime: true, nextReminderAt: PAST }),

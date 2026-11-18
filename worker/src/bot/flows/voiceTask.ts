@@ -4,11 +4,11 @@
 // understood task (Haan / Badlo / Rehne do) and creates the task only on Haan, via createTaskFor.
 
 import { BRANCHES, branchName, type BranchId, type TaskRepeat, type User } from "../../domain/types";
-import { addDays, atIST, formatDateTime, formatDue, istDay, isValidDay, parseDue, parseTime, type ISTDay, type ParsedDue } from "../../domain/dates";
+import { addDays, atIST, dueOnDay, formatDateTime, formatDue, istDay, isValidDay, parseDue, parseTime, type ISTDay, type ParsedDue } from "../../domain/dates";
 import { recordProblems, SUPER_ADMIN_NAME } from "../../scheduler/health";
 import type { VoiceDraft, VoiceFailure, VoicePerson, VoiceResult } from "../../voice/types";
 import { createTaskFor, TITLE_MAX } from "../taskActions";
-import { endFlow, replyValue, setStep, type BotContext, type Flow, type Inbound } from "../flow";
+import { endFlow, firstTap, replyValue, setStep, withNonce, type BotContext, type Flow, type Inbound } from "../flow";
 import type { Outgoing } from "../outgoing";
 import { branchList, buttons, clip, list, text, userList } from "../ui";
 
@@ -26,6 +26,7 @@ export const VOICE_MSG = {
   tooLong: "Voice note bahut lamba hai. 1 minute ke andar bhejiye.",
   off: "Voice se task abhi band hai. Form ya 'Naya task' use kijiye.",
   notUnderstood: "Samajh nahi aaya. Dobara bhejiye ya form se task banaiye.",
+  downloadFailed: "Voice note download nahi ho paya 😕 Ek baar dobara bhejiye.",
   busy: "Voice service abhi busy hai. 1-2 minute baad dobara bhejiye ya form se task banaiye.",
   adminsOnly: "Voice se task abhi sirf admin bana sakte hain. Menu ke liye *Hi* bhejiye.",
   twoPeople: "Is naam ke do log hain. Kisko dena hai?",
@@ -57,7 +58,7 @@ const FAILURE_TEXT: Record<VoiceFailure, string> = {
   not_configured: VOICE_MSG.off,
   limit: VOICE_MSG.off,
   not_understood: VOICE_MSG.notUnderstood,
-  download: VOICE_MSG.notUnderstood,
+  download: VOICE_MSG.downloadFailed,
   failed: VOICE_MSG.notUnderstood,
 };
 /** These are our problem (not the speaker's) and go to the daily health check. */
@@ -462,6 +463,12 @@ async function answerTime(ctx: BotContext, data: Data, input: Inbound): Promise<
   if (input.reply?.id === `${ID}:edit:date`) return ask(ctx, data, "date");
   if (input.reply?.id === `${ID}:time:default`) return next(ctx, { ...data, time: "" });
   if (!input.reply && input.text.trim()) {
+    // On the chosen day, so "raat 12" lands at the end of that day (dueOnDay moves it), not its start.
+    if (validDate(data.date)) {
+      const [year, month, day] = data.date.split("-").map(Number);
+      const onDay = dueOnDay({ year, month, day }, input.text);
+      if (onDay?.hasTime) return next(ctx, fromTyped(onDay, data));
+    }
     const clock = parseTime(input.text);
     if (clock) return next(ctx, { ...data, time: clockKey(clock.hour, clock.minute) });
     const typed = parseDue(input.text, ctx.now);
@@ -502,7 +509,7 @@ function confirmBody(ctx: BotContext, data: Data, hint?: string): string {
 }
 
 async function showConfirm(ctx: BotContext, data: Data, hint?: string): Promise<Outgoing[]> {
-  await setStep(ctx, ID, "confirm", data);
+  await setStep(ctx, ID, "confirm", withNonce(data));
   return [confirmButtons(ctx.user.phone, confirmBody(ctx, data, hint))];
 }
 
@@ -571,6 +578,8 @@ async function save(ctx: BotContext, data: Data): Promise<Outgoing[]> {
   }
   const due = dueOf(data);
   if (!due || due.dueAt.getTime() < now.getTime()) return next(ctx, data);
+  // A second tap on the same "Haan" (or a duplicate delivery) must not create the task again.
+  if (!(await firstTap(ctx, ID, data))) return [];
 
   const result = await createTaskFor(
     ctx.store,
@@ -585,8 +594,12 @@ async function save(ctx: BotContext, data: Data): Promise<Outgoing[]> {
     },
     now,
   );
-  // Person and due time were checked above, so a refusal here is about the title.
-  if (!result.ok) return ask(ctx, data, "title", `${result.error}.`);
+  // Person and due time were checked above, so a refusal here is about the title. The guard id of
+  // this attempt is used up: drop it so the corrected draft's "Haan" gets a fresh one.
+  if (!result.ok) {
+    const { nonce: _used, ...rest } = data;
+    return ask(ctx, rest, "title", `${result.error}.`);
+  }
   await endFlow(ctx);
   const t = result.task;
   const repeat = t.repeat;

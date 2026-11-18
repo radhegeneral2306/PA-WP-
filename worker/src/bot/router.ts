@@ -36,7 +36,9 @@ export function canUseVoice(user: User): boolean {
 
 export const EXPIRED = `⏱️ Session expire ho gaya (${SESSION_TTL_MINUTES} minute tak koi jawab nahi aaya). Dobara shuru karne ke liye *Hi* bhejiye.`;
 
-const BUSY_FOR_VOICE = "Pehle chal raha kaam pura ya cancel kijiye, phir voice note bhejiye.";
+// Never tell users to type "cancel" / "stop": an Interakt automation answers those words with a
+// customer goodbye message (audit C17). "band karo" is accepted as a cancel word instead.
+export const BUSY_FOR_VOICE = "Pehle chal raha kaam pura kijiye ya *band karo* likhiye, phir voice note bhejiye.";
 
 const FORM_ENTRY: MenuEntry = {
   key: "create_task_form",
@@ -66,6 +68,19 @@ const DIRECT: { re: RegExp; flow: Flow }[] = [
 const GREETINGS = new Set(["hi", "hii", "hiii", "hello", "helo", "hey", "menu", "namaste", "start"]);
 const CANCEL_WORDS = new Set(["cancel", "band", "band karo", "ruko", "stop", "exit"]);
 
+/**
+ * Text as compared with the words above: lowercase, punctuation and emoji removed, spaces
+ * collapsed ("Hi! 🙏" -> "hi"). Only letters, digits and spaces stay.
+ */
+export function normalizeWords(s: string): string {
+  return s.toLowerCase().replace(/[^\p{L}\p{N}\s]+/gu, " ").replace(/\s+/g, " ").trim();
+}
+
+/** A whole message that is exactly one of `words`, optionally followed by "ji" ("hello ji"). */
+function isWord(words: ReadonlySet<string>, cleaned: string): boolean {
+  return words.has(cleaned) || (cleaned.endsWith(" ji") && words.has(cleaned.slice(0, -3)));
+}
+
 function available(m: MenuEntry, user: User): boolean {
   if (!m.roles.includes(user.role)) return false;
   return m !== FORM_ENTRY || FORMS_LIVE || FORM_TESTERS.has(user.name);
@@ -86,10 +101,11 @@ export function mainMenu(ctx: BotContext, intro?: string): Outgoing {
 
 export async function handleMessage(ctx: BotContext, input: Inbound): Promise<Outgoing[]> {
   const { store, user } = ctx;
-  const lower = input.text.toLowerCase();
+  // "Hi!", "hi 🙏", "Hello ji" count as greetings even inside a flow; "Hisab karna" stays a title.
+  const cleaned = normalizeWords(input.text);
   const replyId = input.reply?.id ?? "";
   // Template quick replies carry only the button text (as plain text or as the reply id).
-  const quick = (input.reply && !replyId.includes(":") ? replyId : input.text).toLowerCase();
+  const quick = normalizeWords(input.reply && !replyId.includes(":") ? replyId : input.text);
 
   // A submitted form stands on its own (whatever session was open).
   if (input.form) {
@@ -105,11 +121,11 @@ export async function handleMessage(ctx: BotContext, input: Inbound): Promise<Ou
     await store.clearSession(user.phone);
     return handleVoice(ctx, input.voice.mediaUrl);
   }
-  if (GREETINGS.has(lower) || quick === "menu") {
+  if (isWord(GREETINGS, cleaned) || quick === "menu") {
     await store.clearSession(user.phone);
     return [mainMenu(ctx)];
   }
-  if (CANCEL_WORDS.has(lower)) {
+  if (isWord(CANCEL_WORDS, cleaned)) {
     await store.clearSession(user.phone);
     return [text(user.phone, "Theek hai, cancel kar diya. Menu ke liye *Hi* bhejiye.")];
   }

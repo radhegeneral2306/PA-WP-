@@ -492,9 +492,10 @@ async function onDateRemark(ctx: BotContext, data: Data, input: Inbound): Promis
 
   const hasTime = data.newHasTime === "true";
   if (needsApproval(ctx, data.newDue)) return requestApproval(ctx, t, { dueAt: data.newDue, hasTime, remark });
-  // The bot tells only the creator; the assignee is usually the one changing it.
+  // Creator and assignee both hear about it, except whoever made the change (audit C5: an admin
+  // moving a staff member's date from WhatsApp now tells that staff member, like the dashboard).
   const due: ParsedDue = { dueAt: new Date(data.newDue), hasTime };
-  const r = await changeDue(ctx.store, t, actorOf(ctx), due, remark, ctx.now, { notifyAssignee: false });
+  const r = await changeDue(ctx.store, t, actorOf(ctx), due, remark, ctx.now, { notifyAssignee: true });
   if (!r.ok) return failed(ctx, r);
   const newText = formatDue(due.dueAt, hasTime, ctx.now);
   return andBack(ctx, data, `🕒 *${t.title}*: date badal di, ab *${newText}*`, r.outs);

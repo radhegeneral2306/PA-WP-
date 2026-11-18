@@ -50,6 +50,12 @@ export interface HealthCheckOptions {
   webhookSilenceHours?: number;
   /** A pending reminder this late means the reminder cron is stuck (default 60). */
   reminderLagMinutes?: number;
+  /**
+   * Names of webhook security settings that are missing (audit X1). The bot keeps working without
+   * them (owner decision 17 Nov), so the check reports them instead: while one is missing, a forged
+   * webhook could pretend to be a staff message.
+   */
+  missingSecurity?: string[];
 }
 
 function emptyHealth(now: Date): Health {
@@ -152,6 +158,8 @@ export async function runHealthCheck(store: Store, now: Date, opts: HealthCheckO
   if (!latest || now.getTime() - latest.getTime() > silenceHours * HOUR_MS) parts.push(silenceText(latest, now));
   // c. reminder backlog: the 5-minute reminder cron is stuck or crashing
   if (stuck > 0) parts.push(`${stuck} reminder ${lagMinutes} min se zyada late (reminder cron atka?)`);
+  // d. webhook security settings missing (bot still runs; fake messages possible until fixed)
+  if (opts.missingSecurity?.length) parts.push(`Cloudflare setting missing: ${opts.missingSecurity.join(", ")} (security check band hai)`);
 
   const outs: Outgoing[] = [];
   if (parts.length) {

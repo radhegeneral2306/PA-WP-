@@ -25,6 +25,8 @@ const OVERDUE_GRACE_MS = 5 * 60_000;
 export const MAX_REMINDERS_PER_RUN = 7;
 export const RETRY_AFTER_FAILURE_MS = 30 * 60_000;
 const REMARK_MAX = 150;
+/** The transcript note a voice-created task starts with (voiceTask.ts): not a real update, so never shown. */
+const VOICE_NOTE_PREFIX = "Voice se banaya";
 
 export interface ReminderStats {
   due: number;
@@ -48,8 +50,8 @@ function dueText(task: Task, now: Date): string {
 }
 
 function lastRemark(task: Task): string {
-  const last = task.remarks?.[task.remarks.length - 1];
-  const text = last?.text.trim();
+  const shown = (task.remarks ?? []).map((r) => r.text.trim()).filter((t) => t && !t.startsWith(VOICE_NOTE_PREFIX));
+  const text = shown[shown.length - 1];
   return text ? clip(text, REMARK_MAX) : "-";
 }
 

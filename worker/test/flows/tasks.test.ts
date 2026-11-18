@@ -704,6 +704,29 @@ describe("date badlo", () => {
     expect(t).toMatchObject({ dueAt: "2026-12-15T04:30:00.000Z", dateRequest: null });
   });
 
+  it("admin date change from WhatsApp tells the staff member too (C5)", async () => {
+    const ctx = setup(ADMIN2);
+    await tasksFlow.start(ctx, "staff");
+    await send(ctx, tap("tasks:branch:DURG"));
+    await send(ctx, tap("tasks:all"));
+    await send(ctx, tap("tasks:task:d2"));
+    await send(ctx, tap("tasks:act:date:d2"));
+    await send(ctx, tap("tasks:quick:tom17"));
+    const out = await send(ctx, say("Customer late"));
+    const tpl = out.filter((o) => o.kind === "template").map((o) => o.to);
+    expect(tpl).toEqual([ADMIN.phone, STAFF_DURG.phone]);
+  });
+
+  it("admin remark from WhatsApp tells the staff member too (C5)", async () => {
+    const ctx = setup(ADMIN2);
+    await tasksFlow.start(ctx, "staff");
+    await send(ctx, tap("tasks:branch:DURG"));
+    await send(ctx, tap("tasks:all"));
+    await send(ctx, tap("tasks:task:d2"));
+    const out = await send(ctx, say("Kal tak kar dena"));
+    expect(out.filter((o) => o.kind === "template").map((o) => o.to)).toEqual([ADMIN.phone, STAFF_DURG.phone]);
+  });
+
   it("staff date change within 25 days also clears their pending request", async () => {
     const ctx = setup(STAFF_DURG);
     await ctx.store.updateTask("d2", {

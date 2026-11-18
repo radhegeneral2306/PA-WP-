@@ -371,6 +371,42 @@ describe("date requests across cancel / reopen / races", () => {
   });
 });
 
+describe("double taps (C4)", () => {
+  async function toConfirm(s: MemoryStore) {
+    const send = chat(s, STAFF_DURG);
+    await send(tap("MENU:create_task"));
+    await send("Bank jana");
+    await send(tap("create_task:quick:tom10"));
+    return send;
+  }
+
+  it("two Haan taps at the same moment create one task", async () => {
+    const s = store();
+    const send = await toConfirm(s);
+    const [a, b] = await Promise.all([send(tap("create_task:confirm:yes")), send(tap("create_task:confirm:yes"))]);
+    expect(s.tasks.size).toBe(1);
+    expect([...a, ...b].filter((o) => o.kind === "text" && o.body.includes("Task ban gaya"))).toHaveLength(1);
+  });
+
+  it("a second wizard right after makes a second task (new confirm step, new guard)", async () => {
+    const s = store();
+    await (await toConfirm(s))(tap("create_task:confirm:yes"));
+    await (await toConfirm(s))(tap("create_task:confirm:yes"));
+    expect(s.tasks.size).toBe(2);
+  });
+
+  it("two Done taps at the same moment: one notice, one next-month task", async () => {
+    const s = store([task({ id: "m", repeat: "monthly", repeatDay: 27 })]);
+    const t = (await s.getTask("m"))!;
+    const [a, b] = await Promise.all([
+      markDone(s, t, { phone: STAFF_DURG.phone, name: STAFF_DURG.name }, NOW),
+      markDone(s, t, { phone: STAFF_DURG.phone, name: STAFF_DURG.name }, NOW),
+    ]);
+    expect([a.ok, b.ok].filter(Boolean)).toHaveLength(1);
+    expect(s.tasks.size).toBe(2);
+  });
+});
+
 describe("duplicate deliveries and double cron", () => {
   it("the same Done tap delivered twice: one done notice, one next-month task", async () => {
     const s = store([task({ id: "m", repeat: "monthly", repeatDay: 27, createdByPhone: ADMIN.phone })]);

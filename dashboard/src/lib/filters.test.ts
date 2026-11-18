@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ADMINS, ALL, applyFilters, applySummary, approvalCount, isVoiceTask, filterArchive, groupUsers, summaryCounts } from "./filters";
+import { ADMINS, ALL, applyFilters, applySummary, approvalCount, isVoiceTask, filterArchive, groupUsers, overdueCount, summaryCounts, withLiveStatus } from "./filters";
 import type { Branch, TaskDTO, UserDTO } from "./types";
 
 const branches: Branch[] = [
@@ -73,5 +73,39 @@ describe("isVoiceTask", () => {
     expect(isVoiceTask({ source: "voice" })).toBe(true);
     expect(isVoiceTask({ source: null })).toBe(false);
     expect(isVoiceTask({})).toBe(false);
+  });
+});
+
+describe("live overdue", () => {
+  // 28 Oct 2026, 10:00 AM IST
+  const now = new Date("2026-10-28T04:30:00Z");
+  const live = [
+    task({ id: "past", dueAt: "2026-10-28T04:00:00Z", overdue: false, dueToday: true }), // went overdue since the fetch
+    task({ id: "later", dueAt: "2026-10-28T12:00:00Z", overdue: false, dueToday: false }), // 5:30 PM today
+    task({ id: "tomorrow", dueAt: "2026-10-28T19:00:00Z" }), // 29 Oct 00:30 IST
+    task({ id: "old", dueAt: "2026-10-20T04:30:00Z", overdue: true }),
+    task({ id: "closed", status: "done", dueAt: "2026-10-01T04:30:00Z", overdue: true }),
+  ];
+
+  it("recomputes overdue and aaj due against now", () => {
+    const out = withLiveStatus(live, now);
+    const flags = Object.fromEntries(out.map((t) => [t.id, [t.overdue, t.dueToday]]));
+    expect(flags).toEqual({
+      past: [true, true],
+      later: [false, true],
+      tomorrow: [false, false],
+      old: [true, false],
+      closed: [false, false],
+    });
+  });
+  it("keeps the same array when nothing changed", () => {
+    const once = withLiveStatus(live, now);
+    expect(withLiveStatus(once, now)).toBe(once);
+    expect(withLiveStatus(once, now)[3]).toBe(once[3]);
+  });
+  it("counts overdue pending tasks for the nav badge", () => {
+    expect(overdueCount(live, now)).toBe(2);
+    expect(overdueCount(live, new Date("2026-10-01T00:00:00Z"))).toBe(0);
+    expect(overdueCount([], now)).toBe(0);
   });
 });

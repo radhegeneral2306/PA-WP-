@@ -27,7 +27,7 @@ interface Props {
   onStale: () => void;
 }
 
-/** Done, Remark, Date badlo, Assign badlo (Phase 4) and Cancel (Phase 5). */
+/** Done, Remark, Date badlo, Assign badlo (Phase 4) and Cancel (Phase 5). Done, Assign and Cancel ask "Pakka?" first. */
 export function TaskActions({ task, branches, users, counts, onSaved, onDone, onStale }: Props) {
   const online = useOnline();
   const toast = useToast();
@@ -37,6 +37,7 @@ export function TaskActions({ task, branches, users, counts, onSaved, onDone, on
   const [staleNotice, setStaleNotice] = useState<string | null>(null);
   const [assignTo, setAssignTo] = useState<UserDTO | null>(null);
   const [assignError, setAssignError] = useState<string | null>(null);
+  const [doneAsk, setDoneAsk] = useState(false);
   const [cancelAsk, setCancelAsk] = useState(false);
   const [cancelError, setCancelError] = useState<string | null>(null);
   // Guards against a double tap before React re-renders the disabled button.
@@ -57,6 +58,7 @@ export function TaskActions({ task, branches, users, counts, onSaved, onDone, on
         setForm(null);
         setAssignTo(null);
         setCancelAsk(false);
+        setDoneAsk(false);
         setStaleNotice(error || "Ye task ab khula nahi hai.");
         onStale();
       }
@@ -73,6 +75,7 @@ export function TaskActions({ task, branches, users, counts, onSaved, onDone, on
     if (r.ok) {
       const next = r.res.next;
       toast(next ? `Done ho gaya. Agla task: ${formatDue(next.dueAt, next.dueHasTime)}` : "Done ho gaya");
+      setDoneAsk(false);
       onDone();
     } else if (!r.stale && r.error) {
       setDoneError(r.error);
@@ -124,7 +127,11 @@ export function TaskActions({ task, branches, users, counts, onSaved, onDone, on
 
       <button
         type="button"
-        onClick={markDone}
+        onClick={() => {
+          // Done is final and sends WhatsApp, so it always asks first (audit D4).
+          setDoneError(null);
+          setDoneAsk(true);
+        }}
         disabled={disabled}
         aria-busy={busy === "done" || undefined}
         className={`press flex h-12 w-full items-center justify-center gap-2 rounded-lg bg-accent text-title font-medium text-on-accent disabled:cursor-not-allowed ${busy === "done" ? "disabled:opacity-80" : "disabled:opacity-50"}`}
@@ -132,11 +139,6 @@ export function TaskActions({ task, branches, users, counts, onSaved, onDone, on
         {busy === "done" ? <SpinnerGap size={20} className="animate-spin" aria-hidden="true" /> : <CheckCircle size={20} aria-hidden="true" />}
         {busy === "done" ? "Done ho raha hai…" : "Done karo"}
       </button>
-      {doneError ? (
-        <p role="alert" className="mt-1.5 text-meta text-danger break-words">
-          {doneError}
-        </p>
-      ) : null}
 
       <div className="mt-2 grid grid-cols-3 gap-2">
         <button type="button" disabled={disabled} className={secondary} onClick={() => setForm("remark")}>
@@ -240,6 +242,24 @@ export function TaskActions({ task, branches, users, counts, onSaved, onDone, on
           onCancel={() => {
             setAssignTo(null);
             setAssignError(null);
+          }}
+        />
+      ) : null}
+
+      {doneAsk ? (
+        <ConfirmDialog
+          title="Pakka done karna hai?"
+          body={`"${task.title}" ke reminders band ho jayenge aur WhatsApp par khabar jayegi. Ye wapas nahi hoga.`}
+          confirmLabel="Haan, done karo"
+          busyLabel="Done ho raha hai…"
+          busy={busy === "done"}
+          error={doneError ?? (!online ? "Internet nahi hai" : null)}
+          onConfirm={() => {
+            if (online) void markDone();
+          }}
+          onCancel={() => {
+            setDoneAsk(false);
+            setDoneError(null);
           }}
         />
       ) : null}

@@ -1,3 +1,4 @@
+import { todayIst } from "./due";
 import type { Branch, TaskDTO, UserDTO } from "./types";
 
 export const ALL = "ALL";
@@ -60,6 +61,34 @@ export function summaryCounts(tasks: TaskDTO[]): { pending: number; overdue: num
     if (t.dueToday) today++;
   }
   return { pending: tasks.length, overdue, today };
+}
+
+/**
+ * The Worker sets `overdue` / `dueToday` when the list is fetched, so they go stale while the
+ * page stays open. Recompute both against `now`, with the Worker's rules (overdue: pending and
+ * due time passed; dueToday: pending and due on today's IST date). Unchanged tasks keep identity.
+ */
+export function withLiveStatus(tasks: TaskDTO[], now: Date = new Date()): TaskDTO[] {
+  const nowMs = now.getTime();
+  const today = todayIst(now);
+  let changed = false;
+  const out = tasks.map((t) => {
+    const pending = t.status === "pending";
+    const dueMs = Date.parse(t.dueAt);
+    if (Number.isNaN(dueMs)) return t;
+    const overdue = pending && dueMs < nowMs;
+    const dueToday = pending && todayIst(new Date(dueMs)) === today;
+    if (overdue === t.overdue && dueToday === t.dueToday) return t;
+    changed = true;
+    return { ...t, overdue, dueToday };
+  });
+  return changed ? out : tasks;
+}
+
+/** Nav badge on Tasks: pending tasks whose due time has passed. */
+export function overdueCount(pending: TaskDTO[], now: Date = new Date()): number {
+  const nowMs = now.getTime();
+  return pending.filter((t) => t.status === "pending" && Date.parse(t.dueAt) < nowMs).length;
 }
 
 export function approvalCount(pending: TaskDTO[]): number {

@@ -190,7 +190,7 @@ describe("createTaskFlow", () => {
     await adminToTitle(t2);
     await t2.step(say("Visit"));
     await t2.step(tap(`${F}:due:custom`));
-    const badDate = await t2.step(say("agle hafte"));
+    const badDate = await t2.step(say("jaldi kabhi"));
     expect(body(badDate[0])).toContain("Date samajh nahi aayi");
     expect((await t2.session())?.step).toBe("ask_custom_due");
   });

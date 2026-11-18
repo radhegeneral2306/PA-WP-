@@ -6,6 +6,7 @@
 import type { Health, LoginGuard, NewTask, Session, Task, User } from "../domain/types";
 import {
   createDoc,
+  createIfAbsent,
   deleteDoc,
   getDoc,
   latestDoc,
@@ -26,6 +27,7 @@ const SESSIONS = "sessions";
 const LOGIN_GUARDS = "login_guards";
 const SYSTEM = "system";
 const WEBHOOK_LOG = "webhook_log";
+export const CLAIMS = "claims";
 
 type Fields = { [k: string]: Plain };
 
@@ -132,6 +134,18 @@ export class FirestoreStore implements Store {
     await deleteDoc(this.cfg, SESSIONS, phone);
   }
 
+  async claimOnce(key: string, now: Date, windowMs: number): Promise<boolean> {
+    // Atomic create: of two simultaneous taps exactly one wins. Hashed id: keys may hold any characters.
+    const id = await sha256Hex(key);
+    const createdAt = now.toISOString();
+    if (await createIfAbsent(this.cfg, CLAIMS, id, { createdAt })) return true;
+    const doc = await getDoc(this.cfg, CLAIMS, id);
+    const at = Date.parse(String(doc?.data.createdAt ?? ""));
+    if (Number.isFinite(at) && now.getTime() - at < windowMs) return false;
+    await setDoc(this.cfg, CLAIMS, id, { createdAt });
+    return true;
+  }
+
   async getLoginGuard(key: string): Promise<LoginGuard | null> {
     const doc = await getDoc(this.cfg, LOGIN_GUARDS, key);
     return doc ? (doc.data as unknown as LoginGuard) : null;
@@ -156,4 +170,9 @@ export class FirestoreStore implements Store {
     if (at instanceof Date) return at;
     return typeof at === "string" && !Number.isNaN(Date.parse(at)) ? new Date(at) : null;
   }
+}
+
+async function sha256Hex(text: string): Promise<string> {
+  const d = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text)));
+  return Array.from(d, (b) => b.toString(16).padStart(2, "0")).join("").slice(0, 40);
 }

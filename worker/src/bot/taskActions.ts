@@ -4,7 +4,7 @@
 
 import type { Store } from "../data/store";
 import { atIST, formatDateTime, formatDue, istDay, isValidDay, type ParsedDue } from "../domain/dates";
-import { afterReminder, afterResponse, nextMonthlyTask, reminderSlot } from "../domain/schedule";
+import { afterReminder, afterResponse, monthKey, nextMonthlyTask, reminderSlot } from "../domain/schedule";
 import type { DateRequest, Remark, Task, TaskRepeat, User } from "../domain/types";
 import type { Outgoing } from "./outgoing";
 import { clip } from "./ui";
@@ -113,6 +113,9 @@ export function assignedNotice(t: Task, assignedBy: string, now: Date): Outgoing
 export async function markDone(store: Store, t: Task, actor: Actor, now: Date): Promise<ActionResult> {
   const blocked = closed(t);
   if (blocked) return blocked;
+  // Two Done taps at the same moment (WhatsApp double tap, dashboard + WhatsApp): only one may
+  // close it, send the notice and create next month's task (audit C4 / S10).
+  if (!(await store.claimOnce(`done:${t.id}`, now, 10 * 60_000))) return fail(409, "task_closed", "Ye task pehle hi done ho chuka hai");
   const at = now.toISOString();
   const remarks = actor.viaDashboard ? [...t.remarks, remarkBy(actor, "Done kiya", now)] : t.remarks;
   await store.updateTask(t.id, { status: "done", doneAt: at, updatedAt: at, nextReminderAt: null, dateRequest: null, remarks });
@@ -121,7 +124,7 @@ export async function markDone(store: Store, t: Task, actor: Actor, now: Date): 
   return { ok: true, task: await reload(store, t.id), next, outs };
 }
 
-/** Remark: every90 reminders pause until the next morning; the creator hears about it. */
+/** Remark: every90 reminders pause until the next morning; the creator and the assignee hear about it (never the actor). */
 export async function addRemark(store: Store, t: Task, actor: Actor, text: string, now: Date): Promise<ActionResult> {
   const blocked = closed(t);
   if (blocked) return blocked;
@@ -133,7 +136,10 @@ export async function addRemark(store: Store, t: Task, actor: Actor, text: strin
     nextReminderAt: afterResponse(t, now),
     updatedAt: now.toISOString(),
   });
-  const outs = await onlyActive(store, [updateNotice(t, { phone: t.createdByPhone, name: t.createdByName }, actor.name, body)], actor);
+  // Owner 17 Nov (audit C5): an admin's remark also reaches the staff member doing the task.
+  const recipients = new Map<string, string>([[t.createdByPhone, t.createdByName], [t.assigneePhone, t.assigneeName]]);
+  recipients.delete(actor.phone);
+  const outs = await onlyActive(store, [...recipients].map(([phone, name]) => updateNotice(t, { phone, name }, actor.name, body)), actor);
   return { ok: true, task: await reload(store, t.id), outs };
 }
 
@@ -365,6 +371,7 @@ export async function createTaskFor(store: Store, actor: Actor, input: NewTaskIn
     repeat: input.repeat,
     nextReminderAt: firstReminderAt(input.repeat, input.due.dueAt),
     repeatDay: input.repeat === "monthly" ? istDay(input.due.dueAt).day : null,
+    cycleMonth: input.repeat === "monthly" ? monthKey(input.due.dueAt) : null,
     dateRequest: null,
     lastReminderAt: null,
     remarks: [

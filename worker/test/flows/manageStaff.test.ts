@@ -59,6 +59,24 @@ describe("manageStaffFlow", () => {
     expect(await t.session()).toBeNull();
   });
 
+  it("a double tap on Haan adds once and sends one welcome (C4)", async () => {
+    const t = setup(ADMIN);
+    await manageStaffFlow.start(t.ctx);
+    await t.step(tap(`${F}:action:add`));
+    await t.step(say("Ramesh"));
+    await t.step(say("98765 43210"));
+    await t.step(tap(`${F}:role:staff`));
+    await t.step(tap(`${F}:branch:DURG`));
+    const session = (await t.session())!;
+    const [first, second] = await Promise.all([
+      manageStaffFlow.handle(t.ctx, session, tap(`${F}:confirm:yes`)),
+      manageStaffFlow.handle(t.ctx, session, tap(`${F}:confirm:yes`)),
+    ]);
+    const all = [...first, ...second];
+    expect(all.filter((o) => o.kind === "template")).toHaveLength(1);
+    expect(second).toEqual([]);
+  });
+
   it("adds a staff member with branch and sends welcome template", async () => {
     const t = setup(ADMIN);
     await manageStaffFlow.start(t.ctx);
@@ -246,6 +264,20 @@ describe("manageStaffFlow", () => {
       expect((await t.session())?.step).toBe("edit_field");
     });
 
+    it("a confirm button naming another person is refused, not applied (C3)", async () => {
+      const t = setup(ADMIN);
+      await toField(t, "DURG", STAFF_DURG);
+      await t.step(tap(`${F}:field:name`));
+      await t.step(say("Naya Naam"));
+      const out = await t.step(tap(`${F}:confirm:yes:${STAFF_RAIPUR.phone}`));
+      expect(body(out[0])).toContain("kisi aur ke purane message");
+      expect(ids(out[0])).toEqual([`${F}:confirm:yes:${STAFF_DURG.phone}`, `${F}:confirm:no:${STAFF_DURG.phone}`]);
+      expect(await t.store.getUser(STAFF_DURG.phone)).toEqual(STAFF_DURG);
+      expect((await t.session())?.step).toBe("edit_confirm");
+      await t.step(tap(`${F}:confirm:yes:${STAFF_DURG.phone}`));
+      expect((await t.store.getUser(STAFF_DURG.phone))?.name).toBe("Naya Naam");
+    });
+
     it("renames a staff member, keeping phone, createdAt and active", async () => {
       const t = setup(ADMIN);
       await toField(t, "DURG", STAFF_DURG);
@@ -355,7 +387,7 @@ describe("manageStaffFlow", () => {
       await t.step(tap(`${F}:field:name`));
       await t.step(say("Naya Naam"));
       const junk = await t.step(say("ok"));
-      expect(ids(junk[0])).toEqual([`${F}:confirm:yes`, `${F}:confirm:no`]);
+      expect(ids(junk[0])).toEqual([`${F}:confirm:yes:${STAFF_DURG.phone}`, `${F}:confirm:no:${STAFF_DURG.phone}`]);
       const out = await t.step(tap(`${F}:confirm:no`));
       expect(body(out[0])).toContain("kuch nahi badla");
       expect(await t.store.getUser(STAFF_DURG.phone)).toEqual(STAFF_DURG);

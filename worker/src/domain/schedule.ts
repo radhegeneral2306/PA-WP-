@@ -70,16 +70,27 @@ function shiftMonth(year: number, month: number, by: number): { year: number; mo
 
 const dayIndex = (d: { year: number; month: number; day: number }): number => Date.UTC(d.year, d.month - 1, d.day) / 86_400_000;
 
+/** "YYYY-MM" of a date in IST (the cycleMonth of a monthly task due then). */
+export function monthKey(d: Date): string {
+  const day = istDay(d);
+  return `${day.year}-${String(day.month).padStart(2, "0")}`;
+}
+
+function parseMonthKey(s: string | null | undefined): { year: number; month: number } | null {
+  const m = /^(\d{4})-(\d{2})$/.exec(s ?? "");
+  if (!m) return null;
+  const month = Number(m[2]);
+  return month >= 1 && month <= 12 ? { year: Number(m[1]), month } : null;
+}
+
 /**
- * Same day next month (clamped to month end), same IST time of day.
- * "Next month" counts from the month this occurrence belongs to: the repeat day nearest to the
- * due date. So a 27 Oct task moved to 2 Nov is still October's, and the next one is 27 Nov
- * (not 27 Dec, which would silently skip November).
+ * The month this occurrence belongs to: its stored cycleMonth, or (older tasks) the month whose
+ * repeat day is nearest to the due date, so a 27 Oct task moved to 2 Nov still counts as October's.
  */
-export function nextMonthlyDue(task: Pick<Task, "dueAt" | "repeatDay">): Date {
-  const due = new Date(task.dueAt);
-  const day = istDay(due);
-  const minutes = istHourMinute(due);
+function occurrenceMonth(task: Pick<Task, "dueAt" | "repeatDay" | "cycleMonth">): { year: number; month: number } {
+  const stored = parseMonthKey(task.cycleMonth);
+  if (stored) return stored;
+  const day = istDay(new Date(task.dueAt));
   const repeatDay = task.repeatDay ?? day.day;
   let anchor = { year: day.year, month: day.month };
   let best = Infinity;
@@ -91,6 +102,15 @@ export function nextMonthlyDue(task: Pick<Task, "dueAt" | "repeatDay">): Date {
       anchor = m;
     }
   }
+  return anchor;
+}
+
+/** Same repeat day in the month after this occurrence's month (clamped to month end), same IST time of day. */
+export function nextMonthlyDue(task: Pick<Task, "dueAt" | "repeatDay" | "cycleMonth">): Date {
+  const due = new Date(task.dueAt);
+  const minutes = istHourMinute(due);
+  const repeatDay = task.repeatDay ?? istDay(due).day;
+  const anchor = occurrenceMonth(task);
   const next = shiftMonth(anchor.year, anchor.month, 1);
   const target = clampDayOfMonth(next.year, next.month, repeatDay);
   return atIST(target, { hour: Math.floor(minutes / 60), minute: minutes % 60 });
@@ -108,6 +128,7 @@ export function nextMonthlyTask(task: Task, now: Date): NewTask {
     status: "pending",
     nextReminderAt: reminderSlot(task, due).toISOString(),
     repeatDay: task.repeatDay ?? istDay(new Date(task.dueAt)).day,
+    cycleMonth: monthKey(due),
     dateRequest: null,
     lastReminderAt: null,
     remarks: [],

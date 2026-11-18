@@ -381,7 +381,17 @@ describe("cron", () => {
     const admin = { phone: "917777777777", name: "Bhaskar", role: "admin" as const, branch: null, active: true, createdAt: "2026-10-01T00:00:00.000Z" };
     const store = new MemoryStore({ users: [staff, admin] });
     store.lastWebhookAt = new Date("2026-10-26T03:00:00Z");
-    await runCron(env, HEALTH_CRON, new Date("2026-10-26T04:45:00Z"), { store });
+    await runCron({ ...env, INTERAKT_WEBHOOK_KEY: "interakt-key" }, HEALTH_CRON, new Date("2026-10-26T04:45:00Z"), { store });
     expect((await store.listTasks({})).filter((t) => t.title.startsWith("Bot check:"))).toEqual([]);
+  });
+
+  it("a missing webhook security setting raises an alert but the bot keeps working (X1)", async () => {
+    const admin = { phone: "917777777777", name: "Bhaskar", role: "admin" as const, branch: null, active: true, createdAt: "2026-10-01T00:00:00.000Z" };
+    const store = new MemoryStore({ users: [staff, admin] });
+    store.lastWebhookAt = new Date("2026-10-26T03:00:00Z");
+    await runCron(env, HEALTH_CRON, new Date("2026-10-26T04:45:00Z"), { store });
+    const [alert] = (await store.listTasks({})).filter((t) => t.title.startsWith("Bot check:"));
+    expect(alert.title).toContain("INTERAKT_WEBHOOK_KEY");
+    expect(alert.assigneePhone).toBe(admin.phone);
   });
 });

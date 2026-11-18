@@ -43,6 +43,27 @@ describe("taskFormFlow.start", () => {
   });
 });
 
+describe("handleTaskForm: duplicates (F1)", () => {
+  it("the same form sent twice makes one task and says so the second time", async () => {
+    const t = setup(ADMIN);
+    await t.submit(ADMIN_FORM);
+    const again = await t.submit(ADMIN_FORM);
+    expect(await t.store.listTasks({})).toHaveLength(1);
+    expect(again).toHaveLength(1);
+    expect(body(again[0])).toContain("pehle hi aa chuka hai");
+  });
+
+  it("a different form (other title) is a new task; the same one 10+ minutes later too", async () => {
+    const t = setup(ADMIN);
+    await t.submit(ADMIN_FORM);
+    await t.submit({ ...ADMIN_FORM, title: "Doosra kaam" });
+    expect(await t.store.listTasks({})).toHaveLength(2);
+    const later = makeCtx(ADMIN, t.store, new Date(t.ctx.now.getTime() + 11 * 60_000));
+    await handleTaskForm(later, ADMIN_FORM);
+    expect(await t.store.listTasks({})).toHaveLength(3);
+  });
+});
+
 describe("handleTaskForm: success", () => {
   it("admin submission creates the task and notifies the assignee", async () => {
     const t = setup(ADMIN);

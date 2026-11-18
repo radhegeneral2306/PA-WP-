@@ -70,7 +70,7 @@ describe("handleVoice failures", () => {
     ["not_configured", VOICE_MSG.off, false],
     ["limit", VOICE_MSG.off, true],
     ["not_understood", VOICE_MSG.notUnderstood, false],
-    ["download", VOICE_MSG.notUnderstood, true],
+    ["download", VOICE_MSG.downloadFailed, true],
     ["failed", VOICE_MSG.notUnderstood, true],
   ];
   for (const [reason, msg, health] of cases) {
@@ -91,7 +91,7 @@ describe("handleVoice failures", () => {
   it("the super admin (Bhaskar) also sees the technical reason while testing", async () => {
     const t = setup({ result: { ok: false, reason: "download", detail: "media 403 from media.interakt.ai/x.ogg" } });
     const out = await t.send();
-    expect(body(out[0])).toBe(`${VOICE_MSG.notUnderstood}\n\n_Tech: download: media 403 from media.interakt.ai/x.ogg_`);
+    expect(body(out[0])).toBe(`${VOICE_MSG.downloadFailed}\n\n_Tech: download: media 403 from media.interakt.ai/x.ogg_`);
     expect((await t.store.getHealth())?.lastProblem).toBe("voice download: media 403 from media.interakt.ai/x.ogg");
   });
 
@@ -104,6 +104,8 @@ describe("handleVoice failures", () => {
     expect(VOICE_MSG.tooLong).toBe("Voice note bahut lamba hai. 1 minute ke andar bhejiye.");
     expect(VOICE_MSG.off).toBe("Voice se task abhi band hai. Form ya 'Naya task' use kijiye.");
     expect(VOICE_MSG.notUnderstood).toBe("Samajh nahi aaya. Dobara bhejiye ya form se task banaiye.");
+    // A failed download is our problem, not the speaker's: no "samajh nahi aaya".
+    expect(VOICE_MSG.downloadFailed).toBe("Voice note download nahi ho paya 😕 Ek baar dobara bhejiye.");
   });
 
   it("no voice service in ctx = not configured", async () => {
@@ -511,7 +513,7 @@ describe("through the router", () => {
     const t = setup({ result: ok({ person: "Pinky" }) });
     await t.store.saveSession({ phone: ADMIN.phone, flow: "create_task", step: "ask_title", data: {}, updatedAt: NOW.toISOString() });
     const out = await handleMessage(t.ctx, voiceIn());
-    expect(body(out[0])).toBe("Pehle chal raha kaam pura ya cancel kijiye, phir voice note bhejiye.");
+    expect(body(out[0])).toBe("Pehle chal raha kaam pura kijiye ya *band karo* likhiye, phir voice note bhejiye.");
     expect(t.voice!.understand).not.toHaveBeenCalled();
     expect((await t.session())?.flow).toBe("create_task");
   });

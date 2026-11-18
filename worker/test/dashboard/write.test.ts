@@ -129,14 +129,15 @@ describe("POST /api/tasks/:id/done", () => {
 });
 
 describe("POST /api/tasks/:id/remark", () => {
-  it("adds the remark and tells the creator", async () => {
+  it("adds the remark and tells the creator and the assignee", async () => {
     const store = storeWith();
     const { res, body, sent } = await post(store, "/api/tasks/task1/remark", { text: "  Call kiya  " }, ADMIN2.name);
     expect(res.status).toBe(200);
     expect(body.task?.lastRemark).toMatchObject({ byPhone: ADMIN2.phone, byName: "Partner Two (dashboard)", text: "Call kiya" });
     expect((await store.getTask("task1"))?.remarks).toHaveLength(1);
-    expect(sent).toHaveLength(1);
+    expect(sent).toHaveLength(2);
     expect(sent[0]).toMatchObject({ to: ADMIN.phone, template: "task_updated_v1" });
+    expect(sent[1]).toMatchObject({ to: STAFF_DURG.phone, template: "task_updated_v1" });
   });
 
   it("400 for missing, empty or too long text", async () => {

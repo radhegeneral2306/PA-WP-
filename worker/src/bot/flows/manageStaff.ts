@@ -2,7 +2,7 @@
 // (name / branch / role), or list everyone.
 
 import { BRANCHES, branchName, type BranchId, type Role, type User } from "../../domain/types";
-import { endFlow, replyValue, setStep, type BotContext, type Flow, type Inbound } from "../flow";
+import { endFlow, firstTap, replyValue, setStep, withNonce, type BotContext, type Flow, type Inbound } from "../flow";
 import type { Outgoing } from "../outgoing";
 import { branchList, buttons, confirmButtons, list, text, userList } from "../ui";
 import { normalizePhone } from "../../numbers";
@@ -188,7 +188,7 @@ function addSummary(data: Data): string {
 }
 
 async function toAddConfirm(ctx: BotContext, data: Data): Promise<Outgoing[]> {
-  await setStep(ctx, ID, "add_confirm", data);
+  await setStep(ctx, ID, "add_confirm", withNonce(data));
   return [confirmButtons(ctx.user.phone, ID, `${addSummary(data)}\n\nAdd kar du?`)];
 }
 
@@ -204,6 +204,8 @@ async function addConfirm(ctx: BotContext, data: Data, input: Inbound): Promise<
   }
   if (answer !== "yes") return [confirmButtons(user.phone, ID, withHint(TAP_HINT, `${addSummary(data)}\n\nAdd kar du?`))];
 
+  // A second tap on the same "Haan" must not send the welcome message twice.
+  if (!(await firstTap(ctx, ID, data))) return [];
   const role = data.role as Role;
   const added: User = {
     phone: data.phone,
@@ -220,6 +222,29 @@ async function addConfirm(ctx: BotContext, data: Data, input: Inbound): Promise<
     text(user.phone, `✅ *${data.name}* add ho gaya (${roleLabel(added)}).\nUnko WhatsApp pe welcome message bhej diya hai.`),
     welcomeMessage(added, user.name),
   ];
+}
+
+// ---- confirm buttons that name their person (audit C3) ----
+
+const OTHER_PERSON = "Ye button kisi aur ke purane message ka hai. Neeche wale naye message se chuniye 👇";
+
+/** ids: `${ID}:confirm:yes|no:<phone>`, so a button on an older message can't act on whoever is selected now. */
+function personConfirm(to: string, body: string, phone: string, yes = "Haan ✅"): Outgoing {
+  return buttons(to, body, [
+    { id: `${ID}:confirm:yes:${phone}`, title: yes },
+    { id: `${ID}:confirm:no:${phone}`, title: "Nahi ❌" },
+  ]);
+}
+
+/** "yes" / "no" for this person; "other" for a button about someone else; null for anything else. */
+function personAnswer(input: Inbound, phone: string): "yes" | "no" | "other" | null {
+  const v = replyValue(input, ID, "confirm");
+  if (v === null) return null;
+  const [answer, forPhone] = v.split(":");
+  if (answer !== "yes" && answer !== "no") return null;
+  // Buttons sent before ids carried the phone have none; they can only belong to the open step.
+  if (forPhone && forPhone !== phone) return "other";
+  return answer;
 }
 
 // ---- remove ----
@@ -273,7 +298,7 @@ async function removeUser(ctx: BotContext, data: Data, input: Inbound): Promise<
   }
   const pending = await ctx.store.listTasks({ assigneePhone: target.phone, status: "pending" });
   await setStep(ctx, ID, "remove_confirm", { ...data, phone: target.phone });
-  return [confirmButtons(to, ID, removeQuestion(target, pending.length), "Haan, hatao", "Nahi ❌")];
+  return [personConfirm(to, removeQuestion(target, pending.length), target.phone, "Haan, hatao")];
 }
 
 function removeQuestion(u: User, pending: number): string {
@@ -285,14 +310,15 @@ async function removeConfirm(ctx: BotContext, data: Data, input: Inbound): Promi
   const target = data.phone ? await ctx.store.getUser(data.phone) : null;
   if (!target || !target.active || target.phone === ctx.user.phone) return broken(ctx);
 
-  const answer = replyValue(input, ID, "confirm");
+  const answer = personAnswer(input, target.phone);
   if (answer === "no") {
     await endFlow(ctx);
     return [text(to, "Theek hai, kisi ko nahi hataya.")];
   }
   if (answer !== "yes") {
     const pending = await ctx.store.listTasks({ assigneePhone: target.phone, status: "pending" });
-    return [confirmButtons(to, ID, withHint(TAP_HINT, removeQuestion(target, pending.length)), "Haan, hatao", "Nahi ❌")];
+    const hint = answer === "other" ? OTHER_PERSON : TAP_HINT;
+    return [personConfirm(to, withHint(hint, removeQuestion(target, pending.length)), target.phone, "Haan, hatao")];
   }
   await ctx.store.saveUser({ ...target, active: false });
   await endFlow(ctx);
@@ -446,7 +472,7 @@ async function toEditConfirm(ctx: BotContext, target: User, data: Data): Promise
   const after = editedUser(target, data);
   if (!after) return broken(ctx);
   await setStep(ctx, ID, "edit_confirm", data);
-  return [confirmButtons(ctx.user.phone, ID, `${editSummary(target, after)}\n\nUpdate kar du?`)];
+  return [personConfirm(ctx.user.phone, `${editSummary(target, after)}\n\nUpdate kar du?`, target.phone)];
 }
 
 async function editConfirm(ctx: BotContext, data: Data, input: Inbound): Promise<Outgoing[]> {
@@ -455,12 +481,15 @@ async function editConfirm(ctx: BotContext, data: Data, input: Inbound): Promise
   const after = target && editedUser(target, data);
   if (!target || !after) return broken(ctx);
 
-  const answer = replyValue(input, ID, "confirm");
+  const answer = personAnswer(input, target.phone);
   if (answer === "no") {
     await endFlow(ctx);
     return [text(to, "Theek hai, kuch nahi badla.")];
   }
-  if (answer !== "yes") return [confirmButtons(to, ID, withHint(TAP_HINT, `${editSummary(target, after)}\n\nUpdate kar du?`))];
+  if (answer !== "yes") {
+    const hint = answer === "other" ? OTHER_PERSON : TAP_HINT;
+    return [personConfirm(to, withHint(hint, `${editSummary(target, after)}\n\nUpdate kar du?`), target.phone)];
+  }
 
   if (data.field === "role") {
     const blockedBy = await roleBlock(ctx, target);
