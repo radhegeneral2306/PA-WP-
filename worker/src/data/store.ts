@@ -49,4 +49,9 @@ export interface Store {
   saveHealth(health: Health): Promise<void>;
   /** loggedAt of the newest webhook_log entry (any incoming message), or null if none. */
   latestWebhookAt(): Promise<Date | null>;
+  /**
+   * Records `key` once (audit C4/F1: double taps, a form sent twice). Returns false when the same
+   * key was already recorded less than `windowMs` ago; an older record is renewed and counts as new.
+   */
+  claimOnce(key: string, now: Date, windowMs: number): Promise<boolean>;
 }

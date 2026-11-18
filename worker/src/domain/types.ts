@@ -75,6 +75,12 @@ export interface Task {
   nextReminderAt: string | null;
   /** Monthly tasks: the day of month the user chose (31 stays 31 even in 30-day months). */
   repeatDay?: number | null;
+  /**
+   * Monthly only: the month this occurrence belongs to ("YYYY-MM", IST), fixed at creation, so
+   * moving the date far (e.g. 1 Oct → 20 Oct) can't skip or repeat a month (audit S5).
+   * Tasks created before 18 Nov have none; the nearest-repeat-day rule is used for them.
+   */
+  cycleMonth?: string | null;
   /** Pending date-change approval, if any. Tasks saved before Batch 2 lack this field. */
   dateRequest?: DateRequest | null;
   /** Last time a reminder was sent (for logs and the dashboard later). */

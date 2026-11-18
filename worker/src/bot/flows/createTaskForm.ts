@@ -6,7 +6,7 @@
 
 import { branchName, type TaskRepeat, type User } from "../../domain/types";
 import { atIST, formatDateTime, formatDue, istDay, isValidDay, parseTime, type ISTDay, type ParsedDue } from "../../domain/dates";
-import type { BotContext, Flow } from "../flow";
+import { DOUBLE_TAP_MS, type BotContext, type Flow } from "../flow";
 import type { Outgoing, TemplateName } from "../outgoing";
 import { createTaskFor, TITLE_MAX } from "../taskActions";
 import { text } from "../ui";
@@ -284,6 +284,11 @@ async function submit(ctx: BotContext, form: Record<string, unknown>): Promise<O
     return [text(to, failText(problems.length ? problems : ["Form adhoora hai."]))];
   }
 
+  // The same form sent twice (audit F1): one task. Same person, task, due and reminder within 10 minutes = duplicate.
+  const formKey = `form:${user.phone}:${assignee.phone}:${title.toLowerCase()}:${due.dueAt.toISOString()}:${repeat}`;
+  if (!(await ctx.store.claimOnce(formKey, now, DOUBLE_TAP_MS))) {
+    return [text(to, `ℹ️ Ye form pehle hi aa chuka hai, *${title}* ka task ban gaya hai. Dobara nahi banaya.`)];
+  }
   const res = await createTaskFor(ctx.store, { phone: user.phone, name: user.name }, { title, assignee, due, repeat }, now);
   if (!res.ok) return [text(to, failText([res.error]))];
 

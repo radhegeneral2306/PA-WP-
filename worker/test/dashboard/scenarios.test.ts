@@ -149,9 +149,10 @@ describe("notifications go to the right, active people", () => {
     expect(r.sent).toEqual([]);
   });
 
-  it("creator was removed: done / remark send nothing; a date change still tells the assignee", async () => {
+  it("creator was removed: done sends nothing; a remark or date change still tells the assignee", async () => {
     const store = storeWith(task({ createdByPhone: INACTIVE.phone, createdByName: INACTIVE.name }));
-    expect((await call(store, "/api/tasks/task1/remark", { as: A, body: { text: "Update do" } })).sent).toEqual([]);
+    const remark = await call(store, "/api/tasks/task1/remark", { as: A, body: { text: "Update do" } });
+    expect(templates(remark.sent)).toEqual([[STAFF_DURG.phone, "task_updated_v1"]]);
     const due = await call(store, "/api/tasks/task1/due", { as: A, body: { date: "2026-11-03" } });
     expect(templates(due.sent)).toEqual([[STAFF_DURG.phone, "task_updated_v1"]]);
     expect((await call(store, "/api/tasks/task1/done", { as: A, body: {} })).sent).toEqual([]);

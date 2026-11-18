@@ -43,13 +43,16 @@ describe("markDone", () => {
 });
 
 describe("addRemark", () => {
-  it("saves the remark, pauses every90 and tells the creator", async () => {
+  it("saves the remark, pauses every90 and tells the creator and the assignee (C5)", async () => {
     const s = store(task({ repeat: "every90", nextReminderAt: later(1).toISOString() }));
     const r = await addRemark(s, (await s.getTask("task1"))!, dash, "  Customer kal dega  ", NOW);
     if (!r.ok) throw new Error(r.error);
     expect(r.task.remarks.at(-1)).toMatchObject({ text: "Customer kal dega", byPhone: ADMIN2.phone });
     expect(r.task.nextReminderAt).toBe("2026-10-27T04:30:00.000Z");
-    expect(r.outs).toEqual([expect.objectContaining({ to: ADMIN.phone, template: "task_updated_v1" })]);
+    expect(r.outs).toEqual([
+      expect.objectContaining({ to: ADMIN.phone, template: "task_updated_v1" }),
+      expect.objectContaining({ to: STAFF_DURG.phone, template: "task_updated_v1" }),
+    ]);
   });
 
   it("rejects empty and too long remarks", async () => {

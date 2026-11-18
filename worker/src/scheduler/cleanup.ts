@@ -1,17 +1,22 @@
-// Daily Firestore housekeeping: prunes old duplicate-detection logs and stale
-// dashboard login guards. Touches only `webhook_log` and `login_guards`.
+// Daily Firestore housekeeping: prunes old duplicate-detection logs, stale
+// dashboard login guards and old double-tap claims. Touches only `webhook_log`,
+// `login_guards` and `claims`.
 //
 // Request budget per run (excluding a possible OAuth token refresh):
 //   webhook_log:  1 query + at most 1 commit
 //   login_guards: 1 query + at most 1 commit
-// so at most 4 Firestore requests. A larger backlog is cleared over
+//   claims:       1 query + at most 1 commit
+// so at most 6 Firestore requests. A larger backlog is cleared over
 // several daily runs, `batch` docs per collection per run.
 
 import { deleteMany, queryBefore, type FirestoreConfig } from "../firebase/firestore";
 
 const WEBHOOK_LOG = "webhook_log";
 const LOGIN_GUARDS = "login_guards";
+const CLAIMS = "claims";
 const GLOBAL_GUARD = "global";
+/** Claims guard against double taps within minutes; two days is plenty. */
+const CLAIM_RETENTION_DAYS = 2;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 export interface CleanupOptions {
@@ -24,13 +29,14 @@ export interface CleanupOptions {
 export interface CleanupResult {
   webhookLogs: number;
   loginGuards: number;
+  claims: number;
 }
 
 export async function runCleanup(cfg: FirestoreConfig, now: Date, opts: CleanupOptions = {}): Promise<CleanupResult> {
   const retentionDays = opts.retentionDays ?? 30;
   const batch = Math.min(Math.max(1, opts.batch ?? 500), 500);
   const cutoff = new Date(now.getTime() - retentionDays * DAY_MS);
-  const result: CleanupResult = { webhookLogs: 0, loginGuards: 0 };
+  const result: CleanupResult = { webhookLogs: 0, loginGuards: 0, claims: 0 };
   const errors: string[] = [];
 
   try {
@@ -59,7 +65,18 @@ export async function runCleanup(cfg: FirestoreConfig, now: Date, opts: CleanupO
     errors.push(`login_guards: ${errMsg(err)}`);
   }
 
-  const summary = `Cleanup: deleted ${result.webhookLogs} webhook_log, ${result.loginGuards} login_guards (cutoff ${cutoff.toISOString()})`;
+  try {
+    // createdAt is an ISO string (see FirestoreStore.claimOnce).
+    const claimCutoff = new Date(now.getTime() - CLAIM_RETENTION_DAYS * DAY_MS).toISOString();
+    const docs = await queryBefore(cfg, CLAIMS, "createdAt", claimCutoff, batch, ["__name__"]);
+    const ids = docs.map((d) => d.id);
+    if (ids.length) await deleteMany(cfg, CLAIMS, ids);
+    result.claims = ids.length;
+  } catch (err) {
+    errors.push(`claims: ${errMsg(err)}`);
+  }
+
+  const summary = `Cleanup: deleted ${result.webhookLogs} webhook_log, ${result.loginGuards} login_guards, ${result.claims} claims (cutoff ${cutoff.toISOString()})`;
   if (errors.length) console.error(`${summary}; errors: ${errors.join(" | ")}`);
   else console.log(summary);
   return result;

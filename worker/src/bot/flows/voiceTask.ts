@@ -8,7 +8,7 @@ import { addDays, atIST, formatDateTime, formatDue, istDay, isValidDay, parseDue
 import { recordProblems, SUPER_ADMIN_NAME } from "../../scheduler/health";
 import type { VoiceDraft, VoiceFailure, VoicePerson, VoiceResult } from "../../voice/types";
 import { createTaskFor, TITLE_MAX } from "../taskActions";
-import { endFlow, replyValue, setStep, type BotContext, type Flow, type Inbound } from "../flow";
+import { endFlow, firstTap, replyValue, setStep, withNonce, type BotContext, type Flow, type Inbound } from "../flow";
 import type { Outgoing } from "../outgoing";
 import { branchList, buttons, clip, list, text, userList } from "../ui";
 
@@ -502,7 +502,7 @@ function confirmBody(ctx: BotContext, data: Data, hint?: string): string {
 }
 
 async function showConfirm(ctx: BotContext, data: Data, hint?: string): Promise<Outgoing[]> {
-  await setStep(ctx, ID, "confirm", data);
+  await setStep(ctx, ID, "confirm", withNonce(data));
   return [confirmButtons(ctx.user.phone, confirmBody(ctx, data, hint))];
 }
 
@@ -571,6 +571,8 @@ async function save(ctx: BotContext, data: Data): Promise<Outgoing[]> {
   }
   const due = dueOf(data);
   if (!due || due.dueAt.getTime() < now.getTime()) return next(ctx, data);
+  // A second tap on the same "Haan" (or a duplicate delivery) must not create the task again.
+  if (!(await firstTap(ctx, ID, data))) return [];
 
   const result = await createTaskFor(
     ctx.store,
@@ -585,8 +587,12 @@ async function save(ctx: BotContext, data: Data): Promise<Outgoing[]> {
     },
     now,
   );
-  // Person and due time were checked above, so a refusal here is about the title.
-  if (!result.ok) return ask(ctx, data, "title", `${result.error}.`);
+  // Person and due time were checked above, so a refusal here is about the title. The guard id of
+  // this attempt is used up: drop it so the corrected draft's "Haan" gets a fresh one.
+  if (!result.ok) {
+    const { nonce: _used, ...rest } = data;
+    return ask(ctx, rest, "title", `${result.error}.`);
+  }
   await endFlow(ctx);
   const t = result.task;
   const repeat = t.repeat;

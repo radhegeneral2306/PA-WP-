@@ -48,6 +48,24 @@ export async function endFlow(ctx: BotContext): Promise<void> {
   await ctx.store.clearSession(ctx.user.phone);
 }
 
+/** Double-tap guard window (audit C4): a second "Haan" within this time does nothing. */
+export const DOUBLE_TAP_MS = 10 * 60_000;
+
+/**
+ * Gives a confirm step a one-off id (kept in session data) so two taps on the same "Haan"
+ * claim the same key and only the first one acts. Keeps an id that is already there.
+ */
+export function withNonce(data: Record<string, string>): Record<string, string> {
+  return data.nonce ? data : { ...data, nonce: crypto.randomUUID() };
+}
+
+/** True for the first tap on this confirm step; false for a repeat (double tap / duplicate delivery). */
+export async function firstTap(ctx: BotContext, flow: string, data: Record<string, string>): Promise<boolean> {
+  // Sessions saved before the guard existed have no nonce: act as before.
+  if (!data.nonce) return true;
+  return ctx.store.claimOnce(`${flow}:${ctx.user.phone}:${data.nonce}`, ctx.now, DOUBLE_TAP_MS);
+}
+
 /** For reply id `${flow}:${kind}:${value}` returns value, else null. */
 export function replyValue(input: Inbound, flow: string, kind: string): string | null {
   const prefix = `${flow}:${kind}:`;

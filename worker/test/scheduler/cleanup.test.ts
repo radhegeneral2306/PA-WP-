@@ -59,10 +59,14 @@ afterEach(() => {
 });
 
 describe("runCleanup", () => {
-  it("queries both collections with a 30-day cutoff and LESS_THAN filters", async () => {
+  it("queries all three collections with LESS_THAN filters (claims: 2-day cutoff)", async () => {
     await runCleanup(cfg, NOW);
     const q = calls.filter((c) => c.url === `${BASE}:runQuery`).map((c) => c.body.structuredQuery);
-    expect(q).toHaveLength(2);
+    expect(q).toHaveLength(3);
+    expect(q[2]).toMatchObject({
+      from: [{ collectionId: "claims" }],
+      where: { fieldFilter: { field: { fieldPath: "createdAt" }, op: "LESS_THAN", value: { stringValue: new Date(NOW.getTime() - 2 * 86_400_000).toISOString() } } },
+    });
     expect(q[0]).toMatchObject({
       from: [{ collectionId: "webhook_log" }],
       where: { fieldFilter: { field: { fieldPath: "loggedAt" }, op: "LESS_THAN", value: { timestampValue: CUTOFF } } },
@@ -78,8 +82,8 @@ describe("runCleanup", () => {
 
   it("makes no commit when nothing is old enough", async () => {
     const res = await runCleanup(cfg, NOW);
-    expect(res).toEqual({ webhookLogs: 0, loginGuards: 0 });
-    expect(calls).toHaveLength(2);
+    expect(res).toEqual({ webhookLogs: 0, loginGuards: 0, claims: 0 });
+    expect(calls).toHaveLength(3);
     expect(calls.some((c) => c.url.endsWith(":commit"))).toBe(false);
   });
 
@@ -98,7 +102,7 @@ describe("runCleanup", () => {
       return json({ writeResults: [] });
     };
     const res = await runCleanup(cfg, NOW);
-    expect(res).toEqual({ webhookLogs: 2, loginGuards: 2 });
+    expect(res).toEqual({ webhookLogs: 2, loginGuards: 2, claims: 0 });
 
     const commits = calls.filter((c) => c.url === `${BASE}:commit`);
     expect(commits).toHaveLength(2);
@@ -110,7 +114,7 @@ describe("runCleanup", () => {
       { delete: `${NAME}/login_guards/ip-old` },
       { delete: `${NAME}/login_guards/ip-expired-lock` },
     ]);
-    expect(calls.length).toBeLessThanOrEqual(4);
+    expect(calls.length).toBeLessThanOrEqual(6);
   });
 
   it("makes no guard commit when only global and locked guards are stale", async () => {
@@ -133,6 +137,13 @@ describe("runCleanup", () => {
     expect(commits[0].body.writes).toHaveLength(500);
   });
 
+  it("deletes claims older than two days", async () => {
+    handler = (c) => (isQuery(c, "claims") ? json(rows("claims", [{ id: "c1" }])) : json(c.url.endsWith(":commit") ? {} : []));
+    const res = await runCleanup(cfg, NOW);
+    expect(res.claims).toBe(1);
+    expect(calls.find((c) => isCommit(c, "claims"))?.body.writes).toEqual([{ delete: `${NAME}/claims/c1` }]);
+  });
+
   it("never addresses any other collection", async () => {
     handler = (c) => {
       if (isQuery(c, "webhook_log")) return json(rows("webhook_log", [{ id: "a" }]));
@@ -144,9 +155,9 @@ describe("runCleanup", () => {
       expect(c.method).toBe("POST");
       expect([`${BASE}:runQuery`, `${BASE}:commit`]).toContain(c.url);
       if (c.url.endsWith(":runQuery")) {
-        expect(["webhook_log", "login_guards"]).toContain(c.body.structuredQuery.from[0].collectionId);
+        expect(["webhook_log", "login_guards", "claims"]).toContain(c.body.structuredQuery.from[0].collectionId);
       } else {
-        expect(isCommit(c, "webhook_log") || isCommit(c, "login_guards")).toBe(true);
+        expect(isCommit(c, "webhook_log") || isCommit(c, "login_guards") || isCommit(c, "claims")).toBe(true);
       }
     }
     expect(JSON.stringify(calls)).not.toMatch(/\/(users|tasks|sessions|system)\//);
@@ -159,7 +170,7 @@ describe("runCleanup", () => {
       return json({});
     };
     const res = await runCleanup(cfg, NOW);
-    expect(res).toEqual({ webhookLogs: 0, loginGuards: 1 });
+    expect(res).toEqual({ webhookLogs: 0, loginGuards: 1, claims: 0 });
     expect(console.error).toHaveBeenCalledWith(expect.stringContaining("webhook_log: Firestore query webhook_log"));
   });
 
@@ -171,14 +182,14 @@ describe("runCleanup", () => {
       return json({});
     };
     const res = await runCleanup(cfg, NOW);
-    expect(res).toEqual({ webhookLogs: 1, loginGuards: 0 });
+    expect(res).toEqual({ webhookLogs: 1, loginGuards: 0, claims: 0 });
     expect(console.error).toHaveBeenCalledWith(expect.stringContaining("login_guards: Firestore delete"));
   });
 
   it("logs a one-line summary", async () => {
     await runCleanup(cfg, NOW);
     expect(console.log).toHaveBeenCalledWith(
-      `Cleanup: deleted 0 webhook_log, 0 login_guards (cutoff ${CUTOFF})`,
+      `Cleanup: deleted 0 webhook_log, 0 login_guards, 0 claims (cutoff ${CUTOFF})`,
     );
   });
 });

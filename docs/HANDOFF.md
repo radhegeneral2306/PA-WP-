@@ -338,6 +338,12 @@ Run the `docs/TESTING-batch1.md` checklist sections A–G on real phones.
 - **Phase 6 done (build `dash-p6`):** `POST /api/tasks/:id/{approve,reject}` → `decideDateRequest` in `taskActions.ts`, now also used by the WhatsApp Approvals flow (one set of rules). PWA Approvals tab lists pending requests (from the pending list), confirm dialog for both choices; requester gets `date_approval_result_v1`.
 - **Naya task from the dashboard (build `dash-new`):** `POST /api/tasks` (`src/dashboard/routes/create.ts` → `createTaskFor`). PWA form `dashboard/src/components/NewTaskSheet.tsx`; shared form pieces in `components/formParts.tsx`.
 - Done: Batch 3 Forms (live for all), Batch 4 voice (Bhaskar). Next: dashboard Phase 7 (extras), deliberately last.
+- **Bug round 1 (18 Nov, build `round1`, see `docs/PENDING-BRIEF.md` + `PENDING-BRIEF-ADDENDUM.md`):**
+  - Double taps: `Store.claimOnce(key, now, windowMs)` (Firestore `claims` collection, atomic create; cleaned after 2 days). Confirm steps get a `nonce` in session data (`withNonce` / `firstTap` in `bot/flow.ts`) for the Naya task wizard, voice confirm and Add staff. A form with the same person/task/due/reminder within 10 min is a duplicate. `markDone` claims `done:<taskId>`.
+  - Staff manage confirm buttons carry the person (`manage_staff:confirm:yes|no:<phone>`).
+  - Remarks notify creator **and** assignee (never the actor). WhatsApp date changes notify the assignee too.
+  - Monthly tasks store `cycleMonth` ("YYYY-MM"); `nextMonthlyDue` uses it (older tasks fall back to the nearest-repeat-day rule).
+  - Missing `INTERAKT_WEBHOOK_KEY` / `INTERAKT_ORG_ID` → daily "Bot check" alert (bot keeps running, owner's choice). Message text is no longer logged.
 
 ## 13b. Batch 3: WhatsApp Form "Naya task (Form)" (LIVE for everyone, build `forms-live`, 27 Oct)
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { afterReminder, afterResponse, intoWorkingHours, nextMonthlyDue, nextMonthlyTask, nextMorning } from "../src/domain/schedule";
+import { afterReminder, afterResponse, intoWorkingHours, monthKey, nextMonthlyDue, nextMonthlyTask, nextMorning } from "../src/domain/schedule";
 import { task } from "./helpers/bot";
 
 // IST = UTC+5:30, so 10:00 IST = 04:30Z and 20:00 IST = 14:30Z.
@@ -61,5 +61,34 @@ describe("monthly", () => {
     const next = nextMonthlyTask(done, at("2026-10-27T06:00:00Z"));
     expect(next).toMatchObject({ status: "pending", dueAt: "2026-11-27T04:30:00.000Z", nextReminderAt: "2026-11-27T04:30:00.000Z", remarks: [], doneAt: null, repeat: "monthly", repeatDay: 27 });
     expect("id" in next).toBe(false);
+  });
+});
+
+describe("monthly cycleMonth (audit S5)", () => {
+  const base = { repeatDay: 1 };
+
+  it("a 1st-of-month task moved far into its month still repeats next month (no skip)", () => {
+    // October's occurrence (due 1 Oct) moved to 20 Oct: next must be 1 Nov, not 1 Dec.
+    expect(nextMonthlyDue({ ...base, dueAt: "2026-10-20T04:30:00.000Z", cycleMonth: "2026-10" }).toISOString()).toBe("2026-11-01T04:30:00.000Z");
+  });
+
+  it("a 28th task moved to the 5th of the next month does not repeat that month", () => {
+    expect(nextMonthlyDue({ repeatDay: 28, dueAt: "2026-11-05T04:30:00.000Z", cycleMonth: "2026-10" }).toISOString()).toBe("2026-11-28T04:30:00.000Z");
+  });
+
+  it("without cycleMonth (older tasks) the nearest-repeat-day rule still applies", () => {
+    expect(nextMonthlyDue({ repeatDay: 27, dueAt: "2026-11-02T04:30:00.000Z" }).toISOString()).toBe("2026-11-27T04:30:00.000Z");
+  });
+
+  it("the next task carries the next cycleMonth, month-end clamping included", () => {
+    const t = task({ dueAt: "2026-01-31T04:30:00.000Z", status: "done", repeat: "monthly", repeatDay: 31, cycleMonth: "2026-01" });
+    const feb = nextMonthlyTask(t, new Date("2026-02-01T00:00:00Z"));
+    expect(feb).toMatchObject({ dueAt: "2026-02-28T04:30:00.000Z", cycleMonth: "2026-02", repeatDay: 31 });
+    const mar = nextMonthlyTask(task({ ...feb, id: "y" }), new Date("2026-03-01T00:00:00Z"));
+    expect(mar).toMatchObject({ dueAt: "2026-03-31T04:30:00.000Z", cycleMonth: "2026-03" });
+  });
+
+  it("monthKey uses the IST date", () => {
+    expect(monthKey(new Date("2026-10-31T19:30:00Z"))).toBe("2026-11");
   });
 });

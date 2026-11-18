@@ -23,6 +23,15 @@ export class MemoryStore implements Store {
     return u ? structuredClone(u) : null;
   }
 
+  private claims = new Map<string, number>();
+
+  async claimOnce(key: string, now: Date, windowMs: number) {
+    const at = this.claims.get(key);
+    if (at !== undefined && now.getTime() - at < windowMs) return false;
+    this.claims.set(key, now.getTime());
+    return true;
+  }
+
   async listUsers(filter: UserFilter = {}) {
     const activeOnly = filter.activeOnly ?? true;
     return [...this.users.values()]

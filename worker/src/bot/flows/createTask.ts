@@ -4,8 +4,8 @@
 
 import { BRANCHES, branchName, type BranchId, type Role, type TaskRepeat, type User } from "../../domain/types";
 import { addDays, dueOnDay, formatDue, istDay, parseDue, type ISTDay, type ParsedDue } from "../../domain/dates";
-import { reminderSlot } from "../../domain/schedule";
-import { endFlow, isReply, replyValue, setStep, type BotContext, type Flow, type Inbound } from "../flow";
+import { monthKey, reminderSlot } from "../../domain/schedule";
+import { endFlow, firstTap, isReply, replyValue, setStep, withNonce, type BotContext, type Flow, type Inbound } from "../flow";
 import type { Outgoing } from "../outgoing";
 import { branchList, buttons, matchUsers, quickDue, quickDueList, text, timeButtons, userList } from "../ui";
 
@@ -222,7 +222,7 @@ async function acceptDue(ctx: BotContext, data: Data, due: ParsedDue): Promise<O
     await setStep(ctx, ID, "ask_due", rest);
     return [dueList(ctx, withHint("Ye date/time nikal chuka hai, aage ki date dijiye.", DUE_PROMPT))];
   }
-  const next = { ...rest, dueAt: due.dueAt.toISOString(), dueHasTime: String(due.hasTime), repeat: repeatOf(rest) };
+  const next = withNonce({ ...rest, dueAt: due.dueAt.toISOString(), dueHasTime: String(due.hasTime), repeat: repeatOf(rest) });
   await setStep(ctx, ID, "confirm", next);
   return [confirmMessage(ctx, next)];
 }
@@ -337,6 +337,8 @@ async function save(ctx: BotContext, data: Data): Promise<Outgoing[]> {
     await setStep(ctx, ID, "ask_due", data);
     return [dueList(ctx, `⏰ Due time (${dueText(ctx, data)}) nikal chuka hai. ${DUE_PROMPT}`)];
   }
+  // A second tap on the same "Haan" (or a duplicate delivery) must not create the task again.
+  if (!(await firstTap(ctx, ID, data))) return [];
   await ctx.store.createTask({
     title: data.title,
     assigneePhone: data.assigneePhone,
@@ -350,6 +352,7 @@ async function save(ctx: BotContext, data: Data): Promise<Outgoing[]> {
     repeat,
     nextReminderAt: reminderSlot({ repeat }, new Date(data.dueAt)).toISOString(),
     repeatDay: repeat === "monthly" ? dueDay(data) : null,
+    cycleMonth: repeat === "monthly" ? monthKey(new Date(data.dueAt)) : null,
     dateRequest: null,
     lastReminderAt: null,
     remarks: [],
