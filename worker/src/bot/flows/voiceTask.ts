@@ -26,6 +26,7 @@ export const VOICE_MSG = {
   tooLong: "Voice note bahut lamba hai. 1 minute ke andar bhejiye.",
   off: "Voice se task abhi band hai. Form ya 'Naya task' use kijiye.",
   notUnderstood: "Samajh nahi aaya. Dobara bhejiye ya form se task banaiye.",
+  downloadFailed: "Voice note download nahi ho paya 😕 Ek baar dobara bhejiye.",
   busy: "Voice service abhi busy hai. 1-2 minute baad dobara bhejiye ya form se task banaiye.",
   adminsOnly: "Voice se task abhi sirf admin bana sakte hain. Menu ke liye *Hi* bhejiye.",
   twoPeople: "Is naam ke do log hain. Kisko dena hai?",
@@ -57,7 +58,7 @@ const FAILURE_TEXT: Record<VoiceFailure, string> = {
   not_configured: VOICE_MSG.off,
   limit: VOICE_MSG.off,
   not_understood: VOICE_MSG.notUnderstood,
-  download: VOICE_MSG.notUnderstood,
+  download: VOICE_MSG.downloadFailed,
   failed: VOICE_MSG.notUnderstood,
 };
 /** These are our problem (not the speaker's) and go to the daily health check. */

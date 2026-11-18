@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { EXPIRED, handleMessage } from "../src/bot/router";
+import { BUSY_FOR_VOICE, EXPIRED, handleMessage, normalizeWords } from "../src/bot/router";
 import { MemoryStore } from "../src/data/memoryStore";
 import { ADMIN, ADMIN2, NOW, STAFF_DURG, USERS, makeCtx, say, tap } from "./helpers/bot";
 
@@ -96,5 +96,57 @@ describe("router", () => {
     expect(menu.kind).toBe("list");
     const out = await handleMessage(makeCtx(STAFF_DURG), say("Mere tasks"));
     expect(JSON.stringify(out)).toMatch(/pending task/i);
+  });
+
+  it("normalizes greetings: punctuation, emoji, spaces and a trailing ji", () => {
+    expect(normalizeWords("  Hi! 🙏 ")).toBe("hi");
+    expect(normalizeWords("Band   karo!!")).toBe("band karo");
+    expect(normalizeWords("Hello ji ❤️")).toBe("hello ji");
+  });
+
+  for (const greeting of ["Hi!", "hi 🙏", "hii.", "Hello ji", "Hello.", "menu!", "  NAMASTE  "]) {
+    it(`"${greeting}" in the middle of a wizard shows the menu, not a task title`, async () => {
+      const store = new MemoryStore({ users: USERS });
+      await handleMessage(makeCtx(ADMIN, store), tap("MENU:create_task"));
+      await handleMessage(makeCtx(ADMIN, store), tap("create_task:branch:DURG"));
+      const [menu] = await handleMessage(makeCtx(ADMIN, store), say(greeting));
+      expect(menu.kind).toBe("list");
+      expect(await store.getSession(ADMIN.phone)).toBeNull();
+    });
+  }
+
+  for (const title of ["Hisab karna", "Menu card print", "Hi-fi speaker lana", "Start karo machine", "Ji hi"]) {
+    it(`a real task title "${title}" is not taken as a greeting`, async () => {
+      const store = new MemoryStore({ users: USERS });
+      await handleMessage(makeCtx(STAFF_DURG, store), tap("MENU:create_task"));
+      expect((await store.getSession(STAFF_DURG.phone))?.step).toBe("ask_title");
+      await handleMessage(makeCtx(STAFF_DURG, store), say(title));
+      const session = await store.getSession(STAFF_DURG.phone);
+      expect(session?.step).toBe("ask_due");
+      expect(session?.data.title).toBe(title);
+    });
+  }
+
+  it("still accepts typed cancel words, with punctuation too", async () => {
+    for (const word of ["band karo", "Band karo!", "cancel.", "Stop"]) {
+      const store = new MemoryStore({ users: USERS });
+      await handleMessage(makeCtx(ADMIN, store), tap("MENU:create_task"));
+      const [out] = await handleMessage(makeCtx(ADMIN, store), say(word));
+      expect(out).toMatchObject({ kind: "text", body: "Theek hai, cancel kar diya. Menu ke liye *Hi* bhejiye." });
+      expect(await store.getSession(ADMIN.phone)).toBeNull();
+    }
+  });
+
+  it("typed Mere tasks inside a wizard closes it and shows the task list", async () => {
+    const store = new MemoryStore({ users: USERS });
+    await handleMessage(makeCtx(STAFF_DURG, store), tap("MENU:create_task"));
+    const out = await handleMessage(makeCtx(STAFF_DURG, store), say("Mere tasks!"));
+    expect(JSON.stringify(out)).toMatch(/pending task/i);
+    expect((await store.getSession(STAFF_DURG.phone))?.flow).not.toBe("create_task");
+  });
+
+  it("never tells the user to type cancel (Interakt goodbye automation)", () => {
+    expect(BUSY_FOR_VOICE).toBe("Pehle chal raha kaam pura kijiye ya *band karo* likhiye, phir voice note bhejiye.");
+    expect(BUSY_FOR_VOICE).not.toMatch(/cancel|stop/i);
   });
 });
