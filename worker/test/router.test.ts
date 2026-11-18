@@ -1,7 +1,7 @@
-import { describe, expect, it } from "vitest";
-import { BUSY_FOR_VOICE, EXPIRED, expiredText, handleMessage, normalizeWords } from "../src/bot/router";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { BUSY_FOR_VOICE, EXPIRED, expiredText, handleMessage, normalizeWords, sessionTtlMinutes } from "../src/bot/router";
 import { MemoryStore } from "../src/data/memoryStore";
-import { ADMIN, ADMIN2, NOW, STAFF_DURG, USERS, makeCtx, say, tap } from "./helpers/bot";
+import { ADMIN, ADMIN2, NOW, STAFF_DURG, USERS, makeCtx, say, tap, task } from "./helpers/bot";
 
 const rowIds = (out: any) => out.rows.map((r: { id: string }) => r.id);
 
@@ -162,5 +162,52 @@ describe("router", () => {
   it("never tells the user to type cancel (Interakt goodbye automation)", () => {
     expect(BUSY_FOR_VOICE).toBe("Pehle chal raha kaam pura kijiye ya *band karo* likhiye, phir voice note bhejiye.");
     expect(BUSY_FOR_VOICE).not.toMatch(/cancel|stop/i);
+  });
+});
+
+describe("router: voice notes (Round 4)", () => {
+  const voice = { text: "", reply: null, voice: { mediaUrl: "https://media.example/v.ogg" } };
+  const withVoice = (user: typeof ADMIN, store: MemoryStore, understand: ReturnType<typeof fail>) => ({
+    ...makeCtx(user, store),
+    voice: { understand } as any,
+  });
+  const fail = () => vi.fn<(url: string, c: any) => Promise<any>>(async () => ({ ok: false, reason: "not_understood" }));
+
+  beforeEach(() => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  it("another open flow (create_task) is busy for voice, as before", async () => {
+    const store = new MemoryStore({ users: USERS });
+    await handleMessage(makeCtx(ADMIN, store), tap("MENU:create_task"));
+    const understand = fail();
+    const [out] = await handleMessage(withVoice(ADMIN, store, understand), voice);
+    expect(out).toMatchObject({ kind: "text", body: BUSY_FOR_VOICE });
+    expect(understand).not.toHaveBeenCalled();
+    expect((await store.getSession(ADMIN.phone))?.flow).toBe("create_task");
+  });
+
+  it("an open task detail is context: the session survives a note that was not understood", async () => {
+    const store = new MemoryStore({ users: USERS, tasks: [task()] });
+    await store.saveSession({ phone: ADMIN.phone, flow: "tasks", step: "detail", data: { taskId: "task1" }, updatedAt: NOW.toISOString() });
+    const understand = fail();
+    const [out] = await handleMessage(withVoice(ADMIN, store, understand), voice);
+    expect(out).toMatchObject({ kind: "text" });
+    expect(understand.mock.calls[0][1].task).toEqual({ title: "Sharma ji se payment lena", assignee: "Hardware" });
+    expect(await store.getSession(ADMIN.phone)).toMatchObject({ flow: "tasks", step: "detail", data: { taskId: "task1" } });
+  });
+
+  it("voice_update replies are routed to the flow; a stale id from another flow gets the old-option text", async () => {
+    const store = new MemoryStore({ users: USERS, tasks: [task()] });
+    await store.saveSession({ phone: ADMIN.phone, flow: "voice_update", step: "confirm", data: { taskId: "task1", action: "done" }, updatedAt: NOW.toISOString() });
+    const [out] = await handleMessage(makeCtx(ADMIN, store), tap("tasks:page:1"));
+    expect(JSON.stringify(out)).toContain("purana");
+  });
+
+  it("typing steps of voice_update last 5 minutes", () => {
+    expect(sessionTtlMinutes({ flow: "voice_update", step: "ask_remark" })).toBe(5);
+    expect(sessionTtlMinutes({ flow: "voice_update", step: "ask_custom_date" })).toBe(5);
+    expect(sessionTtlMinutes({ flow: "voice_update", step: "confirm" })).toBe(2);
   });
 });

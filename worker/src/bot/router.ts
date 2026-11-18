@@ -11,6 +11,7 @@ import { tasksFlow } from "./flows/tasks";
 import { approvalsFlow } from "./flows/approvals";
 import { handleTaskForm, taskFormFlow } from "./flows/createTaskForm";
 import { handleVoice, voiceTaskFlow } from "./flows/voiceTask";
+import { handleVoiceInContext, voiceUpdateFlow } from "./flows/voiceUpdate";
 
 interface MenuEntry {
   key: string;
@@ -46,6 +47,7 @@ const TYPING_STEPS: Readonly<Record<string, readonly string[]>> = {
   tasks: ["detail", "ask_remark", "ask_custom_due", "ask_date_remark"],
   manage_staff: ["add_name", "add_phone", "edit_name"],
   voice_task: ["ask_title", "ask_custom_date"],
+  voice_update: ["ask_remark", "ask_custom_date"],
 };
 
 /** How long this chat stays open after the user's last message. */
@@ -78,7 +80,7 @@ export const MENU: MenuEntry[] = [
   { key: "manage_staff", title: "⚙️ Staff manage", description: "Staff add / edit / remove / list", roles: ["admin"], flow: manageStaffFlow },
 ];
 
-const FLOWS: Flow[] = [tasksFlow, createTaskFlow, manageStaffFlow, approvalsFlow, taskFormFlow, voiceTaskFlow];
+const FLOWS: Flow[] = [tasksFlow, createTaskFlow, manageStaffFlow, approvalsFlow, taskFormFlow, voiceTaskFlow, voiceUpdateFlow];
 
 /** Reply ids that carry the id of what they act on (see tasks / approvals detail messages). */
 const DIRECT: { re: RegExp; flow: Flow }[] = [
@@ -137,7 +139,12 @@ export async function handleMessage(ctx: BotContext, input: Inbound): Promise<Ou
   // Anyone else's voice note falls through to the old behaviour (menu).
   if (input.voice && canUseVoice(user)) {
     const open = await store.getSession(user.phone);
-    const busy = open && open.flow !== voiceTaskFlow.id && isFresh(open, ctx.now);
+    const fresh = !!open && isFresh(open, ctx.now);
+    // Round 4: a task's detail is open -> the note is about that task (the chat stays as it is until understood).
+    if (open && fresh && open.flow === tasksFlow.id && open.step === "detail" && open.data.taskId) {
+      return handleVoiceInContext(ctx, input.voice.mediaUrl, open.data.taskId);
+    }
+    const busy = open && fresh && open.flow !== voiceTaskFlow.id && open.flow !== voiceUpdateFlow.id;
     if (busy) return [text(user.phone, BUSY_FOR_VOICE)];
     await store.clearSession(user.phone);
     return handleVoice(ctx, input.voice.mediaUrl);

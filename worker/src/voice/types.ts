@@ -22,7 +22,29 @@ export interface VoiceDraft {
   repeat: TaskRepeat | null;
   /** 🔴 Urgent ("urgent hai", "jaldi", "zaroori"). Missing = false. */
   urgent?: boolean;
+
+  // ---- Round 4: updating an EXISTING task by voice (docs/ROUND4-CONTRACT.md). All optional. ----
+  /**
+   * "update" when the admin talks about a task that already exists ("X ka task done kar do",
+   * "Y ki date badal do"); "create" when it is a new task (the old behaviour); missing = "create".
+   */
+  intent?: "create" | "update" | null;
+  /** For intent "update": what to do with the task. null = unclear. */
+  action?: VoiceAction | null;
+  /** action "remark": the update text to add, short Hinglish Roman script, without the task-finding words. */
+  remark?: string | null;
+  /**
+   * action "update": words that identify WHICH task (customer / item / work words such as "Sharma ji",
+   * "payment"). Not the person, not action words ("done", "kar do"). Lower-case Roman script, max 6.
+   */
+  taskWords?: string[];
+  /** action "reassign": the NEW assignee, exactly one listed name or null; `person` stays the current owner. */
+  newPerson?: string | null;
+  /** action "reassign": the new assignee's name as spoken. */
+  newPersonHeard?: string | null;
 }
+
+export type VoiceAction = "done" | "remark" | "due" | "reassign";
 
 export type VoiceFailure =
   | "not_configured" // keys missing or VOICE=off
@@ -43,8 +65,19 @@ export interface VoicePerson {
   label: string;
 }
 
+export interface VoiceContext {
+  now: Date;
+  people: VoicePerson[];
+  /**
+   * Set when the admin has ONE task open on screen and sends the voice note about it: the note can only be an
+   * update of that task (intent "update"; action done / remark / due / reassign; no taskWords needed).
+   * `title` is the task's title, data only.
+   */
+  task?: { title: string; assignee: string };
+}
+
 export interface VoiceService {
-  understand(mediaUrl: string, ctx: { now: Date; people: VoicePerson[] }): Promise<VoiceResult>;
+  understand(mediaUrl: string, ctx: VoiceContext): Promise<VoiceResult>;
 }
 
 export const MAX_VOICE_SECONDS = 60;

@@ -6,10 +6,11 @@
 import { BRANCHES, branchName, type BranchId, type TaskRepeat, type User } from "../../domain/types";
 import { addDays, atIST, dueOnDay, formatDateTime, formatDue, istDay, isValidDay, parseDue, parseTime, type ISTDay, type ParsedDue } from "../../domain/dates";
 import { recordProblems, SUPER_ADMIN_NAME } from "../../scheduler/health";
-import type { VoiceDraft, VoiceFailure, VoicePerson, VoiceResult } from "../../voice/types";
+import type { VoiceContext, VoiceDraft, VoiceFailure, VoicePerson, VoiceResult } from "../../voice/types";
 import { createTaskFor, TITLE_MAX } from "../taskActions";
 import { endFlow, firstTap, replyValue, setStep, withNonce, type BotContext, type Flow, type Inbound } from "../flow";
 import type { Outgoing } from "../outgoing";
+import { startUpdateFromDraft } from "./voiceUpdate";
 import { branchList, buttons, clip, list, text, userList, weekdayHi } from "../ui";
 
 const ID = "voice_task";
@@ -84,31 +85,38 @@ export async function handleVoice(ctx: BotContext, mediaUrl: string): Promise<Ou
   const active = (await ctx.store.listUsers()).filter((u) => u.active);
   const people: VoicePerson[] = active.map((u) => ({ name: u.name, label: labelOf(u) }));
 
-  let result: VoiceResult;
-  if (!ctx.voice) result = { ok: false, reason: "not_configured" };
-  else {
-    try {
-      result = await ctx.voice.understand(mediaUrl, { now: ctx.now, people });
-    } catch (err) {
-      console.error("voice: understand threw", String(err));
-      result = { ok: false, reason: "failed" };
-    }
-  }
-
-  if (!result.ok) {
-    const why = result.detail ? `${result.reason}: ${result.detail}` : result.reason;
-    console.log("voice: failed", why);
-    if (HEALTH_FAILURES.has(result.reason)) {
-      await recordProblems(ctx.store, ctx.now, { errors: 1, problem: `voice ${why}` });
-    }
-    // A busy AI server (500/503) is not the user's fault: say so instead of "samajh nahi aaya".
-    const busy = result.reason === "failed" && /\b(500|503)\b|UNAVAILABLE|INTERNAL|timeout/.test(result.detail ?? "");
-    const msg = busy ? VOICE_MSG.busy : FAILURE_TEXT[result.reason] ?? VOICE_MSG.notUnderstood;
-    // While voice is being tested, the super admin also sees the technical reason (no keys or numbers in it).
-    const debug = user.name === SUPER_ADMIN_NAME ? `\n\n_Tech: ${why}_` : "";
-    return [text(user.phone, msg + debug)];
-  }
+  const result = await callVoice(ctx, mediaUrl, { now: ctx.now, people });
+  if (!result.ok) return failureReply(ctx, result);
+  // Round 4: a note about an existing task goes to the update flow (create behaviour is unchanged).
+  if (result.draft.intent === "update") return startUpdateFromDraft(ctx, result.draft, active);
   return startFromDraft(ctx, result.draft, active);
+}
+
+/** Runs the voice service; a missing service or a throw becomes a failure result. */
+export async function callVoice(ctx: BotContext, mediaUrl: string, vctx: VoiceContext): Promise<VoiceResult> {
+  if (!ctx.voice) return { ok: false, reason: "not_configured" };
+  try {
+    return await ctx.voice.understand(mediaUrl, vctx);
+  } catch (err) {
+    console.error("voice: understand threw", String(err));
+    return { ok: false, reason: "failed" };
+  }
+}
+
+/** The reply for a failed voice result; counts our-side failures for the health check. */
+export async function failureReply(ctx: BotContext, result: Extract<VoiceResult, { ok: false }>): Promise<Outgoing[]> {
+  const { user } = ctx;
+  const why = result.detail ? `${result.reason}: ${result.detail}` : result.reason;
+  console.log("voice: failed", why);
+  if (HEALTH_FAILURES.has(result.reason)) {
+    await recordProblems(ctx.store, ctx.now, { errors: 1, problem: `voice ${why}` });
+  }
+  // A busy AI server (500/503) is not the user's fault: say so instead of "samajh nahi aaya".
+  const busy = result.reason === "failed" && /\b(500|503)\b|UNAVAILABLE|INTERNAL|timeout/.test(result.detail ?? "");
+  const msg = busy ? VOICE_MSG.busy : FAILURE_TEXT[result.reason] ?? VOICE_MSG.notUnderstood;
+  // While voice is being tested, the super admin also sees the technical reason (no keys or numbers in it).
+  const debug = user.name === SUPER_ADMIN_NAME ? `\n\n_Tech: ${why}_` : "";
+  return [text(user.phone, msg + debug)];
 }
 
 async function startFromDraft(ctx: BotContext, draft: VoiceDraft, active: User[]): Promise<Outgoing[]> {
@@ -231,7 +239,7 @@ async function ask(ctx: BotContext, data: Data, field: Field, hint?: string): Pr
 
 // ---------- person ----------
 
-function labelOf(u: Pick<User, "role" | "branch">): string {
+export function labelOf(u: Pick<User, "role" | "branch">): string {
   return u.role === "admin" ? "Admin" : branchName(u.branch);
 }
 
@@ -239,11 +247,11 @@ function assignee(u: User): Data {
   return { phone: u.phone, name: u.name, label: labelOf(u) };
 }
 
-function norm(s: string): string {
+export function norm(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
 }
 
-function same(a: string, b: string): boolean {
+export function same(a: string, b: string): boolean {
   return norm(a) !== "" && norm(a) === norm(b);
 }
 
@@ -280,7 +288,7 @@ function nameScore(heard: string, name: string): number {
   return 0;
 }
 
-function matches(heard: string, users: User[]): { user: User; score: number }[] {
+export function matches(heard: string, users: User[]): { user: User; score: number }[] {
   return users
     .map((user) => ({ user, score: nameScore(heard, user.name) }))
     .filter((m) => m.score > 0)
@@ -384,16 +392,16 @@ async function answerTitle(ctx: BotContext, data: Data, input: Inbound): Promise
   return next(ctx, { ...data, title });
 }
 
-function dayKey(d: ISTDay): string {
+export function dayKey(d: ISTDay): string {
   return `${d.year}-${String(d.month).padStart(2, "0")}-${String(d.day).padStart(2, "0")}`;
 }
 
-function validDate(s: string | null | undefined): boolean {
+export function validDate(s: string | null | undefined): boolean {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s ?? "");
   return !!m && isValidDay(Number(m[1]), Number(m[2]), Number(m[3]));
 }
 
-function validTime(s: string | null | undefined): boolean {
+export function validTime(s: string | null | undefined): boolean {
   const m = /^(\d{2}):(\d{2})$/.exec(s ?? "");
   return !!m && Number(m[1]) <= 23 && Number(m[2]) <= 59;
 }
@@ -406,7 +414,7 @@ function isUrgent(data: Data): boolean {
   return data.urgent === "true";
 }
 
-function dueOf(data: Data): ParsedDue | null {
+export function dueOf(data: Data): ParsedDue | null {
   if (!validDate(data.date)) return null;
   const [year, month, day] = data.date.split("-").map(Number);
   if (!data.time) return { dueAt: atIST({ year, month, day }), hasTime: false };
@@ -420,7 +428,7 @@ function clockKey(hour: number, minute: number): string {
 }
 
 /** A typed date (optionally with time): the day, and the time only if one was typed. */
-function fromTyped(due: ParsedDue, data: Data): Data {
+export function fromTyped(due: ParsedDue, data: Data): Data {
   const date = dayKey(istDay(due.dueAt));
   if (!due.hasTime) return { ...data, date };
   const ist = new Date(due.dueAt.getTime() + 330 * 60_000);

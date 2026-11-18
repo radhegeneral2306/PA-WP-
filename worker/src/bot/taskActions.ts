@@ -19,6 +19,8 @@ export interface Actor {
   name: string;
   /** Dashboard actions are marked "(dashboard)" in remarks. */
   viaDashboard?: boolean;
+  /** Round 4: an admin's voice-note update; remarks are marked "(voice)" like "(dashboard)". */
+  viaVoice?: boolean;
 }
 
 export type ActionResult =
@@ -35,7 +37,7 @@ function closed(t: Task): ActionResult | null {
 }
 
 export function remarkBy(actor: Actor, text: string, now: Date): Remark {
-  const byName = actor.viaDashboard ? `${actor.name} (dashboard)` : actor.name;
+  const byName = actor.viaDashboard ? `${actor.name} (dashboard)` : actor.viaVoice ? `${actor.name} (voice)` : actor.name;
   return { at: now.toISOString(), byPhone: actor.phone, byName, text };
 }
 
@@ -119,7 +121,7 @@ export async function markDone(store: Store, t: Task, actor: Actor, now: Date): 
   // close it, send the notice and create next month's task (audit C4 / S10).
   if (!(await store.claimOnce(`done:${t.id}`, now, 10 * 60_000))) return fail(409, "task_closed", "Ye task pehle hi done ho chuka hai");
   const at = now.toISOString();
-  const remarks = actor.viaDashboard ? [...t.remarks, remarkBy(actor, "Done kiya", now)] : t.remarks;
+  const remarks = actor.viaDashboard || actor.viaVoice ? [...t.remarks, remarkBy(actor, "Done kiya", now)] : t.remarks;
   await store.updateTask(t.id, { status: "done", doneAt: at, updatedAt: at, nextReminderAt: null, dateRequest: null, remarks });
   const following = nextRepeatTask(t, now);
   const next = following ? await store.createTask(following) : undefined;
