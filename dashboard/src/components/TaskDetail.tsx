@@ -4,6 +4,7 @@ import { binDaysLeftText, formatDateTime, formatDue, repeatText, STATUS_LABELS }
 import { branchLabel, isUrgent, isVoiceTask } from "../lib/filters";
 import type { Branch, TaskDTO, UserDTO } from "../lib/types";
 import { BinActions } from "./BinActions";
+import { HistorySection } from "./HistorySection";
 import { DeleteAction } from "./DeleteAction";
 import { UrgentMark } from "./TaskRow";
 import { Sheet } from "./Sheet";
@@ -120,6 +121,8 @@ function DetailBody({ t, branches, urgentEdit }: { t: TaskDTO; branches: Branch[
           </ol>
         )}
       </section>
+
+      <HistorySection taskId={t.id} updatedAt={t.updatedAt} />
     </div>
   );
 }

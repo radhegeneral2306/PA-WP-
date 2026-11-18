@@ -110,3 +110,27 @@ export interface PurgeResponse {
 }
 
 export type ExportStatus = "all" | "pending" | "done" | "cancelled";
+
+/** Round 6: GET /api/tasks/:id/history. No phone numbers in it. */
+export type HistoryKind = "created" | "remark" | "done" | "cancelled" | "deleted" | "restored";
+
+export interface HistoryEvent {
+  at: string;
+  kind: HistoryKind;
+  by: string | null;
+  text: string;
+}
+
+export interface HistoryResponse {
+  task: {
+    id: string;
+    title: string;
+    assigneeName: string;
+    createdByName: string;
+    status: TaskStatus;
+    createdAt: string;
+    dueAt: string;
+    dueHasTime: boolean;
+  };
+  events: HistoryEvent[];
+}

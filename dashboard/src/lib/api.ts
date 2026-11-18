@@ -1,6 +1,6 @@
 import { clearToken, getToken } from "./storage";
 import { exportFilename, exportPath, filenameFromDisposition } from "./export";
-import type { ActorResponse, ExportStatus, LoginResponse, MeResponse, PurgeResponse, TaskActionResponse, TaskRepeat, TasksResponse, UsersResponse } from "./types";
+import type { ActorResponse, ExportStatus, HistoryResponse, LoginResponse, MeResponse, PurgeResponse, TaskActionResponse, TaskRepeat, TasksResponse, UsersResponse } from "./types";
 
 export const API_BASE: string = (import.meta.env.VITE_API_BASE as string | undefined) ?? "https://pa-wp-bot.radhegeneral2306.workers.dev";
 
@@ -150,6 +150,8 @@ export const api = {
     request<TaskActionResponse>(`${taskPath(id)}/restore`, { method: "POST", body: date ? (time ? { date, time } : { date }) : {} }),
   /** F8: super admin only, tasks already in the bin. */
   purgeTask: (id: string) => request<PurgeResponse>(`${taskPath(id)}/purge`, { method: "POST", body: {} }),
+  /** Round 6: task history, read only when the admin opens the History section. */
+  history: (id: string) => request<HistoryResponse>(`${taskPath(id)}/history`),
   /** F9: CSV for Excel. */
   exportCsv,
 };

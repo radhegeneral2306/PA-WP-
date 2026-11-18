@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { ArrowClockwise, CaretDown, ClipboardText, MagnifyingGlass, Plus, X } from "@phosphor-icons/react";
 import { ADMINS, ALL, applyFilters, applySummary, sortPending, summaryCounts, type SummaryFilter } from "../lib/filters";
+import { branchStats } from "../lib/branchStats";
 import { formatClock } from "../lib/format";
 import { useIsDesktop, type Resource } from "../lib/hooks";
 import type { TaskDTO, TasksResponse, UsersResponse } from "../lib/types";
@@ -9,6 +10,7 @@ import { TaskRow } from "../components/TaskRow";
 import { TaskDetail } from "../components/TaskDetail";
 import { StaffPicker } from "../components/StaffPicker";
 import { DetailPlaceholder } from "../components/DetailPlaceholder";
+import { BranchWise } from "../components/BranchWise";
 import { NewTaskSheet } from "../components/NewTaskSheet";
 
 interface Props {
@@ -35,6 +37,8 @@ export function Tasks({ pending, users }: Props) {
   const base = useMemo(() => sortPending(applyFilters(allTasks, { branch, staffPhone, query }, userList)), [allTasks, branch, staffPhone, query, userList]);
   const counts = useMemo(() => summaryCounts(base), [base]);
   const visible = useMemo(() => applySummary(base, summary), [base, summary]);
+  // Zero extra reads: counted from the loaded list (already live: overdue / aaj due).
+  const stats = useMemo(() => branchStats(allTasks, userList, branches), [allTasks, userList, branches]);
   const perStaff = useMemo(() => {
     const m = new Map<string, number>();
     for (const t of allTasks) m.set(t.assigneePhone, (m.get(t.assigneePhone) ?? 0) + 1);
@@ -152,6 +156,8 @@ export function Tasks({ pending, users }: Props) {
           </button>
         ))}
       </div>
+
+      {pending.data ? <BranchWise stats={stats} selected={branch} onSelect={setBranch} /> : null}
 
       <ChipRow label="Branch filter">
         <Chip selected={branch === ALL} onClick={() => setBranch(ALL)}>

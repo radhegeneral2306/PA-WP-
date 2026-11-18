@@ -7,6 +7,7 @@ import type { Store } from "../data/store";
 import type { Outgoing } from "../bot/outgoing";
 import { SESSION_DAYS, issueToken, login, verifyToken, type DashSession } from "./auth";
 import { matchWriteRoute } from "./routes/write";
+import { matchHistoryRoute } from "./routes/history";
 import { SUPER_ADMIN_NAME } from "../scheduler/health";
 
 export type Deliver = (outs: Outgoing[]) => Promise<void>;
@@ -48,7 +49,7 @@ export async function handleApi(request: Request, env: Env, store: Store, now: D
   if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors ?? {} });
 
   const path = new URL(request.url).pathname.replace(/\/+$/, "");
-  const route = ROUTES.find((r) => r.path === path && r.method === request.method) ?? matchWriteRoute(request.method, path)?.route;
+  const route = ROUTES.find((r) => r.path === path && r.method === request.method) ?? matchWriteRoute(request.method, path)?.route ?? matchHistoryRoute(request.method, path)?.route;
   if (!route) return json({ error: "Nahi mila", code: "not_found" }, 404, cors);
 
   const session = await verifyToken(env, request.headers.get("Authorization"), now);

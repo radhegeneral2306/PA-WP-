@@ -32,6 +32,14 @@ export class MemoryStore implements Store {
     return true;
   }
 
+  private counts = new Map<string, number>();
+
+  async bumpDailyCount(key: string, _now: Date) {
+    const n = (this.counts.get(key) ?? 0) + 1;
+    this.counts.set(key, n);
+    return n;
+  }
+
   async listUsers(filter: UserFilter = {}) {
     const activeOnly = filter.activeOnly ?? true;
     return [...this.users.values()]

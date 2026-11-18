@@ -56,4 +56,10 @@ export interface Store {
    * key was already recorded less than `windowMs` ago; an older record is renewed and counts as new.
    */
   claimOnce(key: string, now: Date, windowMs: number): Promise<boolean>;
+  /**
+   * Round 5: counts one more AI chat message for `key` (e.g. `ai:<phone>:<IST date>`) and returns the new
+   * count. A quota, not a lock: a simple read-then-write is enough. Stored in the `claims` collection so
+   * the daily cleanup removes old counters.
+   */
+  bumpDailyCount(key: string, now: Date): Promise<number>;
 }
