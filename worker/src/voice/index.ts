@@ -4,7 +4,7 @@ import type { Env } from "../env";
 import { understandTranscript } from "./gemini";
 import { transcribe } from "./groq";
 import { downloadMedia } from "./media";
-import type { VoicePerson, VoiceResult, VoiceService } from "./types";
+import type { VoiceContext, VoiceResult, VoiceService } from "./types";
 
 /** Whole pipeline budget, and the most any one step may take of what is left. */
 export const VOICE_BUDGET_MS = 25_000;
@@ -22,7 +22,7 @@ export function createVoiceService(env: Env, clock: () => number = Date.now): Vo
   }
 
   return {
-    async understand(mediaUrl: string, ctx: { now: Date; people: VoicePerson[] }): Promise<VoiceResult> {
+    async understand(mediaUrl: string, ctx: VoiceContext): Promise<VoiceResult> {
       const deadline = clock() + VOICE_BUDGET_MS;
       const budget = (max: number) => Math.min(max, deadline - clock());
       try {
