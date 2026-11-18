@@ -4,7 +4,7 @@
 
 import type { Store } from "../data/store";
 import { atIST, formatDateTime, formatDue, istDay, isValidDay, type ParsedDue } from "../domain/dates";
-import { afterReminder, afterResponse, monthKey, nextMonthlyTask, reminderSlot } from "../domain/schedule";
+import { afterReminder, afterResponse, monthKey, nextRepeatTask, reminderSlot } from "../domain/schedule";
 import type { DateRequest, Remark, Task, TaskRepeat, User } from "../domain/types";
 import type { Outgoing } from "./outgoing";
 import { clip } from "./ui";
@@ -109,7 +109,7 @@ export function assignedNotice(t: Task, assignedBy: string, now: Date): Outgoing
 
 // ---------- actions ----------
 
-/** Done: stops reminders, clears a pending date request, creates next month's task for monthly ones. */
+/** Done: stops reminders, clears a pending date request, creates the next task for monthly and weekly ones. */
 export async function markDone(store: Store, t: Task, actor: Actor, now: Date): Promise<ActionResult> {
   const blocked = closed(t);
   if (blocked) return blocked;
@@ -119,7 +119,8 @@ export async function markDone(store: Store, t: Task, actor: Actor, now: Date): 
   const at = now.toISOString();
   const remarks = actor.viaDashboard ? [...t.remarks, remarkBy(actor, "Done kiya", now)] : t.remarks;
   await store.updateTask(t.id, { status: "done", doneAt: at, updatedAt: at, nextReminderAt: null, dateRequest: null, remarks });
-  const next = t.repeat === "monthly" ? await store.createTask(nextMonthlyTask(t, now)) : undefined;
+  const following = nextRepeatTask(t, now);
+  const next = following ? await store.createTask(following) : undefined;
   const outs = await onlyActive(store, [doneNotice(t, actor.name, now)], actor);
   return { ok: true, task: await reload(store, t.id), next, outs };
 }
@@ -343,6 +344,8 @@ export interface NewTaskInput {
   source?: "voice";
   /** First remark by the creator, e.g. the voice transcript (clipped to REMARK_MAX). */
   note?: string;
+  /** 🔴 Urgent (Round 3, F5). */
+  urgent?: boolean;
 }
 
 /**
@@ -379,6 +382,7 @@ export async function createTaskFor(store: Store, actor: Actor, input: NewTaskIn
       ...(input.note?.trim() ? [remarkBy(actor, clip(input.note.trim(), REMARK_MAX), now)] : []),
     ],
     ...(input.source ? { source: input.source } : {}),
+    ...(input.urgent ? { urgent: true } : {}),
     createdAt: at,
     updatedAt: at,
     doneAt: null,

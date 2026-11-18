@@ -25,7 +25,7 @@ const ID = "tasks";
 const ADMINS = "ADMINS";
 const MAX_STAFF_DAYS = 25;
 
-const REPEAT_LABEL: Record<TaskRepeat, string> = { none: "Ek baar", every90: "Har 90 min", monthly: "Har mahine" };
+const REPEAT_LABEL: Record<TaskRepeat, string> = { none: "Ek baar", every90: "Har 90 min", monthly: "Har mahine", weekly: "Har hafte" };
 
 type Data = Record<string, string>;
 type View = "mine" | "user" | "group";
@@ -316,7 +316,7 @@ function parseAct(input: Inbound): { kind: ActKind; taskId: string | null } | nu
   return { kind, taskId: rest.join(":") || null };
 }
 
-const STATUS_LABEL: Record<Task["status"], string> = { pending: "Pending", done: "Done ✅", cancelled: "Cancelled ❌" };
+const STATUS_LABEL: Record<Task["status"], string> = { pending: "Pending", done: "Done ✅", cancelled: "Cancelled ❌", deleted: "Deleted 🗑️" };
 
 /** Loads the task and checks the actor may touch it; returns a reply on failure. */
 async function loadOwned(ctx: BotContext, taskId: string | undefined): Promise<Task | Outgoing[]> {

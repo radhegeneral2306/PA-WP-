@@ -18,11 +18,12 @@ const STAFF_TOKEN = "task_form_staff";
 const FALLBACK = "Form abhi nahi khul raha. Menu se *➕ Naya task* chuniye, wahi kaam karega.";
 const RETRY = "Menu se *📝 Naya task (Form)* dobara bhariye, ya purana *➕ Naya task* option use kijiye.";
 
-const REPEAT_LABELS: Record<TaskRepeat, string> = { none: "Ek baar", every90: "Har 90 min", monthly: "Har mahine" };
+const REPEAT_LABELS: Record<TaskRepeat, string> = { none: "Ek baar", every90: "Har 90 min", monthly: "Har mahine", weekly: "Har hafte" };
 const REPEAT_SUFFIX: Record<TaskRepeat, string> = {
   none: "",
   every90: " (phir har 90 min, jab tak jawab na mile)",
   monthly: " (har mahine)",
+  weekly: " (har hafte)",
 };
 
 /**

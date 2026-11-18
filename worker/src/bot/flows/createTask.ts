@@ -29,11 +29,12 @@ const REPEAT_PROMPT = [
   "• *Har mahine*: har mahine isi tareekh ko",
 ].join("\n");
 
-const REPEAT_LABELS: Record<TaskRepeat, string> = { none: "Ek baar", every90: "Har 90 min", monthly: "Har mahine" };
+const REPEAT_LABELS: Record<TaskRepeat, string> = { none: "Ek baar", every90: "Har 90 min", monthly: "Har mahine", weekly: "Har hafte" };
 const REPEAT_SUFFIX: Record<TaskRepeat, string> = {
   none: "",
   every90: " (phir har 90 min, jab tak jawab na mile)",
   monthly: " (har mahine)",
+  weekly: " (har hafte)",
 };
 
 export const createTaskFlow: Flow = {

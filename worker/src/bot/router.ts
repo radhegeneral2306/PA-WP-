@@ -1,7 +1,7 @@
 // Decides which flow handles a message: greetings and menu taps reset to the
 // main menu, an active session goes to its flow, anything else gets the menu.
 
-import { SESSION_TTL_MINUTES, type Role, type User } from "../domain/types";
+import { SESSION_TTL_MINUTES, TYPING_TTL_MINUTES, type Role, type Session, type User } from "../domain/types";
 import type { BotContext, Flow, Inbound } from "./flow";
 import type { Outgoing } from "./outgoing";
 import { buttons, list, text } from "./ui";
@@ -34,7 +34,28 @@ export function canUseVoice(user: User): boolean {
   return user.role === "admin" && (VOICE_LIVE || VOICE_TESTERS.has(user.name));
 }
 
-export const EXPIRED = `⏱️ Session expire ho gaya (${SESSION_TTL_MINUTES} minute tak koi jawab nahi aaya). Dobara shuru karne ke liye *Hi* bhejiye.`;
+export function expiredText(minutes: number): string {
+  return `⏱️ Session expire ho gaya (${minutes} minute tak koi jawab nahi aaya). Dobara shuru karne ke liye *Hi* bhejiye.`;
+}
+export const EXPIRED = expiredText(SESSION_TTL_MINUTES);
+
+/** Steps that wait for typed text (F15): they get TYPING_TTL_MINUTES instead of SESSION_TTL_MINUTES. */
+const TYPING_STEPS: Readonly<Record<string, readonly string[]>> = {
+  create_task: ["ask_title", "ask_custom_due"],
+  // "detail" takes a typed update too (typing on an open task saves it as a remark).
+  tasks: ["detail", "ask_remark", "ask_custom_due", "ask_date_remark"],
+  manage_staff: ["add_name", "add_phone", "edit_name"],
+  voice_task: ["ask_title", "ask_custom_date"],
+};
+
+/** How long this chat stays open after the user's last message. */
+export function sessionTtlMinutes(s: Pick<Session, "flow" | "step">): number {
+  return TYPING_STEPS[s.flow]?.includes(s.step) ? TYPING_TTL_MINUTES : SESSION_TTL_MINUTES;
+}
+
+function isFresh(s: Session, now: Date): boolean {
+  return now.getTime() - Date.parse(s.updatedAt) < sessionTtlMinutes(s) * 60_000;
+}
 
 // Never tell users to type "cancel" / "stop": an Interakt automation answers those words with a
 // customer goodbye message (audit C17). "band karo" is accepted as a cancel word instead.
@@ -116,7 +137,7 @@ export async function handleMessage(ctx: BotContext, input: Inbound): Promise<Ou
   // Anyone else's voice note falls through to the old behaviour (menu).
   if (input.voice && canUseVoice(user)) {
     const open = await store.getSession(user.phone);
-    const busy = open && open.flow !== voiceTaskFlow.id && ctx.now.getTime() - Date.parse(open.updatedAt) < SESSION_TTL_MINUTES * 60_000;
+    const busy = open && open.flow !== voiceTaskFlow.id && isFresh(open, ctx.now);
     if (busy) return [text(user.phone, BUSY_FOR_VOICE)];
     await store.clearSession(user.phone);
     return handleVoice(ctx, input.voice.mediaUrl);
@@ -134,13 +155,13 @@ export async function handleMessage(ctx: BotContext, input: Inbound): Promise<Ou
   if (replyId.startsWith("MENU:")) return startEntry(ctx, replyId.slice("MENU:".length));
 
   const session = await store.getSession(user.phone);
-  const fresh = session && ctx.now.getTime() - Date.parse(session.updatedAt) < SESSION_TTL_MINUTES * 60_000;
+  const fresh = session && isFresh(session, ctx.now);
   const expired = !!session && !fresh;
   if (expired) await store.clearSession(user.phone);
 
   // A chat that went quiet: say so instead of silently treating the message as something else.
   // This includes Done / Approve buttons on older messages (owner decision 2 Nov: they expire too).
-  if (expired) return [text(user.phone, EXPIRED)];
+  if (expired) return [text(user.phone, expiredText(sessionTtlMinutes(session)))];
 
   // While a chat is open, buttons that name their own task (task actions, approvals) act on that
   // task even from an older message or from another flow's chat.

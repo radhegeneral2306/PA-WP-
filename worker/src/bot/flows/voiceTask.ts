@@ -47,11 +47,12 @@ export const VOICE_MSG = {
   broken: "Kuch gadbad hui, voice note dobara bhejiye ya *Hi* bhejiye.",
 };
 
-const REPEAT_LABELS: Record<TaskRepeat, string> = { none: "Ek baar", every90: "Har 90 min", monthly: "Har mahine" };
+const REPEAT_LABELS: Record<TaskRepeat, string> = { none: "Ek baar", every90: "Har 90 min", monthly: "Har mahine", weekly: "Har hafte" };
 const REPEAT_SUFFIX: Record<TaskRepeat, string> = {
   none: "",
   every90: " (phir har 90 min, jab tak jawab na mile)",
   monthly: " (har mahine)",
+  weekly: " (har hafte)",
 };
 const FAILURE_TEXT: Record<VoiceFailure, string> = {
   too_long: VOICE_MSG.tooLong,

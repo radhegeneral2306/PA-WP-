@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BUSY_FOR_VOICE, EXPIRED, handleMessage, normalizeWords } from "../src/bot/router";
+import { BUSY_FOR_VOICE, EXPIRED, expiredText, handleMessage, normalizeWords } from "../src/bot/router";
 import { MemoryStore } from "../src/data/memoryStore";
 import { ADMIN, ADMIN2, NOW, STAFF_DURG, USERS, makeCtx, say, tap } from "./helpers/bot";
 
@@ -57,8 +57,10 @@ describe("router", () => {
     const store = new MemoryStore({ users: USERS });
     await store.saveSession({ phone: ADMIN.phone, flow: "create_task", step: "ask_title", data: {}, updatedAt: "2026-10-26T08:00:00.000Z" });
     const [out] = await handleMessage(makeCtx(ADMIN, store, NOW), say("Sharma ji payment"));
-    expect(out).toEqual({ to: ADMIN.phone, kind: "text", body: EXPIRED });
+    // ask_title is a typing step: 5 minutes, and the message says so.
+    expect(out).toEqual({ to: ADMIN.phone, kind: "text", body: expiredText(5) });
     expect(EXPIRED).toContain("*Hi*");
+    expect(EXPIRED).toContain("2 minute");
     expect(await store.getSession(ADMIN.phone)).toBeNull();
   });
 
@@ -73,6 +75,18 @@ describe("router", () => {
     const [late] = await handleMessage(makeCtx(STAFF_DURG, store, at(200 + 121)), tap("create_task:quick:tom10"));
     expect(late).toMatchObject({ kind: "text", body: EXPIRED });
     expect(await store.getSession(STAFF_DURG.phone)).toBeNull();
+  });
+
+  it("typing steps get 5 minutes, tap steps 2 (F15)", async () => {
+    const store = new MemoryStore({ users: USERS });
+    const at = (sec: number) => new Date(NOW.getTime() + sec * 1000);
+    await handleMessage(makeCtx(STAFF_DURG, store, NOW), tap("MENU:create_task")); // ask_title (typing)
+    const typed = await handleMessage(makeCtx(STAFF_DURG, store, at(4 * 60)), say("Bank jana"));
+    expect((await store.getSession(STAFF_DURG.phone))?.step).toBe("ask_due");
+    expect(typed[0].kind).toBe("list");
+    // ask_due is a tap step: 2 minutes.
+    const [late] = await handleMessage(makeCtx(STAFF_DURG, store, at(4 * 60 + 121)), tap("create_task:quick:tom10"));
+    expect(late).toMatchObject({ kind: "text", body: expiredText(2) });
   });
 
   it("a tap from a chat that already ended says expired; typed text with no chat gets the menu", async () => {
