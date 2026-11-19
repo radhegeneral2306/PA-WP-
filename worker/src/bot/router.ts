@@ -44,6 +44,22 @@ export function canUseChat(user: User): boolean {
   return CHAT_LIVE || CHAT_TESTERS.has(user.name);
 }
 
+/**
+ * Round 7 (docs/ROUND7-CONTRACT.md). Both stay false until the owner's test is done; the testers above get them now.
+ * DETAIL: typed text on an open task detail is a chat about that task (the Update button still saves a remark).
+ * MEMORY: the chat remembers what it showed (chat_ctx, 15 min): follow-ups, numbered lists, task questions.
+ */
+export const CHAT_DETAIL_LIVE = false;
+export const CHAT_MEMORY_LIVE = false;
+
+export function canUseChatDetail(user: User): boolean {
+  return CHAT_DETAIL_LIVE || CHAT_TESTERS.has(user.name);
+}
+
+export function canUseChatMemory(user: User): boolean {
+  return CHAT_MEMORY_LIVE || CHAT_TESTERS.has(user.name);
+}
+
 export function expiredText(minutes: number): string {
   return `⏱️ Session expire ho gaya (${minutes} minute tak koi jawab nahi aaya). Dobara shuru karne ke liye *Hi* bhejiye.`;
 }
@@ -186,6 +202,13 @@ export async function handleMessage(ctx: BotContext, input: Inbound): Promise<Ou
   if (typedText && chatList && canUseChat(user)) {
     await store.clearSession(user.phone);
     return handleChat(ctx, input.text);
+  }
+
+  // Round 7 (plan row 5): typed text on a fresh task detail is a chat about that task. The session keeps its
+  // data (Update / Done / Date buttons still work); only its clock is refreshed.
+  if (typedText && fresh && session.flow === tasksFlow.id && session.step === "detail" && session.data.taskId && canUseChat(user) && canUseChatDetail(user)) {
+    await store.saveSession({ ...session, updatedAt: ctx.now.toISOString() });
+    return handleChat(ctx, input.text, { selectedTaskId: session.data.taskId });
   }
 
   // While a chat is open, buttons that name their own task (task actions, approvals) act on that

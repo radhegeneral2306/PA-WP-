@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { answerQuery, STAFF_REFUSAL } from "../../src/chat/answer";
+import { answerQuery, answerQueryDetailed, STAFF_REFUSAL } from "../../src/chat/answer";
 import { MemoryStore } from "../../src/data/memoryStore";
 import type { Store } from "../../src/data/store";
 import type { Task, User } from "../../src/domain/types";
@@ -331,5 +331,80 @@ describe("privacy and store calls", () => {
       expect(calls.length).toBeLessThanOrEqual(2);
       expect(calls.every((c) => c === "listUsers" || c === "listTasks")).toBe(true);
     }
+  });
+});
+
+describe("answerQueryDetailed and numbered lists (Round 7)", () => {
+  const many = (n: number) =>
+    Array.from({ length: n }, (_, i) =>
+      task({ id: `m${i + 1}`, title: `Lamba kaam number ${i + 1}`, due: ist("2026-10-29", `${String(8 + (i % 10)).padStart(2, "0")}:00`), urgent: i === 4 }),
+    );
+  const rowIdsOf = (outs: Awaited<ReturnType<typeof answerQuery>>) => ids(outs);
+
+  it("numbered off: the same output as answerQuery", async () => {
+    const { store } = setup();
+    const plain = await answerQuery(store, BHASKAR, listOf(f("all", "all")), NOW);
+    const detailed = await answerQueryDetailed(store, BHASKAR, listOf(f("all", "all")), NOW, {});
+    expect(detailed.outs).toEqual(plain);
+    expect(detailed.total).toBeGreaterThan(0);
+  });
+
+  it("numbered: lines in the same order as the picker rows; urgent mark; assignee for branch/all", async () => {
+    const { store } = setup(many(12));
+    const r = await answerQueryDetailed(store, BHASKAR, listOf(f("all", "all")), NOW, { numbered: true });
+    expect(r.shown).toEqual(rowIdsOf(r.outs));
+    expect(r.shown).toHaveLength(8);
+    expect(r.total).toBe(12);
+    const head = body(r.outs);
+    const lines = head.split("\n").filter((l) => /^\d+\) /.test(l));
+    expect(lines).toHaveLength(8);
+    expect(lines[0]).toContain("🔴 Lamba kaam number 5"); // urgent first
+    expect(lines[0]).toContain("Pinky");
+    expect(head).toContain("1–8 / 12 dikhaye");
+    expect(head.length).toBeLessThanOrEqual(1024);
+  });
+
+  it("numbered, own scope: no assignee on the lines; no progress text when all fit", async () => {
+    const { store } = setup(many(3).map((t) => ({ ...t, assigneePhone: BHASKAR.phone, assigneeName: "Bhaskar", branch: null })));
+    const r = await answerQueryDetailed(store, BHASKAR, listOf(f("mine", "all")), NOW, { numbered: true });
+    expect(body(r.outs)).not.toContain("dikhaye");
+    expect(body(r.outs)).not.toContain("Bhaskar");
+    expect(body(r.outs)).toContain("1) ");
+  });
+
+  it("offset pages: 9-12 / 12, then past the end", async () => {
+    const { store } = setup(many(12));
+    const first = await answerQueryDetailed(store, BHASKAR, listOf(f("all", "all")), NOW, { numbered: true });
+    const second = await answerQueryDetailed(store, BHASKAR, listOf(f("all", "all")), NOW, { numbered: true, offset: 8 });
+    expect(body(second.outs)).toContain("9–12 / 12 dikhaye");
+    expect(second.shown).toHaveLength(4);
+    expect(second.offset).toBe(8);
+    expect(new Set([...first.shown, ...second.shown]).size).toBe(12);
+    const past = await answerQueryDetailed(store, BHASKAR, listOf(f("all", "all")), NOW, { numbered: true, offset: 12 });
+    expect(past.shown).toEqual([]);
+    expect(past.total).toBe(12);
+    expect(rowIdsOf(past.outs)).toEqual([]);
+  });
+
+  it("long titles keep the header within 1024 characters", async () => {
+    const long = Array.from({ length: 12 }, (_, i) => task({ id: `l${i}`, title: "x".repeat(300), due: ist("2026-10-29") }));
+    const { store } = setup(long);
+    const r = await answerQueryDetailed(store, BHASKAR, listOf(f("all", "all")), NOW, { numbered: true });
+    expect(body(r.outs).length).toBeLessThanOrEqual(1024);
+  });
+
+  it("staff refusals are flagged and show nothing", async () => {
+    const { store } = setup();
+    const r = await answerQueryDetailed(store, PINKY, listOf(f("all", "all")), NOW, { numbered: true });
+    expect(r.refused).toBe(true);
+    expect(r.shown).toEqual([]);
+    expect(body(r.outs)).toBe(STAFF_REFUSAL);
+  });
+
+  it("counts return no shown ids", async () => {
+    const { store } = setup();
+    const r = await answerQueryDetailed(store, PINKY, countOf(f("mine", "all")), NOW, { numbered: true });
+    expect(r.shown).toEqual([]);
+    expect(r.total).toBeGreaterThan(0);
   });
 });
