@@ -15,6 +15,7 @@ import {
   patchDoc,
   queryDocs,
   setDoc,
+  setDocIf,
   type Doc,
   type EqualityFilter,
   type FirestoreConfig,
@@ -38,6 +39,20 @@ function plain(obj: object): Fields {
   const out: Fields = {};
   for (const [k, v] of Object.entries(obj)) if (v !== undefined) out[k] = v as Plain;
   return out;
+}
+
+/** Null when `v` / `at` are unusable; other fields are kept only when well-formed. */
+function toChatMemory(doc: Doc): ChatMemory | null {
+  const d = doc.data;
+  if (typeof d.v !== "number" || !Number.isInteger(d.v) || d.v < 0) return null;
+  if (typeof d.at !== "string" || Number.isNaN(Date.parse(d.at))) return null;
+  const m: ChatMemory = { v: d.v, at: d.at };
+  if (d.query && typeof d.query === "object" && !Array.isArray(d.query)) m.query = d.query as never;
+  if (Array.isArray(d.shown)) m.shown = d.shown.filter((x): x is string => typeof x === "string");
+  if (typeof d.offset === "number") m.offset = d.offset;
+  if (typeof d.total === "number") m.total = d.total;
+  if (typeof d.sel === "string") m.sel = d.sel;
+  return m;
 }
 
 function toTask(doc: Doc): Task {
@@ -142,23 +157,51 @@ export class FirestoreStore implements Store {
     await deleteDoc(this.cfg, SESSIONS, phone);
   }
 
-  // STUB (coordinator): agent A makes the save version-checked (Firestore updateTime precondition).
+  /**
+   * Version seen by the last getChatMemory / successful save per phone, with the document's updateTime
+   * (null = the doc did not exist). Lets get + save cost 2 requests; a save without a matching entry
+   * reads the doc once first.
+   */
+  private memSeen = new Map<string, { v: number; updateTime: string | null }>();
+
   async getChatMemory(phone: string): Promise<ChatMemory | null> {
     if (!phone) return null;
     const doc = await getDoc(this.cfg, CHAT_CTX, phone);
-    return doc ? (doc.data as unknown as ChatMemory) : null;
+    if (!doc) {
+      this.memSeen.set(phone, { v: 0, updateTime: null });
+      return null;
+    }
+    const memory = toChatMemory(doc);
+    // An unusable doc counts as version 0, but must be overwritten with its updateTime (it exists).
+    this.memSeen.set(phone, { v: memory?.v ?? 0, updateTime: doc.updateTime ?? null });
+    return memory;
   }
 
+  /** Atomic: succeeds only if the stored version still equals `memory.v` (0 = new). */
   async saveChatMemory(phone: string, memory: ChatMemory): Promise<boolean> {
     if (!phone) return false;
-    const stored = await this.getChatMemory(phone);
-    if ((stored?.v ?? 0) !== memory.v) return false;
-    await setDoc(this.cfg, CHAT_CTX, phone, plain({ ...memory, v: memory.v + 1 }));
+    let seen = this.memSeen.get(phone);
+    if (!seen || seen.v !== memory.v) {
+      if (memory.v === 0 && !seen) seen = { v: 0, updateTime: null };
+      else {
+        await this.getChatMemory(phone);
+        seen = this.memSeen.get(phone);
+        if (!seen || seen.v !== memory.v) return false;
+      }
+    }
+    this.memSeen.delete(phone);
+    const data = plain({ ...memory, v: memory.v + 1 });
+    const pre = seen.updateTime === null ? { exists: false as const } : { updateTime: seen.updateTime };
+    const res = await setDocIf(this.cfg, CHAT_CTX, phone, data, pre);
+    if (!res.ok) return false;
+    if (res.updateTime) this.memSeen.set(phone, { v: memory.v + 1, updateTime: res.updateTime });
     return true;
   }
 
   async clearChatMemory(phone: string): Promise<void> {
-    if (phone) await deleteDoc(this.cfg, CHAT_CTX, phone);
+    if (!phone) return;
+    this.memSeen.delete(phone);
+    await deleteDoc(this.cfg, CHAT_CTX, phone);
   }
 
   async claimOnce(key: string, now: Date, windowMs: number): Promise<boolean> {

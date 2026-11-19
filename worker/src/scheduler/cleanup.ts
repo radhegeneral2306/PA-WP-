@@ -1,14 +1,15 @@
 // Daily Firestore housekeeping: prunes old duplicate-detection logs, stale
-// dashboard login guards, old double-tap claims and recycle-bin tasks deleted
-// more than 30 days ago. Touches only `webhook_log`, `login_guards`, `claims`
-// and (only tasks with status "deleted") `tasks`.
+// dashboard login guards, old double-tap claims, chat memories older than a day
+// and recycle-bin tasks deleted more than 30 days ago. Touches only `webhook_log`,
+// `login_guards`, `claims`, `chat_ctx` and (only tasks with status "deleted") `tasks`.
 //
 // Request budget per run (excluding a possible OAuth token refresh):
 //   webhook_log:  1 query + at most 1 commit
 //   login_guards: 1 query + at most 1 commit
 //   claims:       1 query + at most 1 commit
+//   chat_ctx:     1 query (ids only) + at most 1 commit
 //   tasks (bin):  1 query + at most 1 commit
-// so at most 8 Firestore requests. A larger backlog is cleared over
+// so at most 10 Firestore requests. A larger backlog is cleared over
 // several daily runs, `batch` docs per collection per run. The bin query reads
 // only tasks whose deletedAt is older than 30 days (deletedAt is null on every
 // other task, and null never matches a string range filter), so it costs one
@@ -22,6 +23,9 @@ const CLAIMS = "claims";
 const GLOBAL_GUARD = "global";
 /** Claims guard against double taps within minutes; two days is plenty. */
 const CLAIM_RETENTION_DAYS = 2;
+const CHAT_CTX = "chat_ctx";
+/** Chat memory lives 15 minutes; leftovers older than a day are removed. */
+const CHAT_CTX_RETENTION_DAYS = 1;
 const TASKS = "tasks";
 /** Recycle-bin tasks are purged this many days after deletedAt (owner rule F8). */
 export const BIN_RETENTION_DAYS = 30;
@@ -38,6 +42,7 @@ export interface CleanupResult {
   webhookLogs: number;
   loginGuards: number;
   claims: number;
+  chatCtx: number;
   binTasks: number;
 }
 
@@ -45,7 +50,7 @@ export async function runCleanup(cfg: FirestoreConfig, now: Date, opts: CleanupO
   const retentionDays = opts.retentionDays ?? 30;
   const batch = Math.min(Math.max(1, opts.batch ?? 500), 500);
   const cutoff = new Date(now.getTime() - retentionDays * DAY_MS);
-  const result: CleanupResult = { webhookLogs: 0, loginGuards: 0, claims: 0, binTasks: 0 };
+  const result: CleanupResult = { webhookLogs: 0, loginGuards: 0, claims: 0, chatCtx: 0, binTasks: 0 };
   const errors: string[] = [];
 
   try {
@@ -97,7 +102,18 @@ export async function runCleanup(cfg: FirestoreConfig, now: Date, opts: CleanupO
     errors.push(`tasks bin: ${errMsg(err)}`);
   }
 
-  const summary = `Cleanup: deleted ${result.webhookLogs} webhook_log, ${result.loginGuards} login_guards, ${result.claims} claims, ${result.binTasks} bin tasks (cutoff ${cutoff.toISOString()})`;
+  try {
+    // `at` is an ISO string (see FirestoreStore.saveChatMemory); ids only.
+    const ctxCutoff = new Date(now.getTime() - CHAT_CTX_RETENTION_DAYS * DAY_MS).toISOString();
+    const docs = await queryBefore(cfg, CHAT_CTX, "at", ctxCutoff, batch, ["__name__"]);
+    const ids = docs.map((d) => d.id);
+    if (ids.length) await deleteMany(cfg, CHAT_CTX, ids);
+    result.chatCtx = ids.length;
+  } catch (err) {
+    errors.push(`chat_ctx: ${errMsg(err)}`);
+  }
+
+  const summary = `Cleanup: deleted ${result.webhookLogs} webhook_log, ${result.loginGuards} login_guards, ${result.claims} claims, ${result.chatCtx} chat_ctx, ${result.binTasks} bin tasks (cutoff ${cutoff.toISOString()})`;
   if (errors.length) console.error(`${summary}; errors: ${errors.join(" | ")}`);
   else console.log(summary);
   return result;

@@ -54,16 +54,21 @@ export function fromFields(fields: Record<string, Record<string, unknown>> = {})
 export interface RawDoc {
   name: string;
   fields?: Record<string, Record<string, unknown>>;
+  updateTime?: string;
 }
 
 /** Decoded document: id is the last segment of the resource name. */
 export interface Doc {
   id: string;
   data: { [k: string]: Plain };
+  /** Server update time (RFC3339), when the response carried it; used for optimistic preconditions. */
+  updateTime?: string;
 }
 
 export function decodeDoc(raw: RawDoc): Doc {
-  return { id: raw.name.slice(raw.name.lastIndexOf("/") + 1), data: fromFields(raw.fields) };
+  const doc: Doc = { id: raw.name.slice(raw.name.lastIndexOf("/") + 1), data: fromFields(raw.fields) };
+  if (raw.updateTime) doc.updateTime = raw.updateTime;
+  return doc;
 }
 
 function docsUrl(cfg: FirestoreConfig): string {
@@ -102,6 +107,36 @@ export async function setDoc(
 ): Promise<void> {
   const res = await call(cfg, "PATCH", docUrl(cfg, collection, id), { fields: toFields(data) });
   if (!res.ok) await fail(`set ${collection}/${id}`, res);
+}
+
+/** Precondition for `setDocIf`: create-only, or "unchanged since this updateTime". */
+export type WritePrecondition = { exists: false } | { updateTime: string };
+
+/**
+ * Creates or fully replaces `collection/id` only if the precondition holds.
+ * Returns `{ ok: false }` on 409/412 (document already exists / changed in between),
+ * otherwise `{ ok: true, updateTime }` of the written document. Other errors throw.
+ */
+export async function setDocIf(
+  cfg: FirestoreConfig,
+  collection: string,
+  id: string,
+  data: { [k: string]: Plain },
+  pre: WritePrecondition,
+): Promise<{ ok: boolean; updateTime?: string }> {
+  const params = new URLSearchParams();
+  if ("exists" in pre) params.set("currentDocument.exists", "false");
+  else params.set("currentDocument.updateTime", pre.updateTime);
+  const res = await call(cfg, "PATCH", `${docUrl(cfg, collection, id)}?${params}`, { fields: toFields(data) });
+  if (res.status === 409 || res.status === 412) return { ok: false };
+  if (!res.ok) return fail(`set ${collection}/${id}`, res);
+  let updateTime: string | undefined;
+  try {
+    updateTime = ((await res.json()) as RawDoc).updateTime;
+  } catch {
+    updateTime = undefined;
+  }
+  return { ok: true, updateTime };
 }
 
 /**

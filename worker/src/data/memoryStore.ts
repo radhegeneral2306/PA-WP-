@@ -28,11 +28,13 @@ export class MemoryStore implements Store {
   private chatMemory = new Map<string, ChatMemory>();
 
   async getChatMemory(phone: string) {
+    if (!phone) return null;
     const m = this.chatMemory.get(phone);
     return m ? structuredClone(m) : null;
   }
 
   async saveChatMemory(phone: string, memory: ChatMemory) {
+    if (!phone) return false;
     const stored = this.chatMemory.get(phone);
     if ((stored?.v ?? 0) !== memory.v) return false;
     this.chatMemory.set(phone, { ...structuredClone(memory), v: memory.v + 1 });
@@ -40,6 +42,7 @@ export class MemoryStore implements Store {
   }
 
   async clearChatMemory(phone: string) {
+    if (!phone) return;
     this.chatMemory.delete(phone);
   }
 
