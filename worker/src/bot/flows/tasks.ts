@@ -18,6 +18,7 @@ import {
 } from "../../domain/dates";
 import { endFlow, isReply, replyValue, setStep, type BotContext, type Flow, type Inbound } from "../flow";
 import type { Outgoing } from "../outgoing";
+import { canUseChat, canUseChatDetail } from "../chatFlags";
 import { addRemark, changeDue, markDone as markTaskDone, REMARK_MAX, type ActionResult, type Actor } from "../taskActions";
 import { branchList, buttons, matchUsers, quickDue, quickDueList, taskList, text, timeButtons, userList } from "../ui";
 
@@ -296,10 +297,12 @@ function detailBody(t: Task, now: Date): string {
 }
 
 const TYPE_HINT = "✍️ Update ke liye seedha likh ke bhej dijiye.";
+/** When typed text on the detail goes to the chat (detail switch), the hint says so instead. */
+const CHAT_HINT = "💬 Is task ke baare mein kuch bhi poochh sakte hain, ya *Update ✏️* dabake remark likhiye.";
 
 /** ids: `${ID}:act:done|update|date:<taskId>`. */
 function detailMessage(ctx: BotContext, t: Task): Outgoing {
-  return buttons(ctx.user.phone, `${detailBody(t, ctx.now)}\n\n${TYPE_HINT}`, [
+  return buttons(ctx.user.phone, `${detailBody(t, ctx.now)}\n\n${canUseChat(ctx.user) && canUseChatDetail(ctx.user) ? CHAT_HINT : TYPE_HINT}`, [
     { id: `${ID}:act:done:${t.id}`, title: "Done ✅" },
     { id: `${ID}:act:update:${t.id}`, title: "Update ✏️" },
     { id: `${ID}:act:date:${t.id}`, title: "Date badlo 🕒" },

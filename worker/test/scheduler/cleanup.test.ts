@@ -59,10 +59,10 @@ afterEach(() => {
 });
 
 describe("runCleanup", () => {
-  it("queries all four collections with LESS_THAN filters (claims: 2-day cutoff)", async () => {
+  it("queries all five collections with LESS_THAN filters (claims: 2-day cutoff)", async () => {
     await runCleanup(cfg, NOW);
     const q = calls.filter((c) => c.url === `${BASE}:runQuery`).map((c) => c.body.structuredQuery);
-    expect(q).toHaveLength(4);
+    expect(q).toHaveLength(5);
     expect(q[3]).toMatchObject({
       from: [{ collectionId: "tasks" }],
       where: { fieldFilter: { field: { fieldPath: "deletedAt" }, op: "LESS_THAN", value: { stringValue: CUTOFF } } },
@@ -83,13 +83,19 @@ describe("runCleanup", () => {
       where: { fieldFilter: { field: { fieldPath: "windowStart" }, op: "LESS_THAN", value: { stringValue: CUTOFF } } },
       limit: 500,
     });
+    expect(q[4]).toMatchObject({
+      from: [{ collectionId: "chat_ctx" }],
+      where: { fieldFilter: { field: { fieldPath: "at" }, op: "LESS_THAN", value: { stringValue: new Date(NOW.getTime() - 86_400_000).toISOString() } } },
+      select: { fields: [{ fieldPath: "__name__" }] },
+      limit: 500,
+    });
     for (const s of q) expect(s.orderBy).toBeUndefined();
   });
 
   it("makes no commit when nothing is old enough", async () => {
     const res = await runCleanup(cfg, NOW);
-    expect(res).toEqual({ webhookLogs: 0, loginGuards: 0, claims: 0, binTasks: 0 });
-    expect(calls).toHaveLength(4);
+    expect(res).toEqual({ webhookLogs: 0, loginGuards: 0, claims: 0, chatCtx: 0, binTasks: 0 });
+    expect(calls).toHaveLength(5);
     expect(calls.some((c) => c.url.endsWith(":commit"))).toBe(false);
   });
 
@@ -108,7 +114,7 @@ describe("runCleanup", () => {
       return json({ writeResults: [] });
     };
     const res = await runCleanup(cfg, NOW);
-    expect(res).toEqual({ webhookLogs: 2, loginGuards: 2, claims: 0, binTasks: 0 });
+    expect(res).toEqual({ webhookLogs: 2, loginGuards: 2, claims: 0, chatCtx: 0, binTasks: 0 });
 
     const commits = calls.filter((c) => c.url === `${BASE}:commit`);
     expect(commits).toHaveLength(2);
@@ -120,7 +126,7 @@ describe("runCleanup", () => {
       { delete: `${NAME}/login_guards/ip-old` },
       { delete: `${NAME}/login_guards/ip-expired-lock` },
     ]);
-    expect(calls.length).toBeLessThanOrEqual(8);
+    expect(calls.length).toBeLessThanOrEqual(10);
   });
 
   it("makes no guard commit when only global and locked guards are stale", async () => {
@@ -166,7 +172,7 @@ describe("runCleanup", () => {
     const commits = calls.filter((c) => isCommit(c, "tasks"));
     expect(commits).toHaveLength(1);
     expect(commits[0].body.writes).toEqual([{ delete: `${NAME}/tasks/old-bin` }]);
-    expect(calls).toHaveLength(5);
+    expect(calls).toHaveLength(6);
   });
 
   it("makes no tasks commit when no old bin task is found", async () => {
@@ -184,7 +190,7 @@ describe("runCleanup", () => {
       return json(c.url.endsWith(":commit") ? {} : []);
     };
     const res = await runCleanup(cfg, NOW);
-    expect(res).toEqual({ webhookLogs: 1, loginGuards: 0, claims: 0, binTasks: 0 });
+    expect(res).toEqual({ webhookLogs: 1, loginGuards: 0, claims: 0, chatCtx: 0, binTasks: 0 });
     expect(console.error).toHaveBeenCalledWith(expect.stringContaining("tasks bin: Firestore query tasks"));
   });
 
@@ -199,9 +205,9 @@ describe("runCleanup", () => {
       expect(c.method).toBe("POST");
       expect([`${BASE}:runQuery`, `${BASE}:commit`]).toContain(c.url);
       if (c.url.endsWith(":runQuery")) {
-        expect(["webhook_log", "login_guards", "claims", "tasks"]).toContain(c.body.structuredQuery.from[0].collectionId);
+        expect(["webhook_log", "login_guards", "claims", "tasks", "chat_ctx"]).toContain(c.body.structuredQuery.from[0].collectionId);
       } else {
-        expect(isCommit(c, "webhook_log") || isCommit(c, "login_guards") || isCommit(c, "claims")).toBe(true);
+        expect(isCommit(c, "webhook_log") || isCommit(c, "login_guards") || isCommit(c, "claims") || isCommit(c, "chat_ctx")).toBe(true);
       }
     }
     // Tasks are only queried here (nothing old in the bin), never written.
@@ -215,7 +221,7 @@ describe("runCleanup", () => {
       return json({});
     };
     const res = await runCleanup(cfg, NOW);
-    expect(res).toEqual({ webhookLogs: 0, loginGuards: 1, claims: 0, binTasks: 0 });
+    expect(res).toEqual({ webhookLogs: 0, loginGuards: 1, claims: 0, chatCtx: 0, binTasks: 0 });
     expect(console.error).toHaveBeenCalledWith(expect.stringContaining("webhook_log: Firestore query webhook_log"));
   });
 
@@ -227,14 +233,52 @@ describe("runCleanup", () => {
       return json({});
     };
     const res = await runCleanup(cfg, NOW);
-    expect(res).toEqual({ webhookLogs: 1, loginGuards: 0, claims: 0, binTasks: 0 });
+    expect(res).toEqual({ webhookLogs: 1, loginGuards: 0, claims: 0, chatCtx: 0, binTasks: 0 });
     expect(console.error).toHaveBeenCalledWith(expect.stringContaining("login_guards: Firestore delete"));
+  });
+
+  it("deletes chat_ctx memories older than one day with one commit", async () => {
+    handler = (c) => (isQuery(c, "chat_ctx") ? json(rows("chat_ctx", [{ id: "9198" }, { id: "9199" }])) : json(c.url.endsWith(":commit") ? {} : []));
+    const res = await runCleanup(cfg, NOW);
+    expect(res.chatCtx).toBe(2);
+    const commits = calls.filter((c) => isCommit(c, "chat_ctx"));
+    expect(commits).toHaveLength(1);
+    expect(commits[0].body.writes).toEqual([{ delete: `${NAME}/chat_ctx/9198` }, { delete: `${NAME}/chat_ctx/9199` }]);
+    expect(calls).toHaveLength(6);
+  });
+
+  it("makes no chat_ctx commit when nothing is old", async () => {
+    const res = await runCleanup(cfg, NOW);
+    expect(res.chatCtx).toBe(0);
+    expect(calls.some((c) => c.url.endsWith(":commit"))).toBe(false);
+  });
+
+  it("a failing chat_ctx step does not stop the others", async () => {
+    handler = (c) => {
+      if (isQuery(c, "chat_ctx")) return new Response("boom", { status: 500 });
+      if (isQuery(c, "webhook_log")) return json(rows("webhook_log", [{ id: "a" }]));
+      if (isQuery(c, "claims")) return json(rows("claims", [{ id: "c" }]));
+      return json(c.url.endsWith(":commit") ? {} : []);
+    };
+    const res = await runCleanup(cfg, NOW);
+    expect(res).toEqual({ webhookLogs: 1, loginGuards: 0, claims: 1, chatCtx: 0, binTasks: 0 });
+    expect(console.error).toHaveBeenCalledWith(expect.stringContaining("chat_ctx: Firestore query chat_ctx"));
+  });
+
+  it("a failing earlier step does not stop chat_ctx", async () => {
+    handler = (c) => {
+      if (isQuery(c, "tasks")) return new Response("boom", { status: 500 });
+      if (isQuery(c, "chat_ctx")) return json(rows("chat_ctx", [{ id: "x" }]));
+      return json(c.url.endsWith(":commit") ? {} : []);
+    };
+    const res = await runCleanup(cfg, NOW);
+    expect(res.chatCtx).toBe(1);
   });
 
   it("logs a one-line summary", async () => {
     await runCleanup(cfg, NOW);
     expect(console.log).toHaveBeenCalledWith(
-      `Cleanup: deleted 0 webhook_log, 0 login_guards, 0 claims, 0 bin tasks (cutoff ${CUTOFF})`,
+      `Cleanup: deleted 0 webhook_log, 0 login_guards, 0 claims, 0 chat_ctx, 0 bin tasks (cutoff ${CUTOFF})`,
     );
   });
 });

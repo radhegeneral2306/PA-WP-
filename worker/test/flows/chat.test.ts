@@ -29,13 +29,18 @@ function setup(user: User = ADMIN, result: ChatResult = ok({ kind: "unclear" }),
   return { store, chat, ctx, send: (t: string) => handleChat(ctx, t) };
 }
 
+// These tests describe the behaviour with the Round 7 switches off (no memory, no detail chat), also for the tester.
 beforeEach(() => {
+  (CHAT_TESTERS as Set<string>).delete(ADMIN.name);
   rule.fn.mockReset().mockReturnValue(null);
   ans.fn.mockReset().mockImplementation(async (_s: unknown, u: User) => [text(u.phone, "ANSWER")]);
   vi.spyOn(console, "log").mockImplementation(() => {});
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  (CHAT_TESTERS as Set<string>).add(ADMIN.name);
+  vi.restoreAllMocks();
+});
 
 describe("courtesy", () => {
   it.each(["ok", "Thanks!", "thank you", "dhanyavad", "Shukriya ji", "👍", "haan", "theek hai", "hm", "🙏🙏", "k"])("%s: friendly line, no rules, no AI, no count", async (t) => {
@@ -331,7 +336,7 @@ describe("router hook", () => {
 
   it("chat is open to everyone (owner 18 Nov); the tester list is only used while CHAT_LIVE is false", () => {
     expect(CHAT_LIVE).toBe(true);
-    expect([...CHAT_TESTERS]).toEqual(["Bhaskar"]);
+    expect([...CHAT_TESTERS, ADMIN.name].sort()).toEqual(["Bhaskar"]); // (removed for these tests, see beforeEach)
   });
 
   it("any user (not only a tester): typed text reaches the chat", async () => {
@@ -385,7 +390,6 @@ describe("router hook", () => {
   });
 
   it("an open chat list: a tap opens the detail; typed text goes back to the chat; another person's task is refused", async () => {
-    makeTester(STAFF_DURG);
     ans.fn.mockImplementation(async (_s: unknown, u: User) => [list(u.phone, "x", "Task chuno", [{ id: "tasks:task:t1", title: "a" }])]);
     const w = setup(STAFF_DURG, ok(WEEK), [task({ id: "t1" }), task({ id: "t9", title: "Raipur ka kaam", assigneePhone: STAFF_RAIPUR.phone, assigneeName: "Chikku", branch: "RAIPUR", createdByPhone: ADMIN.phone })]);
     await handleMessage(w.ctx, say("is hafte ka kya hai"));

@@ -314,3 +314,115 @@ describe("FirestoreStore.bumpDailyCount", () => {
     await expect(new FirestoreStore(cfg).bumpDailyCount("k", NOW)).rejects.toThrow(/500/);
   });
 });
+
+describe("FirestoreStore chat memory (chat_ctx)", () => {
+  const mem = { v: 0, at: "2026-11-19T05:00:00.000Z", query: { kind: "list", scope: "mine" }, shown: ["t1", "t2"], offset: 0, total: 5, sel: null };
+  const memDoc = (data: object, updateTime = "2026-11-19T05:00:00.123456Z") => ({ ...doc("chat_ctx/919", data), updateTime });
+  const q = (url: string) => new URL(url).searchParams;
+
+  it("first save is create-only (exists=false) and stores v+1", async () => {
+    const store = new FirestoreStore(cfg);
+    reply(404, {}); // get
+    reply(200, memDoc({ ...mem, v: 1 }, "T1"));
+    expect(await store.getChatMemory("919")).toBeNull();
+    expect(await store.saveChatMemory("919", mem as never)).toBe(true);
+    expect(calls).toHaveLength(2);
+    expect(calls[1].method).toBe("PATCH");
+    expect(calls[1].url.startsWith(`${BASE}/chat_ctx/919?`)).toBe(true);
+    expect([...q(calls[1].url).entries()]).toEqual([["currentDocument.exists", "false"]]);
+    const stored = fromFields(calls[1].body.fields);
+    expect(stored).toMatchObject({ v: 1, at: mem.at, shown: ["t1", "t2"], offset: 0, total: 5, query: { kind: "list", scope: "mine" } });
+  });
+
+  it("a new save without a prior read also uses exists=false in one request", async () => {
+    reply(200, memDoc({ ...mem, v: 1 }));
+    expect(await new FirestoreStore(cfg).saveChatMemory("919", mem as never)).toBe(true);
+    expect(calls).toHaveLength(1);
+    expect(q(calls[0].url).get("currentDocument.exists")).toBe("false");
+  });
+
+  it("update uses the updateTime returned by the read (get + save = 2 requests)", async () => {
+    const store = new FirestoreStore(cfg);
+    reply(200, memDoc({ ...mem, v: 3 }, "2026-11-19T05:00:01.5Z"));
+    reply(200, memDoc({ ...mem, v: 4 }, "2026-11-19T05:00:02Z"));
+    const read = await store.getChatMemory("919");
+    expect(read).toMatchObject({ v: 3, shown: ["t1", "t2"] });
+    expect(await store.saveChatMemory("919", { ...read!, sel: "t2" })).toBe(true);
+    expect(calls).toHaveLength(2);
+    expect([...q(calls[1].url).entries()]).toEqual([["currentDocument.updateTime", "2026-11-19T05:00:01.5Z"]]);
+    expect(fromFields(calls[1].body.fields)).toMatchObject({ v: 4, sel: "t2" });
+  });
+
+  it("409 and 412 mean conflict: false", async () => {
+    for (const status of [409, 412]) {
+      calls = [];
+      const store = new FirestoreStore(cfg);
+      reply(200, memDoc({ ...mem, v: 2 }));
+      reply(status, "conflict");
+      const read = await store.getChatMemory("919");
+      expect(await store.saveChatMemory("919", read!)).toBe(false);
+    }
+    // create-only conflict
+    reply(409, "exists");
+    expect(await new FirestoreStore(cfg).saveChatMemory("919", mem as never)).toBe(false);
+  });
+
+  it("other write errors throw", async () => {
+    reply(500, "boom");
+    await expect(new FirestoreStore(cfg).saveChatMemory("919", mem as never)).rejects.toThrow(/500: boom/);
+  });
+
+  it("a stored version different from memory.v writes nothing", async () => {
+    reply(200, memDoc({ ...mem, v: 5 }));
+    expect(await new FirestoreStore(cfg).saveChatMemory("919", { ...mem, v: 2 } as never)).toBe(false);
+    expect(calls.map((c) => c.method)).toEqual(["GET"]);
+  });
+
+  it("a save with v>0 and no prior read reads once, then writes with updateTime", async () => {
+    reply(200, memDoc({ ...mem, v: 2 }, "TT"));
+    reply(200, memDoc({ ...mem, v: 3 }, "TU"));
+    expect(await new FirestoreStore(cfg).saveChatMemory("919", { ...mem, v: 2 } as never)).toBe(true);
+    expect(calls.map((c) => c.method)).toEqual(["GET", "PATCH"]);
+    expect(q(calls[1].url).get("currentDocument.updateTime")).toBe("TT");
+  });
+
+  it("get tolerates garbage and a garbage doc can still be replaced", async () => {
+    const store = new FirestoreStore(cfg);
+    reply(200, memDoc({ v: "x", at: 5 }, "TG"));
+    expect(await store.getChatMemory("919")).toBeNull();
+    reply(200, memDoc({ at: "2026-11-19T05:00:00.000Z" }));
+    expect(await store.getChatMemory("919")).toBeNull();
+    reply(200, memDoc({ v: 1, at: "not a date" }));
+    expect(await store.getChatMemory("919")).toBeNull();
+    reply(200, memDoc({ v: 1, at: mem.at, shown: ["a", 3, "b"], query: "junk", offset: "x" }));
+    expect(await store.getChatMemory("919")).toEqual({ v: 1, at: mem.at, shown: ["a", "b"] });
+    // garbage doc then save with v=0: must use its updateTime (doc exists)
+    reply(200, memDoc({ v: "x" }, "TG2"));
+    reply(200, memDoc({ ...mem, v: 1 }));
+    await store.getChatMemory("919");
+    expect(await store.saveChatMemory("919", mem as never)).toBe(true);
+    expect(q(calls[calls.length - 1].url).get("currentDocument.updateTime")).toBe("TG2");
+  });
+
+  it("omits undefined fields and keeps null sel", async () => {
+    reply(200, memDoc({}));
+    await new FirestoreStore(cfg).saveChatMemory("919", { v: 0, at: mem.at, sel: null, query: undefined } as never);
+    const f = calls[0].body.fields;
+    expect(f.query).toBeUndefined();
+    expect(f.sel).toEqual({ nullValue: null });
+  });
+
+  it("clear deletes the doc", async () => {
+    reply(200, {});
+    await new FirestoreStore(cfg).clearChatMemory("919");
+    expect(calls.map((c) => [c.method, c.url])).toEqual([["DELETE", `${BASE}/chat_ctx/919`]]);
+  });
+
+  it("an empty phone never touches Firestore", async () => {
+    const store = new FirestoreStore(cfg);
+    expect(await store.getChatMemory("")).toBeNull();
+    expect(await store.saveChatMemory("", mem as never)).toBe(false);
+    await store.clearChatMemory("");
+    expect(calls).toHaveLength(0);
+  });
+});

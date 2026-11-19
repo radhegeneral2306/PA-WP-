@@ -13,6 +13,8 @@ import { handleTaskForm, taskFormFlow } from "./flows/createTaskForm";
 import { handleVoice, voiceTaskFlow } from "./flows/voiceTask";
 import { handleVoiceInContext, voiceUpdateFlow } from "./flows/voiceUpdate";
 import { handleChat } from "./flows/chat";
+import { CHAT_DETAIL_LIVE, CHAT_LIVE, CHAT_MEMORY_LIVE, CHAT_TESTERS, canUseChat, canUseChatDetail, canUseChatMemory } from "./chatFlags";
+import { CHAT_MEMORY_MIN } from "../chat/types";
 
 interface MenuEntry {
   key: string;
@@ -36,13 +38,7 @@ export function canUseVoice(user: User): boolean {
   return user.role === "admin" && (VOICE_LIVE || VOICE_TESTERS.has(user.name));
 }
 
-/** Round 5: typed free text that nothing else recognised goes to the chat (rules, then AI). Admins and staff. */
-export const CHAT_LIVE = true;
-export const CHAT_TESTERS: ReadonlySet<string> = new Set(["Bhaskar"]);
-
-export function canUseChat(user: User): boolean {
-  return CHAT_LIVE || CHAT_TESTERS.has(user.name);
-}
+export { CHAT_LIVE, CHAT_TESTERS, CHAT_DETAIL_LIVE, CHAT_MEMORY_LIVE, canUseChat, canUseChatDetail, canUseChatMemory };
 
 export function expiredText(minutes: number): string {
   return `⏱️ Session expire ho gaya (${minutes} minute tak koi jawab nahi aaya). Dobara shuru karne ke liye *Hi* bhejiye.`;
@@ -160,10 +156,12 @@ export async function handleMessage(ctx: BotContext, input: Inbound): Promise<Ou
   }
   if (isWord(GREETINGS, cleaned) || quick === "menu") {
     await store.clearSession(user.phone);
+    await forgetChat(ctx);
     return [mainMenu(ctx)];
   }
   if (isWord(CANCEL_WORDS, cleaned)) {
     await store.clearSession(user.phone);
+    await forgetChat(ctx);
     return [text(user.phone, "Theek hai, cancel kar diya. Menu ke liye *Hi* bhejiye.")];
   }
   if (quick === "mere tasks") return startEntry(ctx, "my_tasks");
@@ -177,15 +175,28 @@ export async function handleMessage(ctx: BotContext, input: Inbound): Promise<Ou
   const typedText = !input.reply && !input.voice && !input.form && input.text.trim().length > 0;
   const chatList = !!session && !!fresh && session.flow === tasksFlow.id && session.data.chat === "1";
   const expired = !!session && !fresh;
+  // The chat's own picker list lives 2 minutes but the chat memory 15: a typed follow-up on an old chat list
+  // counts as "no session" while the memory is still fresh (buttons on that old message still expire).
+  const oldChatList =
+    expired && !!session && typedText && session.flow === tasksFlow.id && session.step === "list" && session.data.chat === "1" &&
+    canUseChat(user) && canUseChatMemory(user) && (await memoryIsFresh(ctx));
   if (expired) await store.clearSession(user.phone);
 
   // A chat that went quiet: say so instead of silently treating the message as something else.
   // This includes Done / Approve buttons on older messages (owner decision 2 Nov: they expire too).
-  if (expired) return [text(user.phone, expiredText(sessionTtlMinutes(session)))];
+  if (expired && !oldChatList) return [text(user.phone, expiredText(sessionTtlMinutes(session)))];
+  if (oldChatList) return handleChat(ctx, input.text);
 
   if (typedText && chatList && canUseChat(user)) {
     await store.clearSession(user.phone);
     return handleChat(ctx, input.text);
+  }
+
+  // Round 7 (plan row 5): typed text on a fresh task detail is a chat about that task. The session keeps its
+  // data (Update / Done / Date buttons still work); only its clock is refreshed.
+  if (typedText && fresh && session.flow === tasksFlow.id && session.step === "detail" && session.data.taskId && canUseChat(user) && canUseChatDetail(user)) {
+    await store.saveSession({ ...session, updatedAt: ctx.now.toISOString() });
+    return handleChat(ctx, input.text, { selectedTaskId: session.data.taskId });
   }
 
   // While a chat is open, buttons that name their own task (task actions, approvals) act on that
@@ -216,6 +227,26 @@ export async function handleMessage(ctx: BotContext, input: Inbound): Promise<Ou
   if (input.reply) return [text(user.phone, EXPIRED)];
   if (typedText && canUseChat(user)) return handleChat(ctx, input.text);
   return [mainMenu(ctx)];
+}
+
+/** A greeting / menu / cancel word also makes the chat forget what it showed (plan 3.3). Never breaks the menu. */
+async function forgetChat(ctx: BotContext): Promise<void> {
+  if (!canUseChatMemory(ctx.user)) return;
+  try {
+    await ctx.store.clearChatMemory(ctx.user.phone);
+  } catch {
+    console.error("chat: memory clear failed");
+  }
+}
+
+async function memoryIsFresh(ctx: BotContext): Promise<boolean> {
+  try {
+    const m = await ctx.store.getChatMemory(ctx.user.phone);
+    const age = m ? ctx.now.getTime() - Date.parse(m.at) : NaN;
+    return Number.isFinite(age) && age < CHAT_MEMORY_MIN * 60_000;
+  } catch {
+    return false;
+  }
 }
 
 async function startEntry(ctx: BotContext, key: string): Promise<Outgoing[]> {

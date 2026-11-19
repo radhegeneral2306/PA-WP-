@@ -1,9 +1,9 @@
 // Round 5, Agent B: answers for list/count chat requests. Permissions are enforced HERE,
 // whatever the rules layer or the AI asked for. Reads use listTasks only (at most 2 store calls).
 import type { Outgoing } from "../bot/outgoing";
-import { sortUrgentFirst, taskList, text } from "../bot/ui";
+import { clip, sortUrgentFirst, taskList, text, URGENT_MARK } from "../bot/ui";
 import type { Store, TaskFilter } from "../data/store";
-import { daysFromToday, isOverdue, istDay } from "../domain/dates";
+import { daysFromToday, formatDue, isOverdue, istDay } from "../domain/dates";
 import { branchName, type Task, type User } from "../domain/types";
 import type { ChatFilter, ChatRequest, ChatWhen } from "./types";
 
@@ -77,10 +77,45 @@ const BUCKET_LABEL: Record<ChatWhen, string> = {
   overdue: "overdue ⚠️",
 };
 
+export interface AnswerOpts {
+  /** List only: how many tasks to skip ("aur dikhao"). */
+  offset?: number;
+  /** Round 7: "1) title · due" lines in the text, in the same order as the picker rows (memory on). */
+  numbered?: boolean;
+}
+
+export interface AnswerDetailed {
+  outs: Outgoing[];
+  /** Task IDs of the picker rows, in the order of the numbered lines. */
+  shown: string[];
+  offset: number;
+  total: number;
+  /** True when nothing was read (staff asked for someone else, unknown name): nothing to remember. */
+  refused?: boolean;
+}
+
+const HEADER_MAX = 1024;
+const TITLE_CLIP = 60;
+
+function numberedLines(shown: Task[], now: Date, showAssignee: boolean): string {
+  return shown
+    .map((t, i) => {
+      const parts = [`${i + 1}) ${t.urgent ? URGENT_MARK : ""}${clip(t.title, TITLE_CLIP)}`, formatDue(t.dueAt, t.dueHasTime, now)];
+      if (showAssignee) parts.push(t.assigneeName);
+      return parts.join(" · ");
+    })
+    .join("\n");
+}
+
 export async function answerQuery(store: Store, user: User, request: Query, now: Date): Promise<Outgoing[]> {
+  return (await answerQueryDetailed(store, user, request, now)).outs;
+}
+
+export async function answerQueryDetailed(store: Store, user: User, request: Query, now: Date, opts: AnswerOpts = {}): Promise<AnswerDetailed> {
+  const offset = Math.max(0, Math.floor(opts.offset ?? 0));
   const filter = request.filter;
   const loaded = await load(store, user, filter);
-  if (typeof loaded === "string") return [text(user.phone, loaded)];
+  if (typeof loaded === "string") return { outs: [text(user.phone, loaded)], shown: [], offset: 0, total: 0, refused: true };
 
   let tasks = loaded.tasks.filter((t) => t.status === "pending");
   if (filter.urgentOnly) tasks = tasks.filter((t) => t.urgent === true);
@@ -110,19 +145,36 @@ export async function answerQuery(store: Store, user: User, request: Query, now:
       default:
         body = `${subject} *${pending}* ${urgentWord}pending tasks hain, *${overdue}* overdue ⚠️, *${today}* aaj due.`;
     }
-    return [text(user.phone, body + tail)];
+    return { outs: [text(user.phone, body + tail)], shown: [], offset: 0, total: pending };
   }
 
   const picked = sortUrgentFirst(tasks.filter((t) => inBucket(t, filter.when, now)));
   if (picked.length === 0) {
     const what = filter.when === "all" ? "pending" : BUCKET_LABEL[filter.when];
-    return [text(user.phone, `${subject} ${urgentWord}${what} koi task nahi 🎉`)];
+    return { outs: [text(user.phone, `${subject} ${urgentWord}${what} koi task nahi 🎉`)], shown: [], offset: 0, total: 0 };
   }
-  const shown = picked.slice(0, MAX_ROWS);
-  const more = picked.length > shown.length ? ` Pehle ${shown.length} dikha raha hoon.` : "";
-  const header = `${subject} ${urgentWord}${BUCKET_LABEL[filter.when]} *${picked.length}* tasks hain.${more}`;
-  return [
-    text(user.phone, header),
-    taskList(user.phone, FLOW, shown, "Detail ke liye task chuniye 👇", { now, showAssignee: loaded.showAssignee }),
-  ];
+  const shown = picked.slice(offset, offset + MAX_ROWS);
+  if (shown.length === 0) {
+    // Asked for a page past the end ("aur dikhao" with nothing left): no picker.
+    const done = `Saare *${picked.length}* tasks dikha diye ✅`;
+    return { outs: [text(user.phone, done)], shown: [], offset, total: picked.length };
+  }
+  const label = `${subject} ${urgentWord}${BUCKET_LABEL[filter.when]} *${picked.length}* tasks hain.`;
+  let header: string;
+  if (opts.numbered) {
+    const progress = picked.length > shown.length ? ` ${offset + 1}–${offset + shown.length} / ${picked.length} dikhaye.` : "";
+    header = clip(`${label}${progress}\n\n${numberedLines(shown, now, loaded.showAssignee)}`, HEADER_MAX);
+  } else {
+    const more = picked.length > shown.length ? ` Pehle ${shown.length} dikha raha hoon.` : "";
+    header = `${label}${more}`;
+  }
+  return {
+    outs: [
+      text(user.phone, header),
+      taskList(user.phone, FLOW, shown, "Detail ke liye task chuniye 👇", { now, showAssignee: loaded.showAssignee }),
+    ],
+    shown: shown.map((t) => t.id),
+    offset,
+    total: picked.length,
+  };
 }
