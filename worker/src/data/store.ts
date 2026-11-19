@@ -1,6 +1,7 @@
 // Storage contract. FirestoreStore (production) and MemoryStore (tests)
 // both implement it; bot code only ever sees this interface.
 
+import type { ChatMemory } from "../chat/types";
 import type { BranchId, Health, LoginGuard, NewTask, Role, Session, Task, TaskStatus, User } from "../domain/types";
 
 export interface UserFilter {
@@ -51,6 +52,13 @@ export interface Store {
   saveHealth(health: Health): Promise<void>;
   /** loggedAt of the newest webhook_log entry (any incoming message), or null if none. */
   latestWebhookAt(): Promise<Date | null>;
+  /**
+   * Chat memory of one person (Round 7). `saveChatMemory` returns false (and writes nothing) when the stored
+   * version is not `memory.v` (another message was faster); on success the stored version becomes `memory.v + 1`.
+   */
+  getChatMemory(phone: string): Promise<ChatMemory | null>;
+  saveChatMemory(phone: string, memory: ChatMemory): Promise<boolean>;
+  clearChatMemory(phone: string): Promise<void>;
   /**
    * Records `key` once (audit C4/F1: double taps, a form sent twice). Returns false when the same
    * key was already recorded less than `windowMs` ago; an older record is renewed and counts as new.

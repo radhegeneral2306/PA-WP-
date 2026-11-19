@@ -1,5 +1,6 @@
 // In-memory Store for tests and local experiments.
 
+import type { ChatMemory } from "../chat/types";
 import type { Health, LoginGuard, NewTask, Session, Task, User } from "../domain/types";
 import type { Store, TaskFilter, UserFilter } from "./store";
 
@@ -24,6 +25,23 @@ export class MemoryStore implements Store {
   }
 
   private claims = new Map<string, number>();
+  private chatMemory = new Map<string, ChatMemory>();
+
+  async getChatMemory(phone: string) {
+    const m = this.chatMemory.get(phone);
+    return m ? structuredClone(m) : null;
+  }
+
+  async saveChatMemory(phone: string, memory: ChatMemory) {
+    const stored = this.chatMemory.get(phone);
+    if ((stored?.v ?? 0) !== memory.v) return false;
+    this.chatMemory.set(phone, { ...structuredClone(memory), v: memory.v + 1 });
+    return true;
+  }
+
+  async clearChatMemory(phone: string) {
+    this.chatMemory.delete(phone);
+  }
 
   async claimOnce(key: string, now: Date, windowMs: number) {
     const at = this.claims.get(key);

@@ -198,3 +198,12 @@ export function ruleRequest(
   if (urgent) filter.urgentOnly = true;
   return { kind: count ? "count" : "list", filter };
 }
+
+/** STUB (coordinator): agent B implements the follow-up rules and keeps this signature. */
+export function ruleFollowup(
+  _text: string,
+  _ctx: { role: Role; self: string; people: ChatPerson[]; now: Date },
+  _memory: import("./types").ChatMemory | null,
+): ChatRequest | null {
+  return null;
+}

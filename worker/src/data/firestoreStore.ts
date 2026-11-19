@@ -3,6 +3,7 @@
 // indexes are needed; remaining filters and sorting happen in memory,
 // matching MemoryStore exactly.
 
+import type { ChatMemory } from "../chat/types";
 import type { Health, LoginGuard, NewTask, Session, Task, User } from "../domain/types";
 import {
   createDoc,
@@ -28,6 +29,7 @@ const LOGIN_GUARDS = "login_guards";
 const SYSTEM = "system";
 const WEBHOOK_LOG = "webhook_log";
 export const CLAIMS = "claims";
+export const CHAT_CTX = "chat_ctx";
 
 type Fields = { [k: string]: Plain };
 
@@ -138,6 +140,25 @@ export class FirestoreStore implements Store {
 
   async clearSession(phone: string): Promise<void> {
     await deleteDoc(this.cfg, SESSIONS, phone);
+  }
+
+  // STUB (coordinator): agent A makes the save version-checked (Firestore updateTime precondition).
+  async getChatMemory(phone: string): Promise<ChatMemory | null> {
+    if (!phone) return null;
+    const doc = await getDoc(this.cfg, CHAT_CTX, phone);
+    return doc ? (doc.data as unknown as ChatMemory) : null;
+  }
+
+  async saveChatMemory(phone: string, memory: ChatMemory): Promise<boolean> {
+    if (!phone) return false;
+    const stored = await this.getChatMemory(phone);
+    if ((stored?.v ?? 0) !== memory.v) return false;
+    await setDoc(this.cfg, CHAT_CTX, phone, plain({ ...memory, v: memory.v + 1 }));
+    return true;
+  }
+
+  async clearChatMemory(phone: string): Promise<void> {
+    if (phone) await deleteDoc(this.cfg, CHAT_CTX, phone);
   }
 
   async claimOnce(key: string, now: Date, windowMs: number): Promise<boolean> {
