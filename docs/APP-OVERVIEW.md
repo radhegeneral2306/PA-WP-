@@ -134,6 +134,7 @@ Send **"Hi"** (or hello / menu / namaste / start) → menu as a WhatsApp list.
 - Common questions are answered straight from the database (no AI). Other messages go to one free Gemini call that only turns the sentence into a request; the code checks permissions and every change asks for Haan / Rehne do.
 - Staff see and change only their own tasks (date changes open the task so the 25-day rule applies). Admins can ask about anyone; staff add/remove, Delete, cancel and approvals stay in the menu/dashboard. Non-task questions get a polite refusal.
 - AI limit per person per day: staff 20, admins 50. Text typed inside an open step never goes to the AI.
+- **Memory and follow-ups (19 Nov, everyone):** the bot remembers for 15 minutes what it last showed. Lists are numbered; "doosra wala kholo", "2", "sirf urgent wale", "kal wale", "aur dikhao" and "shuru se" work without AI. On an open task you can ask "iski due date kya hai", "kisko diya hai", "last update kya tha"; the answer comes from the task record and nothing changes. To add a remark tap **Update ✏️**.
 
 ### 5.4 📋 Mere tasks / 👥 Staff ke tasks
 - Pending tasks, earliest due first, ⚠️ marks overdue, 8 per page. Admin view: branch → person, or "everyone".

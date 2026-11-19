@@ -2,6 +2,7 @@
 // follow-ups, the reference resolver and the task answers (agent B) are replaced by small fakes here, so these
 // tests check the routing, the execution, the permission re-checks and the memory handling only.
 
+import { setChatFlagsForTest } from "../../src/bot/chatFlags";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryStore } from "../../src/data/memoryStore";
 import { CHAT_DETAIL_LIVE, CHAT_MEMORY_LIVE, CHAT_TESTERS, canUseChatDetail, canUseChatMemory, handleMessage } from "../../src/bot/router";
@@ -81,13 +82,26 @@ afterEach(() => {
 });
 
 describe("switches", () => {
-  it("both are false in the committed code; the tester gets both, others do not", () => {
-    expect(CHAT_DETAIL_LIVE).toBe(false);
-    expect(CHAT_MEMORY_LIVE).toBe(false);
+  it("production: both are on for everyone (owner 19 Nov) and they are flipped together", () => {
+    expect(CHAT_DETAIL_LIVE).toBe(true);
+    expect(CHAT_MEMORY_LIVE).toBe(true);
+  });
+
+  it("in tests they are off (test/setup.ts): the tester gets both, others do not", () => {
     expect(canUseChatDetail(ADMIN)).toBe(true);
     expect(canUseChatMemory(ADMIN)).toBe(true);
     expect(canUseChatDetail(STAFF_DURG)).toBe(false);
     expect(canUseChatMemory(ADMIN2)).toBe(false);
+  });
+
+  it("with both switched on for everyone, a normal user gets detail routing and memory", () => {
+    setChatFlagsForTest({ detail: true, memory: true });
+    try {
+      expect(canUseChatDetail(STAFF_DURG)).toBe(true);
+      expect(canUseChatMemory(ADMIN2)).toBe(true);
+    } finally {
+      setChatFlagsForTest({ detail: false, memory: false });
+    }
   });
 });
 
