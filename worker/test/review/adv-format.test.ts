@@ -65,7 +65,8 @@ describe("text safety", () => {
   // FINDING (low): bot/ui.ts clip() slices UTF-16 units, so a title with an emoji at the cut point leaves a lone
   // surrogate in the numbered line (WhatsApp / JSON consumers may show "�" or reject it). Pre-existing helper, but
   // the new numbered lines (60 chars) and task answers (80/100/150) expose it more. Fix: cut with Array.from / code points.
-  it.fails("FINDING: clipping a title at an emoji never leaves a lone surrogate", async () => {
+  // Fixed: clip() cuts by code points.
+  it("clipping a title at an emoji never leaves a lone surrogate", async () => {
     const title = `${"x".repeat(58)}😀😀 end`;
     const store = new MemoryStore({ users: USERS, tasks: [task({ id: "e", title, assigneePhone: STAFF_DURG.phone })] });
     const out = await handleMessage({ store, user: STAFF_DURG, now: NOW, chat }, say("mere pending tasks"));

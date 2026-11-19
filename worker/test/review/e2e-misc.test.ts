@@ -14,8 +14,8 @@ afterEach(() => {
 const own = { assigneePhone: STAFF_DURG.phone, assigneeName: STAFF_DURG.name, branch: "DURG" as const };
 
 describe("output polish", () => {
-  // BUG (cosmetic): chat.ts prefixes `*title*` and describeTask() already starts with the same bold title line.
-  it.fails("a task answer shows the title once", async () => {
+  // Fixed: chat.ts no longer prefixes the title; describeTask() already starts with the bold title line.
+  it("a task answer shows the title once", async () => {
     addTester(STAFF_DURG.name);
     const w = world(STAFF_DURG, mk(2, own, "P"));
     await w.send(say("mere pending tasks dikhao"));
@@ -25,13 +25,16 @@ describe("output polish", () => {
   });
 
   // The detail screen says "Update ke liye seedha likh ke bhej dijiye" (type text = remark). With the detail switch ON
-  // typed text is a CHAT, not a remark: the hint is now wrong for testers.
-  it.fails("detail screen hint does not tell the user to type a remark when typing goes to chat", async () => {
+  // typed text is a CHAT, not a remark: testers now get a chat hint instead.
+  it("detail screen hint does not tell the user to type a remark when typing goes to chat", async () => {
     addTester(STAFF_DURG.name);
     const w = world(STAFF_DURG, mk(2, own, "P"));
     await w.send(say("mere pending tasks dikhao"));
     const out = await w.send(tap("tasks:task:P1"));
     expect(body(out[0])).not.toContain("seedha likh ke bhej");
+    expect(body(out[0])).toContain("kuch bhi poochh sakte hain");
+    expect(body(out[0])).toContain("*Update ✏️*");
+    expect(body(out[0]).length).toBeLessThanOrEqual(1024);
   });
 });
 

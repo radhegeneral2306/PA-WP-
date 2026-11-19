@@ -207,14 +207,15 @@ describe("daily AI limit counts only AI calls (memory + detail ON)", () => {
   // every stray "2" / "10" / "99" burns one of the 20 daily AI messages and ends in "Samajh nahi aaya".
   // Fix: in handleChat, a bare number (or a pure follow-up phrase) with no fresh memory should answer
   // CHAT_MSG.whichTask ("Pehle list dekhne ke liye mere tasks likhiye") without the AI.
-  it.fails("FINDING: a bare number without memory must not cost an AI call", async () => {
+  // Fixed: looksLikeFollowup + no usable memory answers a fixed line (no AI, no counter).
+  it("a bare number without memory must not cost an AI call", async () => {
     const w = world(STAFF_DURG);
     await w.send(say("2"));
     await w.send(say("10"));
     expect(w.understand).not.toHaveBeenCalled();
   });
 
-  it.fails("FINDING: 'aur dikhao' / 'iski due date kya hai' with no memory must not cost an AI call", async () => {
+  it("'aur dikhao' / 'iski due date kya hai' with no memory must not cost an AI call", async () => {
     const w = world(STAFF_DURG);
     await w.send(say("aur dikhao"));
     await w.send(say("iski due date kya hai"));
@@ -293,7 +294,7 @@ describe("timeouts of guided steps still apply (switches ON)", () => {
   // SECOND attempt reaches the memory. Same for a numbered list with no picker left. Fix: in router.ts treat an
   // expired session whose data.chat === "1" like "no session" when typed text and canUseChatMemory(user), i.e. do
   // not answer EXPIRED for it.
-  it.fails("FINDING: a typed follow-up 3 minutes after a chat list works (memory is 15 min), not 'Session expire ho gaya'", async () => {
+  it("a typed follow-up 3 minutes after a chat list works (memory is 15 min), not 'Session expire ho gaya'", async () => {
     const w = world(STAFF_DURG);
     await w.send(say("mere pending tasks"));
     w.advance(3 * 60_000);
@@ -301,7 +302,7 @@ describe("timeouts of guided steps still apply (switches ON)", () => {
     expect(JSON.stringify(out)).not.toContain("Session expire ho gaya");
   });
 
-  it("... and the second attempt after that does reach the memory (documents the double step)", async () => {
+  it("... and a second typed follow-up works as well", async () => {
     const w = world(STAFF_DURG);
     await w.send(say("mere pending tasks"));
     w.advance(3 * 60_000);

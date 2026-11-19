@@ -388,7 +388,8 @@ describe("memory failures never break the answer", () => {
   // FINDING (low): chat.ts logs String(err) of a failed memory read/save/clear; the Firestore error text is
   // "Firestore get chat_ctx/<phone> failed 500: ...", so the sender's phone number reaches the logs on every
   // Firestore hiccup. Fix: log a fixed string (or err.name / status only) instead of String(err).
-  it.fails("FINDING: a memory failure must not put the phone number into the logs", async () => {
+  // Fixed: chat.ts logs a fixed text plus a status code only.
+  it("a memory failure must not put the phone number into the logs", async () => {
     await seed();
     fs.failChatCtx = 500;
     const err = vi.spyOn(console, "error").mockImplementation(() => {});

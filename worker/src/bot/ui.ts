@@ -23,7 +23,14 @@ export function buttons(to: string, body: string, items: { id: string; title: st
 }
 
 export function clip(s: string, max: number): string {
-  return s.length <= max ? s : s.slice(0, max - 1) + "…";
+  if (s.length <= max) return s;
+  // Cut by code points so an emoji is never split in half; the result stays within `max` UTF-16 units.
+  let out = "";
+  for (const ch of s) {
+    if (out.length + ch.length > max - 1) break;
+    out += ch;
+  }
+  return out + "…";
 }
 
 export interface Page<T> {

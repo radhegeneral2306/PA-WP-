@@ -4,7 +4,7 @@
 // existing confirm flows (voice_update / voice_task / create_task) and the shared taskActions.
 
 import { CHAT_MEMORY_MIN, type ChatContext, type ChatFilter, type ChatMemory, type ChatMemorySummary, type ChatPerson, type ChatRef, type ChatRequest, type ChatResult } from "../../chat/types";
-import { ruleFollowup, ruleRequest } from "../../chat/rules";
+import { looksLikeFollowup, ruleFollowup, ruleRequest } from "../../chat/rules";
 import { answerQuery, answerQueryDetailed } from "../../chat/answer";
 import { refineFilter, resolveRef } from "../../chat/refs";
 import { canSeeTask, describeTask } from "../../chat/taskInfo";
@@ -14,7 +14,8 @@ import { recordProblems, SUPER_ADMIN_NAME } from "../../scheduler/health";
 import type { VoiceDraft } from "../../voice/types";
 import { setStep, withNonce, type BotContext } from "../flow";
 import type { Outgoing } from "../outgoing";
-import { canUseChatMemory, mainMenu, normalizeWords } from "../router";
+import { canUseChatMemory } from "../chatFlags";
+import { mainMenu, normalizeWords } from "../router";
 import { dueFromInput, TITLE_MAX } from "../taskActions";
 import { buttons, clip, quickDueList, taskList, text, weekdayHi } from "../ui";
 import { matchTasks } from "../voiceMatch";
@@ -79,6 +80,37 @@ const COURTESY = new Set([
   "haan", "han", "ha", "haa", "theek hai", "thik hai", "theek", "thik", "accha", "acha", "achha", "ji", "ji haan", "hmm", "hm", "sahi hai", "badhiya",
 ]);
 
+const NUMBER_ONLY = /^(?:(?:no|number|nambar)\s+)?(\d{1,2})(?:\s+(?:no|number|nambar))?(?:\s+ji)?$/;
+
+/** The digits of a message that is only a number ("2.", "#2", "2 ji", "number 2"), else null. */
+export function bareNumber(raw: string): string | null {
+  const m = NUMBER_ONLY.exec(normalizeWords(raw));
+  return m ? m[1] : null;
+}
+
+const TASK_QUESTION = /\b(iski|iska|uski|uska|isko|usko|is task|us task|due|kab tak|kisko|kisne|remark|status|last update|kab banaya|kab done)\b/;
+
+/** "iski due date kya hai", "kisko diya hai"...: a question about one task. */
+function isTaskQuestion(input: string): boolean {
+  return TASK_QUESTION.test(normalizeWords(input));
+}
+
+/** What a message that looks like a follow-up but that the rules could not use gets: no AI, no counter. */
+function unusableFollowup(ctx: BotContext, input: string, mem: Mem): Outgoing[] {
+  const to = ctx.user.phone;
+  const m = mem.fresh;
+  if (isTaskQuestion(input)) return [text(to, CHAT_MSG.whichTask)];
+  const n = m?.shown?.length ?? 0;
+  if (!m || n === 0) return [text(to, CHAT_MSG.noQuery)];
+  return [text(to, `Itna number nahi hai. 1 se ${n} tak ka number likhiye.`)];
+}
+
+/** Fixed log text for a failure: never the error's own text (Firestore errors carry the phone number). */
+function logFailure(what: string, err: unknown): void {
+  const status = /\b([1-5]\d\d)\b/.exec(String((err as { message?: unknown } | null)?.message ?? err))?.[1];
+  console.error(`chat: ${what}`, status ?? "");
+}
+
 /** "ok", "thanks 🙏", "👍", one or two letters: a friendly line, no AI. */
 export function isCourtesy(raw: string): boolean {
   const t = raw.trim();
@@ -110,12 +142,15 @@ function withMenu(ctx: BotContext, intro: string): Outgoing[] {
 
 export async function handleChat(ctx: BotContext, raw: string, opts: { selectedTaskId?: string } = {}): Promise<Outgoing[]> {
   const { user, now } = ctx;
-  const input = raw.replace(/\s+/g, " ").trim();
+  let input = raw.replace(/\s+/g, " ").trim();
   if (!input) return [mainMenu(ctx)];
 
-  // With the memory on, a bare number ("2") is an answer to a numbered list, not a courtesy.
+  // With the memory on, a bare number ("2", "2.", "2)", "#2", "2 ji", "number 2") is an answer to a numbered
+  // list, not a courtesy. It is passed on as the plain digits.
   const memoryOn = canUseChatMemory(user);
-  if (isCourtesy(input) && !(memoryOn && /^\d{1,2}$/.test(input))) return [text(user.phone, CHAT_MSG.courtesy)];
+  const num = memoryOn ? bareNumber(input) : null;
+  if (num === null && isCourtesy(input)) return [text(user.phone, CHAT_MSG.courtesy)];
+  if (num !== null) input = num;
 
   // Admins: the active people (one read); staff only ever talk about themselves.
   const active = user.role === "admin" ? (await ctx.store.listUsers()).filter((u) => u.active) : [user];
@@ -130,6 +165,12 @@ export async function handleChat(ctx: BotContext, raw: string, opts: { selectedT
   const byRule = byFollowup ?? ruleRequest(input, cctx);
   if (byRule) return finish(ctx, mem, await execute(ctx, byRule, input, active, mem));
 
+  // Looks like a follow-up but nothing usable to follow (no list, number out of range, no task selected):
+  // a fixed answer; the AI could only guess and would cost one of the day's messages.
+  if (mem && looksLikeFollowup(input) && !(isTaskQuestion(input) && mem.fresh?.sel)) {
+    return unusableFollowup(ctx, input, mem);
+  }
+
   // Then the AI (one call). Limit is checked before the call; only messages that reach the AI count.
   if (!ctx.chat) return failureReply(ctx, { ok: false, reason: "not_configured" });
   const used = await ctx.store.bumpDailyCount(chatCountKey(user.phone, now), now);
@@ -140,7 +181,7 @@ export async function handleChat(ctx: BotContext, raw: string, opts: { selectedT
   try {
     result = await ctx.chat.understand(input, cctx);
   } catch (err) {
-    console.error("chat: understand threw", String(err));
+    logFailure("understand threw", err);
     result = { ok: false, reason: "failed" };
   }
   if (!result.ok) return failureReply(ctx, result);
@@ -152,7 +193,7 @@ async function loadMemory(ctx: BotContext, selectedTaskId?: string): Promise<Mem
   try {
     stored = await ctx.store.getChatMemory(ctx.user.phone);
   } catch (err) {
-    console.error("chat: memory read failed", String(err));
+    logFailure("memory read failed", err);
   }
   let fresh = stored && isFresh(stored, ctx.now) ? stored : null;
   // The open task detail is the selected task, with or without a stored memory.
@@ -196,7 +237,7 @@ async function finish(ctx: BotContext, mem: Mem | null, outs: Outgoing[]): Promi
       if (base && Date.parse(base.at) > ctx.now.getTime()) return outs;
     }
   } catch (err) {
-    console.error("chat: memory save failed", String(err));
+    logFailure("memory save failed", err);
   }
   return outs;
 }
@@ -269,7 +310,7 @@ async function runQuery(ctx: BotContext, request: Query, mem: Mem, offset: numbe
   const r = await answerQueryDetailed(ctx.store, ctx.user, request, ctx.now, { offset, numbered: true });
   if (request.kind === "list" && !r.refused) {
     // A page past the end changes nothing; a real list becomes the thing "doosra wala" and "aur dikhao" refer to.
-    if (r.shown.length > 0 || r.total === 0) mem.patch = { ...mem.patch, query: request.filter, shown: r.shown, offset: r.offset, total: r.total };
+    if (r.shown.length > 0 || r.total === 0) mem.patch = { ...mem.patch, query: request.filter, shown: r.shown, offset: r.offset, total: r.total, sel: null };
   }
   return openPickerSession(ctx, r.outs);
 }
@@ -345,7 +386,7 @@ async function askTask(ctx: BotContext, r: Extract<ChatRequest, { kind: "ask_tas
       const choices = found.slice(0, CHOICES_MAX);
       const showAssignee = ctx.user.role === "admin";
       const lines = choices.map((t, i) => `${i + 1}) ${t.urgent ? "🔴 " : ""}${clip(t.title, 60)} · ${formatDue(t.dueAt, t.dueHasTime, ctx.now)}${showAssignee ? ` · ${t.assigneeName}` : ""}`);
-      mem.patch = { ...mem.patch, query: null, shown: choices.map((t) => t.id), offset: 0, total: choices.length };
+      mem.patch = { ...mem.patch, query: null, shown: choices.map((t) => t.id), offset: 0, total: choices.length, sel: null };
       return [text(to, `${lines.join("\n")}\n\n${CHAT_MSG.askWhich}`)];
     }
     // One match: reload it and check again before answering.
@@ -355,14 +396,14 @@ async function askTask(ctx: BotContext, r: Extract<ChatRequest, { kind: "ask_tas
   }
   mem.patch = { ...mem.patch, sel: task.id };
   const body = describeTask(task, r.field, ctx.now);
-  return [text(to, r.field === "all" ? body : `*${clip(task.title, 80)}*\n${body}`)];
+  return [text(to, body)]; // describeTask already starts with the bold title
 }
 
 async function reset(ctx: BotContext, mem: Mem): Promise<Outgoing[]> {
   try {
     await ctx.store.clearChatMemory(ctx.user.phone);
   } catch (err) {
-    console.error("chat: memory clear failed", String(err));
+    logFailure("memory clear failed", err);
   }
   mem.cleared = true;
   return [text(ctx.user.phone, CHAT_MSG.reset)];

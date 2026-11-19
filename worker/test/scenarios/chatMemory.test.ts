@@ -32,6 +32,7 @@ vi.mock("../../src/chat/rules", async (orig) => {
   };
 });
 vi.mock("../../src/chat/refs", () => ({
+  memoryFresh: (m: ChatMemory | null, now: Date) => !!m && now.getTime() - Date.parse(m.at) < 15 * 60_000,
   resolveRef: (memory: ChatMemory | null, ref: { by: string; n?: number }, now: Date) => {
     if (!memory) return { ok: false, reason: "no_memory" };
     if (now.getTime() - Date.parse(memory.at) >= 15 * 60_000) return { ok: false, reason: "expired" };
@@ -44,7 +45,7 @@ vi.mock("../../src/chat/refs", () => ({
 }));
 vi.mock("../../src/chat/taskInfo", () => ({
   canSeeTask: (u: User, t: Task) => t.status !== "deleted" && (u.role === "admin" || t.assigneePhone === u.phone || t.createdByPhone === u.phone),
-  describeTask: (t: Task, field: string) => `DESCRIBE ${field} ${t.id}`,
+  describeTask: (t: Task, field: string) => `*${t.title}*\nDESCRIBE ${field} ${t.id}`, // the real one starts with the bold title
 }));
 
 const body = (o: Outgoing) => (o.kind === "template" ? o.fallbackText : o.body);
@@ -212,7 +213,9 @@ describe("follow-up chain", () => {
     const w = world();
     const a = world(ADMIN, undefined, { ok: true, request: { kind: "refine", changes: { urgentOnly: true } } });
     expect(all(await a.send(say("kuch alag likha hua")))).toContain("Pehle bataiye");
-    expect(all(await w.send(say("sirf urgent wale")))).toContain("Samajh nahi aaya"); // the rule needs a memory
+    // the rule needs a memory; the text looks like a follow-up, so it gets the fixed line (no AI call, no quota)
+    expect(all(await w.send(say("sirf urgent wale")))).toContain("Pehle bataiye");
+    expect(w.chat.understand).not.toHaveBeenCalled();
   });
 
   it("an expired memory is forgotten: one question", async () => {
@@ -349,7 +352,7 @@ describe("memory store behaviour", () => {
     await w.send(say("durg overdue"));
     const m = await mem(w);
     expect(m?.shown?.length).toBe(8);
-    expect(m?.sel).toBe("d9"); // the other message's selection survives
+    expect(m?.sel).toBeNull(); // a new list replaces the shown tasks, so an old selection (from the other write) is dropped
   });
 
   it("an older message never overwrites a newer memory", async () => {
@@ -387,7 +390,7 @@ describe("memory store behaviour", () => {
   it("the AI gets a compact summary (no ids) and its memory kinds are executed in code", async () => {
     const w = world(ADMIN, undefined, { ok: true, request: { kind: "open", ref: { by: "index", n: 1 } } });
     await w.send(say("durg overdue"));
-    const out = await w.send(say("pehla wala dikhao zara"));
+    const out = await w.send(say("jo sabse upar hai wo dikhao zara"));
     expect(w.chat.understand).toHaveBeenCalledTimes(1);
     const ctx = (w.chat.understand as ReturnType<typeof vi.fn>).mock.calls[0][1];
     expect(ctx.memory).toEqual({ query: { scope: "branch", branch: "DURG", when: "overdue" }, shown: 8, selectedTitle: null });

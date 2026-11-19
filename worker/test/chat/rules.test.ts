@@ -217,7 +217,7 @@ describe("false positives: a keyword inside another meaning -> null", () => {
 // ---------------------------------------------------------------------------------------------
 // Round 7: ruleFollowup
 // ---------------------------------------------------------------------------------------------
-import { ruleFollowup } from "../../src/chat/rules";
+import { looksLikeFollowup, ruleFollowup } from "../../src/chat/rules";
 import type { ChatMemory } from "../../src/chat/types";
 
 const mem = (over: Partial<ChatMemory> = {}, ageMin = 2): ChatMemory => ({
@@ -454,4 +454,69 @@ describe("followup: junk and limits", () => {
   it("too many words are null", () => {
     expect(fadmin("iski due date kya hai bataiye mujhe zara jaldi se ab")).toBeNull();
   });
+});
+
+describe("followup: number forms (Round 7 fix)", () => {
+  it.each([
+    ["2.", open("index", 2)], ["2)", open("index", 2)], ["#2", open("index", 2)], ["2 ji", open("index", 2)],
+    ["task 2", open("index", 2)], ["task number 3", open("index", 3)], ["task no 1", open("index", 1)],
+    ["number do", open("index", 2)], ["number teen", open("index", 3)], ["teen wala kholo", open("index", 3)],
+    ["ek", open("index", 1)], ["do", open("index", 2)], ["teen", open("index", 3)], ["char", open("index", 4)],
+    ["char wala", open("index", 4)], ["ek wala dikhao", open("index", 1)], ["number char kholo", open("index", 4)],
+    ["dusra wala khol do", open("index", 2)], ["dusra wala open karo", open("index", 2)],
+    ["dusra wala open kar do", open("index", 2)], ["pehla wala dikha do", open("index", 1)], ["teesra dikhao", open("index", 3)],
+    ["isko khol do", open("selected")], ["last wala khol do", open("last")], ["1st", open("index", 1)], ["4th", open("index", 4)],
+  ])("%s", (t, want) => expect(fadmin(t)).toEqual(want));
+  it("out of range, no memory or stale memory: null", () => {
+    for (const t of ["number paanch", "paanch", "task 7", "5.", "#9"]) expect(fadmin(t)).toBeNull();
+    for (const t of ["2.", "number do", "task 2", "teen wala kholo"]) {
+      expect(fadmin(t, null)).toBeNull();
+      expect(fadmin(t, mem({}, 20))).toBeNull();
+    }
+  });
+  it("write phrases still return null", () => {
+    for (const t of [
+      "kar do", "do", "de do", "dusra wala done kar do", "dusra wala delete karo", "pehla wala hata do", "2 done karo",
+      "number do done kar do", "pehla wala badlo", "task 2 likh do", "isko Pinky ko de do", "khol do aur done kar do",
+      "doosra wala kar do", "2 kar do", "teen wala karo", "last wala bana do", "pehla open karo done",
+    ]) {
+      if (t === "do") continue; // a lone "do" is the spoken number two (see above)
+      expect(fadmin(t), t).toBeNull();
+    }
+  });
+  it("a lone 'do' is task 2 only when the whole message is just the number", () => {
+    expect(fadmin("do")).toEqual(open("index", 2));
+    expect(fadmin("do ji")).toEqual(open("index", 2));
+    expect(fadmin("kar do")).toBeNull();
+    expect(fadmin("de do")).toBeNull();
+  });
+});
+
+describe("looksLikeFollowup", () => {
+  it.each([
+    "2", "2.", "2)", "#2", "2 ji", "number 3", "task 2", "ek", "do", "teen", "number do", "teen wala kholo", "pehla", "doosra wala",
+    "1st", "8th", "last wala", "aakhri wala", "isko kholo", "dusra wala khol do", "dusra wala open karo", "3 wala dikhao",
+    "aur dikhao", "aur", "next", "show more", "baaki dikhao", "sirf urgent wale", "kal wale", "overdue wale", "aaj wale", "Durg ke wale",
+    "sab dikhao", "iski due date kya hai", "kisko diya hai", "kisne diya", "last update kya tha", "kitne remark hain", "kab tak hai",
+    "kab banaya", "status kya hai", "shuru se", "reset", "naya",
+    "99",
+  ])("true: %s", (t) => expect(looksLikeFollowup(t)).toBe(true));
+
+  it.each([
+    "Sharma ji ko payment ka reminder dena hai", "done kar do", "kar do", "de do", "2 done kar do", "dusra wala done kar do",
+    "pehla wala delete karo", "isko Pinky ko de do", "task 2 likh do", "iski date badlo",
+    "mere pending tasks", "mere tasks dikhao", "Pinky ke tasks", "kitne pending hain", "aaj ke tasks", "hi", "ok", "thanks", "menu", "",
+    "0", "100", "2 baje", "3 tasks", "2 aur 3", "kholo", "khol do", "isko", "kal kya karna hai", "kal meeting hai",
+    "Ramesh ko bolo", "x".repeat(10_000), "kab ".repeat(60), "is ".repeat(100),
+  ])("false: %s", (t) => expect(looksLikeFollowup(t)).toBe(false));
+
+  it("is safe and fast on huge or odd input", () => {
+    const t0 = performance.now();
+    for (const t of ["a".repeat(10_000), "2 ".repeat(5000), "\u0000".repeat(500), "😀".repeat(3000), "constructor", "__proto__"]) {
+      expect(() => looksLikeFollowup(t)).not.toThrow();
+      expect(looksLikeFollowup(t)).toBe(false);
+    }
+    expect(performance.now() - t0).toBeLessThan(200);
+  });
+  it("non-strings are false", () => expect(looksLikeFollowup(undefined as never)).toBe(false));
 });

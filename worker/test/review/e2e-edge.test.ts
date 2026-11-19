@@ -14,19 +14,19 @@ afterEach(() => {
 const own = { assigneePhone: STAFF_DURG.phone, assigneeName: STAFF_DURG.name, branch: "DURG" as const };
 
 describe("memory boundary", () => {
-  it("14 min ok, 15 min forgotten (session cleared by 'hi' so only memory matters)", async () => {
+  it("14 min ok, 15 min forgotten (session cleared directly so only memory matters; 'hi' now clears the memory too)", async () => {
     const w = world(STAFF_DURG, mk(3, own, "P"));
     await w.send(say("mere pending tasks dikhao"));
-    await w.send(say("hi"));
+    await w.store.clearSession(STAFF_DURG.phone);
     w.advance(14 * 60_000 + 59_000);
     expect((await w.send(say("2")))[0].kind).toBe("buttons");
-    await w.send(say("hi"));
+    await w.store.clearSession(STAFF_DURG.phone);
     // memory 'at' was refreshed at the last save; open does not rewrite 'at' unless patch. check from original list instead:
   });
   it("exactly 15 min after the last save: forgotten", async () => {
     const w = world(STAFF_DURG, mk(3, own, "P"));
     await w.send(say("mere pending tasks dikhao"));
-    await w.send(say("hi"));
+    await w.store.clearSession(STAFF_DURG.phone);
     w.advance(15 * 60_000);
     const out = await w.send(say("doosra wala kholo"));
     expect(out.some((o) => o.kind === "buttons" && /Done/.test(JSON.stringify(o)))).toBe(false);
@@ -34,10 +34,10 @@ describe("memory boundary", () => {
   it("each follow-up renews the 15 minutes (sliding)", async () => {
     const w = world(STAFF_DURG, mk(12, own, "P"));
     await w.send(say("mere pending tasks dikhao"));
-    await w.send(say("hi"));
+    await w.store.clearSession(STAFF_DURG.phone);
     w.advance(10 * 60_000);
     await w.send(say("aur dikhao"));
-    await w.send(say("hi"));
+    await w.store.clearSession(STAFF_DURG.phone);
     w.advance(10 * 60_000);
     const out = await w.send(say("2"));
     expect(out[0].kind).toBe("buttons");
@@ -51,18 +51,18 @@ describe("memory boundary", () => {
   });
 });
 
-describe("selected task survives a new list (stale 'iski')", () => {
-  // SURPRISE: after the user opens task A and then asks for a NEW list, "isko kholo" / "iski due date" still mean A,
-  // not anything from the new list.
-  it("'iski due date kya hai' after a new list answers about the old opened task", async () => {
+describe("selected task does not survive a new list (no stale 'iski')", () => {
+  // Fixed: a new list replaces the shown tasks and clears the selection, so "iski due date" asks which task.
+  it("'iski due date kya hai' after a new list asks which task instead of answering for the old one", async () => {
     const w = world(STAFF_DURG, [...mk(3, own, "P"), ...mk(2, { ...own, urgent: true }, "U")]);
     await w.send(say("mere pending tasks dikhao"));
     await w.send(say("pehla")); // opens first (urgent U1)
     await w.send(say("mere pending tasks dikhao"));
     const out = await w.send(say("iski due date kya hai"));
-    console.info("STALE SEL ->", all(out).slice(0, 100).replace(/\n/g, " | "));
-    const m = await w.store.getChatMemory(STAFF_DURG.phone);
-    console.info("SEL after relist:", m?.sel);
+    expect(all(out)).toContain("Kaunsa task?");
+    expect(all(out)).not.toMatch(/Due:|due/i);
+    expect((await w.store.getChatMemory(STAFF_DURG.phone))?.sel).toBeNull();
+    expect(w.chat.understand).not.toHaveBeenCalled();
   });
 });
 
@@ -168,9 +168,8 @@ describe("rule edge cases", () => {
     await w.send(say("mere pending tasks dikhao"));
     return w;
   }
-  // BUG (reviewer 1): chat.ts only lets a bare number escape the courtesy check when it matches /^\d{1,2}$/ on the RAW input.
-  // "2." / "2)" / "#2" normalise to a 1-char word, so isCourtesy() answers "Menu ke liye Hi bhejiye" instead of opening task 2.
-  it.fails("'2.' with memory on opens task 2 (also '2)' and '#2')", async () => {
+  // Fixed: "2." / "2)" / "#2" are bare numbers (normalised before the courtesy check) and open task 2.
+  it("'2.' with memory on opens task 2 (also '2)' and '#2')", async () => {
     const w = await ready();
     for (const p of ["2.", "2)", "#2"]) {
       const out = await w.send(say(p));

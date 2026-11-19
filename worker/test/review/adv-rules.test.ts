@@ -70,7 +70,7 @@ describe("router: odd ways to type a number", () => {
 
   // The numbered list literally prints "1) title", so people answer "1)" or "1." or "2 ji". Only a bare "1"/"12" is
   // recognised before the courtesy check (isCourtesy: <= 2 characters after normalising counts as a courtesy).
-  it.fails("FINDING (low): '2)' / '2.' / '2 ji' answer the numbered list like '2' does (today they get the courtesy line)", async () => {
+  it("'2)' / '2.' / '2 ji' answer the numbered list like '2' does (today they get the courtesy line)", async () => {
     for (const t of ["2)", "2.", "2 ji", "#2"]) {
       const w = await listed();
       const out = await w.send(t);
@@ -90,7 +90,7 @@ describe("router: odd ways to type a number", () => {
   // messages, ending in "Samajh nahi aaya". handleChat already has the friendly "Itna number nahi hai. 1 se 2 tak"
   // text in taskOfRef; ruleFollowup should return the open request for ANY bare number when memory is fresh with
   // a non-empty `shown`, and let taskOfRef answer the range hint.
-  it.fails("FINDING: an out-of-range bare number answers the range hint without an AI call", async () => {
+  it("an out-of-range bare number answers the range hint without an AI call", async () => {
     const w = await listed();
     const out = await w.send("3");
     expect(w.chat.understand).not.toHaveBeenCalled();

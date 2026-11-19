@@ -255,6 +255,30 @@ const STRONG_MARK = new Set(["sirf", "bas", "only", "wale", "wala", "wali", "wal
 
 type FollowCtx = { role: Role; self: string; people: ChatPerson[]; now: Date };
 
+// "khol do" / "open karo" are open-requests (the "do"/"karo" is politeness), not writes.
+function openPhrases(s: string): string {
+  return s
+    .replace(/\b(khol|kholo|kholiye)\s+(do|dijiye|dijiyae|dena|de)\b/g, "kholo")
+    .replace(/\bopen\s+(karo|kar\s+do|kardo|kijiye|kar\s+dijiye|kar\s+de|kar\s+dena)\b/g, "open");
+}
+
+const SPOKEN: Record<string, string> = {
+  ek: "1", do: "2", teen: "3", char: "4", chaar: "4", paanch: "5", panch: "5", chhe: "6", chhah: "6", saat: "7", aath: "8",
+};
+const SPOKEN_NEXT = new Set(["wala", "wali", "wale", "number", "nmbr"]);
+
+/** "number do" / "teen wala" / a lone "ek" -> digits, so "do" is not mistaken for the write word. */
+function spokenToDigits(tokens: string[]): string[] {
+  return tokens.map((t, i) => {
+    if (!Object.prototype.hasOwnProperty.call(SPOKEN, t)) return t;
+    const prev = tokens[i - 1];
+    const next = tokens[i + 1];
+    const alone = tokens.length === 1 || (tokens.length === 2 && (tokens[1 - i] === "ji"));
+    if ((prev !== undefined && NUMWORDS.has(prev)) || (next !== undefined && SPOKEN_NEXT.has(next)) || alone) return SPOKEN[t];
+    return t;
+  });
+}
+
 function canonical(norm: string): string {
   let s = ` ${norm} `;
   for (const [re, tag] of FIELD_PHRASES) s = s.replace(re, ` ${tag} `);
@@ -280,9 +304,9 @@ function otherVocabulary(t: string): boolean {
 
 export function ruleFollowup(text: string, ctx: FollowCtx, memory: ChatMemory | null): ChatRequest | null {
   if (typeof text !== "string" || text.length > 200) return null;
-  const norm0 = preprocess(normalizeText(text));
+  const norm0 = openPhrases(preprocess(normalizeText(text)));
   if (!norm0) return null;
-  const tokens = canonical(norm0).split(" ");
+  const tokens = spokenToDigits(canonical(norm0).split(" "));
   if (tokens.length > MAX_FOLLOWUP_TOKENS) return null;
   // Writes always go to the AI path with confirm buttons.
   if (tokens.some((t) => WRITE_WORDS.has(t) && !SOFT_WRITE.has(t))) return null;
@@ -359,18 +383,22 @@ function openRule(
   let selector = false;
   let verb = false;
   let task = false;
+  let taskBefore = false; // "task 2", "task number 2": the singular word comes first
   for (const t of tokens) {
     const r = refToken(t);
     if (r) refs.push(r);
     else if (SELECTORS.has(t)) selector = true;
     else if (OPEN_VERBS.has(t)) verb = true;
-    else if (TASKISH.has(t)) task = true;
+    else if (TASKISH.has(t)) {
+      task = true;
+      if (t === "task" && refs.length === 0 && !selector) taskBefore = true;
+    }
     else if (NUMWORDS.has(t) || FILLER.has(t) || DETERMINERS.has(t)) continue;
     else return undefined; // not an open phrase: let the refine rule look at it
   }
   if (refs.length === 0 && !selector) return undefined;
   if (refs.length + (selector ? 1 : 0) !== 1) return null;
-  if (task && !verb) return null;
+  if (task && !verb && !taskBefore) return null;
   if (selector) return verb && refOk({ by: "selected" }) ? { kind: "open", ref: { by: "selected" } } : null;
   return refOk(refs[0]) ? { kind: "open", ref: refs[0] } : null;
 }
@@ -445,11 +473,27 @@ function refineRule(tokens: string[], ctx: FollowCtx): ChatRequest | null {
   return { kind: "refine", changes };
 }
 
+// A permissive memory (99 shown tasks, one selected) so ruleFollowup judges only the FORM of a message.
+const FORM_NOW = new Date(0);
+const FORM_CTX: FollowCtx = { role: "admin", self: "", people: [], now: FORM_NOW };
+const FORM_MEMORY: ChatMemory = {
+  v: 2,
+  at: FORM_NOW.toISOString(),
+  query: { scope: "mine", when: "all" },
+  shown: Array.from({ length: 99 }, () => "x"),
+  sel: "x",
+};
+
 /**
- * STUB (coordinator): agent R implements. True when the text is, in form, a follow-up the memory rules
- * understand (a bare number or ordinal, "number 3", "aur dikhao", "iski due date kya hai", "sirf urgent wale"…),
- * whether or not a memory exists. The chat flow uses it to answer such messages without the AI.
+ * True when the text is, in form, a follow-up the memory rules understand (a bare number or ordinal in any
+ * spelling, "number 3", "aur dikhao", "iski due date kya hai", "sirf urgent wale", "shuru se"), whether or not a
+ * memory exists. The chat flow uses it to answer such messages without the AI. Conservative: write words and
+ * anything ruleRequest answers (except the refine and more families, which only make sense after a list) give false.
  */
-export function looksLikeFollowup(_text: string): boolean {
-  return false;
+export function looksLikeFollowup(text: string): boolean {
+  if (typeof text !== "string" || text.length > 200) return false;
+  const r = ruleFollowup(text, FORM_CTX, FORM_MEMORY);
+  if (!r) return false;
+  if (r.kind === "refine" || r.kind === "more") return true;
+  return ruleRequest(text, FORM_CTX) === null;
 }

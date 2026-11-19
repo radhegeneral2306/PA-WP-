@@ -52,15 +52,15 @@ describe("menu and greetings", () => {
     expect(w.understand).not.toHaveBeenCalled();
   });
 
-  // Plan 3.3 says: "'Shuru se' / 'reset' / any menu word clears it." The implementation only clears the SESSION on
-  // Hi/menu/band karo; the chat memory survives. Low severity (15 min, same person, still re-authorised), but
-  // it contradicts the plan sentence. Fix: clearChatMemory in router's greeting / cancel branches (1 request).
-  it.fails("FINDING (plan 3.3): a menu word (Hi / menu / band karo) clears the chat memory", async () => {
-    const w = world(STAFF_DURG);
-    await w.send(say("mere pending tasks"));
-    expect(await mem(w, STAFF_DURG)).not.toBeNull();
-    await w.send(say("Hi"));
-    expect(await mem(w, STAFF_DURG)).toBeNull();
+  // Plan 3.3: "'Shuru se' / 'reset' / any menu word clears it." Fixed: greeting / menu / cancel words call clearChatMemory.
+  it("plan 3.3: a menu word (Hi / menu / band karo) clears the chat memory", async () => {
+    for (const word of ["Hi", "menu", "band karo"]) {
+      const w = world(STAFF_DURG);
+      await w.send(say("mere pending tasks"));
+      expect(await mem(w, STAFF_DURG), word).not.toBeNull();
+      await w.send(say(word));
+      expect(await mem(w, STAFF_DURG), word).toBeNull();
+    }
   });
 
   it("menu taps (My tasks / staff tasks) work and never call the AI", async () => {

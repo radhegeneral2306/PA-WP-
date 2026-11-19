@@ -102,16 +102,14 @@ describe("4. expiry / bounds / access", () => {
     expect(out[0].kind).toBe("buttons");
   });
 
-  // BUG (reviewer 1): the numbered list opens a `tasks:list chat=1` session with the 2 minute TTL. A typed "2" /
-  // "doosra wala kholo" 3 minutes after the list hits the router's expired-session branch ("Session expire ho gaya")
-  // although the chat memory (15 min) is still valid. Effective memory for list follow-ups is 2 minutes.
-  it.fails("memory valid at 3 min (list session TTL is 2 min!)", async () => {
+  // Fixed (was: the chat list's 2-minute picker session answered "Session expire ho gaya" while the memory lives 15 min).
+  it("memory valid at 3 min (list session TTL is 2 min!)", async () => {
     const w = world(STAFF_DURG, staffTasks());
     await w.send(say("mere pending tasks dikhao"));
     w.advance(3 * 60_000);
     const out = await w.send(say("doosra wala kholo"));
-    console.info("3 MIN ->", all(out).slice(0, 150).replace(/\n/g, " | "));
     expect(all(out)).not.toContain("Session expire");
+    expect(out[0].kind).toBe("buttons");
   });
 
   it("a staff member whose task was reassigned away after listing gets 'nahi mila' and no data", async () => {
@@ -165,12 +163,30 @@ describe("4. expiry / bounds / access", () => {
 });
 
 describe("expired list session, second try", () => {
-  it("after the 'Session expire' line the same words work (memory still fresh at 3 min)", async () => {
+  it("no 'Session expire' line for typed follow-ups on an old chat list; a tap on its old button still expires", async () => {
+    const w = world(STAFF_DURG, staffTasks());
+    const list = await w.send(say("mere pending tasks dikhao"));
+    const ids = taskRowIds(list);
+    w.advance(3 * 60_000);
+    // the picker button of the old message expires as before
+    expect(all(await w.send(tap(`tasks:task:${ids[0]}`)))).toContain("Session expire");
+    // typed follow-ups work (memory still fresh at 3 min), twice in a row
+    expect((await w.send(say("doosra wala kholo")))[0].kind).toBe("buttons");
+    expect((await w.send(say("doosra wala kholo")))[0].kind).toBe("buttons");
+  });
+
+  it("memory older than 15 min: the old chat list still answers 'Session expire' (as today)", async () => {
+    const w = world(STAFF_DURG, staffTasks());
+    await w.send(say("mere pending tasks dikhao"));
+    w.advance(16 * 60_000);
+    expect(all(await w.send(say("doosra wala kholo")))).toContain("Session expire");
+  });
+
+  it("a by-name question 3 minutes after the list works", async () => {
     const w = world(STAFF_DURG, staffTasks());
     await w.send(say("mere pending tasks dikhao"));
     w.advance(3 * 60_000);
-    expect(all(await w.send(say("doosra wala kholo")))).toContain("Session expire");
-    const out = await w.send(say("doosra wala kholo"));
-    expect(out[0].kind).toBe("buttons");
+    const out = await w.send(say("kaam 2 ka due kab hai"));
+    expect(all(out)).not.toContain("Session expire");
   });
 });
