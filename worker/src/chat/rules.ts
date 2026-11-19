@@ -444,3 +444,12 @@ function refineRule(tokens: string[], ctx: FollowCtx): ChatRequest | null {
   if (!(strong || all || (onlyWho && weak))) return null;
   return { kind: "refine", changes };
 }
+
+/**
+ * STUB (coordinator): agent R implements. True when the text is, in form, a follow-up the memory rules
+ * understand (a bare number or ordinal, "number 3", "aur dikhao", "iski due date kya hai", "sirf urgent wale"…),
+ * whether or not a memory exists. The chat flow uses it to answer such messages without the AI.
+ */
+export function looksLikeFollowup(_text: string): boolean {
+  return false;
+}
